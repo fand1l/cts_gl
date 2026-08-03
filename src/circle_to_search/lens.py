@@ -29,15 +29,22 @@ older and less pretty than Lens, but the URL it produces is a plain search URL
 that opens in any browser, which makes it a useful safety net when the Lens
 answer cannot be used.
 
-Three things that bite in practice and are handled here:
+**The default path does not use any of this.**  Since 2025 every Lens endpoint
+binds its result page to the session that uploaded (see the long comment above
+:func:`build_browser_launcher`), so the daemon hands the image to the browser
+and lets *it* upload.  The direct uploads below remain available — they are what
+``--probe-lens`` compares, and they are useful if Google ever goes back to
+session-independent result URLs.
 
-* **Session-bound result URLs.**  Since 2025 the Lens surface (``udm=26``)
-  answers with ``…/search?vsrid=…&gsessionid=…&lsessionid=…``.  Those session
-  ids belong to *this daemon's* HTTP session, so the page opens in the browser
-  with the Lens chrome, an empty image slot and loading skeletons — the upload
-  worked, the browser simply cannot resolve it.  Several endpoint variants are
-  therefore tried (see :data:`VARIANTS`) and the first one whose URL carries no
-  session id wins; ``--probe-lens`` shows what each of them returns today.
+Things that bite in practice and are handled here:
+
+* **Session-bound result URLs.**  The Lens surface (``udm=26``) answers with
+  ``…/search?vsrid=…&gsessionid=…&lsessionid=…``.  Those session ids belong to
+  whoever performed the upload, so a page opened after *this process* uploaded
+  shows the Lens chrome, an empty image slot and loading skeletons — the upload
+  worked, the browser simply cannot resolve it.  When a direct back end is
+  selected anyway, the variants are tried in turn and a URL with no session id
+  is preferred; ``--probe-lens`` shows what each of them returns today.
 * **The consent interstitial.**  In the EU (and Ukraine) an anonymous request is
   answered with a redirect to ``consent.google.com``.  Opening *that* in the
   browser ends with an error page and no image.  A ``SOCS``/``CONSENT`` cookie
@@ -68,9 +75,15 @@ from __future__ import annotations
 
 import html
 import io
+import os
 import re
 import time
+from base64 import b64encode
 from dataclasses import dataclass
+from html import escape
+from pathlib import Path
+from secrets import token_hex
+from tempfile import gettempdir
 from urllib.parse import parse_qs, unquote, urlparse
 
 import requests
@@ -88,6 +101,7 @@ SEARCH_BY_IMAGE_URL = "https://www.google.com/searchbyimage/upload"
 SESSION_PARAMETERS = ("gsessionid", "lsessionid", "sessionid")
 
 BACKEND_AUTO = "auto"
+BACKEND_BROWSER = "browser"
 BACKEND_LENS = "lens"
 BACKEND_SEARCH_BY_IMAGE = "searchbyimage"
 
@@ -464,3 +478,164 @@ def search(
     """Prepare, upload and return the result URL in one call."""
     prepared = prepare_image(image, max_side=max_side, quality=quality)
     return upload(prepared, backend=backend, language=language)
+
+
+# --------------------------------------------------------------------------- #
+# The browser-side upload
+# --------------------------------------------------------------------------- #
+#
+# Why this exists, and why it is the default.
+#
+# Every Lens endpoint answers with a URL of this shape:
+#
+#     …/search?vsrid=…&udm=26&vsdim=1000,562&gsessionid=…&lsessionid=…
+#
+# `vsdim` echoes the dimensions we posted, so the image really was accepted —
+# and a URL produced by the *browser* uploading the same picture looks exactly
+# the same.  The difference is whose session it is.  When this daemon uploads,
+# Google's Set-Cookie lands in a requests.Session that is thrown away moments
+# later, so the browser opens the page with cookies that do not match the
+# session id in the URL and shows the Lens interface with an empty image slot.
+#
+# There is no way to move those cookies into the browser.  So instead of
+# uploading here and handing over a URL, we hand the *image* to the browser and
+# let it perform the POST: the session that uploads is then the session that
+# displays, cookies and all, exactly like using lens.google.com by hand.
+#
+# The launcher is a self-contained HTML file (the JPEG is inlined as base64)
+# that fills a file input through the DataTransfer API and submits a normal
+# cross-origin form.  A form submit is a top-level navigation, so no CORS is
+# involved, and the browser follows the 303 to the result page itself.
+#
+# It also means the daemon makes no network connection at all for a search.
+
+_LAUNCHER_TEMPLATE = """<!doctype html>
+<html lang="{lang}">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<style>
+  html {{ color-scheme: dark light; }}
+  body {{
+    font: 15px/1.5 system-ui, sans-serif;
+    display: flex; align-items: center; justify-content: center;
+    min-height: 100vh; margin: 0; text-align: center;
+  }}
+  .box {{ max-width: 34rem; padding: 2rem; }}
+  .spinner {{
+    width: 2rem; height: 2rem; margin: 0 auto 1.5rem;
+    border: 3px solid currentColor; border-top-color: transparent;
+    border-radius: 50%; animation: spin 0.8s linear infinite; opacity: 0.6;
+  }}
+  @keyframes spin {{ to {{ transform: rotate(360deg); }} }}
+  button {{ font: inherit; padding: 0.5rem 1rem; margin-top: 1rem; }}
+  .error {{ display: none; }}
+</style>
+</head>
+<body>
+<div class="box">
+  <div class="spinner" id="spinner"></div>
+  <p id="status">{status}</p>
+  <form id="lens-form" method="POST" enctype="multipart/form-data" action="{action}">
+    <input type="file" name="encoded_image" id="lens-image" hidden>
+    <input type="hidden" name="processed_image_dimensions" value="{dimensions}">
+  </form>
+  <div class="error" id="error">
+    <p>{failed}</p>
+    <button type="button" id="retry">{retry}</button>
+  </div>
+</div>
+<script>
+"use strict";
+var IMAGE_BASE64 = "{payload}";
+
+function bytes() {{
+  var binary = atob(IMAGE_BASE64);
+  var buffer = new Uint8Array(binary.length);
+  for (var i = 0; i < binary.length; i += 1) {{
+    buffer[i] = binary.charCodeAt(i);
+  }}
+  return buffer;
+}}
+
+function send() {{
+  var file = new File([bytes()], "image.jpg", {{ type: "image/jpeg" }});
+  var transfer = new DataTransfer();
+  transfer.items.add(file);
+  document.getElementById("lens-image").files = transfer.files;
+  document.getElementById("lens-form").submit();
+}}
+
+document.getElementById("retry").addEventListener("click", send);
+
+try {{
+  send();
+}} catch (error) {{
+  document.getElementById("spinner").style.display = "none";
+  document.getElementById("status").textContent = String(error);
+  document.getElementById("error").style.display = "block";
+}}
+</script>
+</body>
+</html>
+"""
+
+
+def build_browser_launcher(
+    prepared: PreparedImage,
+    language: str = "en",
+    variant: str = "lens-ccm",
+    strings: dict[str, str] | None = None,
+) -> str:
+    """Build the self-contained page that makes the browser do the upload."""
+    chosen = VARIANTS_BY_NAME.get(variant, VARIANTS_BY_NAME["lens-ccm"])
+    if chosen.kind != "lens":
+        chosen = VARIANTS_BY_NAME["lens-ccm"]
+    text = {
+        "title": "Circle to Search",
+        "status": "Sending the selection to Google Lens…",
+        "failed": "The browser could not start the upload.",
+        "retry": "Try again",
+    }
+    text.update(strings or {})
+    return _LAUNCHER_TEMPLATE.format(
+        lang=escape(language, quote=True),
+        title=escape(text["title"]),
+        status=escape(text["status"]),
+        failed=escape(text["failed"]),
+        retry=escape(text["retry"]),
+        action=escape(chosen.build_url(language), quote=True),
+        dimensions=escape(prepared.dimensions, quote=True),
+        payload=b64encode(prepared.payload).decode("ascii"),
+    )
+
+
+def write_browser_launcher(
+    prepared: PreparedImage,
+    language: str = "en",
+    variant: str = "lens-ccm",
+    strings: dict[str, str] | None = None,
+    directory: Path | None = None,
+) -> Path:
+    """Write the launcher into a private directory and return its path.
+
+    ``~/.cache`` rather than ``$XDG_RUNTIME_DIR`` or ``/tmp``, even though both
+    are tidier: a Flatpak or Snap browser runs in its own mount namespace and
+    cannot read either of those, and the page has to be opened by *the browser*
+    for any of this to work.  The file is created 0600 in a 0700 directory and
+    the application deletes it two minutes later.
+    """
+    if directory is None:
+        cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")
+        directory = Path(cache) / "circle-to-search"
+    try:
+        directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    except OSError:
+        directory = Path(gettempdir())
+        directory.mkdir(parents=True, exist_ok=True)
+
+    path = directory / f"lens-{token_hex(6)}.html"
+    path.write_text(build_browser_launcher(prepared, language, variant, strings), encoding="utf-8")
+    path.chmod(0o600)
+    log.info("wrote the browser launcher to %s (%d KiB)", path, path.stat().st_size // 1024)
+    return path

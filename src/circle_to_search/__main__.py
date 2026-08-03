@@ -57,8 +57,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--backend",
         help=(
-            "which endpoint --test-lens should use: auto, lens, searchbyimage, "
-            "or one variant name (lens-ccm, lens-crs, lens-subb, lens-v1)"
+            "which endpoint --test-lens should use: browser (default), auto, lens, "
+            "searchbyimage, or one variant name (lens-ccm, lens-crs, lens-subb, lens-v1)"
         ),
     )
     return parser.parse_args(argv)
@@ -149,15 +149,36 @@ def test_lens(path: str, backend: str | None, verbose: bool) -> int:
     handed to the browser, so the problem can be pinned on the endpoint, the
     network or the crop.
     """
-    from circle_to_search.lens import LensError, is_stateless_url, upload
+    from circle_to_search.lens import (
+        BACKEND_BROWSER,
+        LensError,
+        is_stateless_url,
+        upload,
+        write_browser_launcher,
+    )
 
     loaded = _load_prepared(path)
     if loaded is None:
         return 2
     prepared, settings = loaded
+    chosen = backend or settings.lens_backend  # type: ignore[union-attr]
+
+    if chosen == BACKEND_BROWSER:
+        # Nothing is uploaded from here: the page is what performs the upload,
+        # inside the browser, with the browser's own Google session.
+        launcher = write_browser_launcher(prepared)  # type: ignore[arg-type]
+        print(f"launcher  : {launcher}", file=sys.stderr)
+        print(
+            "Open it with:  xdg-open " + str(launcher) + "\n"
+            "It posts the image to Lens from inside the browser and lands on the "
+            "result page.",
+            file=sys.stderr,
+        )
+        print(launcher.as_uri())
+        return 0
 
     try:
-        url = upload(prepared, backend=backend or settings.lens_backend)  # type: ignore[union-attr,arg-type]
+        url = upload(prepared, backend=chosen)  # type: ignore[arg-type]
     except LensError as exc:
         print(f"FAILED    : {exc}", file=sys.stderr)
         if not verbose:

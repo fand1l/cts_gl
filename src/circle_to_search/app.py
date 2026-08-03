@@ -6,7 +6,17 @@ import subprocess
 from pathlib import Path
 
 from PIL import Image
-from PyQt6.QtCore import QObject, QRect, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal, pyqtSlot
+from PyQt6.QtCore import (
+    QObject,
+    QRect,
+    QRunnable,
+    Qt,
+    QThreadPool,
+    QTimer,
+    QUrl,
+    pyqtSignal,
+    pyqtSlot,
+)
 from PyQt6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QPixmap, QPolygon, QScreen
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
@@ -22,7 +32,13 @@ from .dbus_service import ServiceObject, register_service, unregister_service
 from .hidpi import ScreenMetrics, measure_screen
 from .i18n import current_language, set_language, tr
 from .imageops import mask_outside_polygon, pil_to_qimage, polygon_to_crop_space
-from .lens import LensError, prepare_image, upload
+from .lens import (
+    BACKEND_BROWSER,
+    LensError,
+    prepare_image,
+    upload,
+    write_browser_launcher,
+)
 from .logging_setup import get_logger
 from .notify import notify, notify_error
 from .overlay import SelectionOverlay
@@ -49,6 +65,7 @@ class _UploadTask(QRunnable):
         quality: int,
         backend: str,
         language: str,
+        launcher_strings: dict[str, str] | None = None,
     ) -> None:
         super().__init__()
         # QThreadPool deletes an auto-delete runnable as soon as run() returns,
@@ -62,19 +79,33 @@ class _UploadTask(QRunnable):
         self._quality = quality
         self._backend = backend
         self._language = language
+        self._launcher_strings = launcher_strings or {}
 
     @pyqtSlot()
     def run(self) -> None:
         try:
             prepared = prepare_image(self._image, max_side=self._max_side, quality=self._quality)
-            url = upload(prepared, backend=self._backend, language=self._language)
+            if self._backend == BACKEND_BROWSER:
+                # Nothing is uploaded from here: the browser posts the image
+                # itself, so the session that uploads is the session that shows
+                # the result.  See the long comment in lens.py.
+                path = write_browser_launcher(
+                    prepared,
+                    language=self._language,
+                    strings=self._launcher_strings,
+                )
+                target = path.as_uri()
+            else:
+                target = upload(prepared, backend=self._backend, language=self._language)
         except LensError as exc:
             self.signals.failed.emit(str(exc))
+        except OSError as exc:
+            self.signals.failed.emit(f"cannot write the launcher page: {exc}")
         except Exception as exc:
-            log.exception("unexpected error while uploading")
+            log.exception("unexpected error while sending the selection")
             self.signals.failed.emit(str(exc))
         else:
-            self.signals.finished.emit(url)
+            self.signals.finished.emit(target)
 
 
 class CircleToSearchApp(QObject):
@@ -313,6 +344,12 @@ class CircleToSearchApp(QObject):
             self._settings.jpeg_quality,
             self._settings.lens_backend,
             current_language(),
+            launcher_strings={
+                "title": tr("app.name"),
+                "status": tr("notify.uploading"),
+                "failed": tr("launcher.failed"),
+                "retry": tr("launcher.retry"),
+            },
         )
         task.signals.finished.connect(lambda url, ref=task: self._finish_upload(ref, url=url))
         task.signals.failed.connect(lambda error, ref=task: self._finish_upload(ref, error=error))
@@ -326,8 +363,22 @@ class CircleToSearchApp(QObject):
         if error is not None:
             notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=error))
             return
-        if url:
-            self._open_url(url)
+        if not url:
+            return
+        self._open_url(url)
+        if url.startswith("file://"):
+            # The launcher has done its job once the browser has read it; give
+            # it a generous window and then take the screenshot off the disk.
+            path = Path(QUrl(url).toLocalFile())
+            QTimer.singleShot(120_000, lambda: self._remove_launcher(path))
+
+    @staticmethod
+    def _remove_launcher(path: Path) -> None:
+        try:
+            path.unlink(missing_ok=True)
+            log.debug("removed %s", path)
+        except OSError as exc:
+            log.debug("could not remove %s: %s", path, exc)
 
     def _copy_to_clipboard(self, image: Image.Image) -> None:
         clipboard = QGuiApplication.clipboard()

@@ -41,8 +41,8 @@ scaling are handled explicitly), works with additional monitors at other DPIs.
                                      │  · capture: ScreenShot2 → spectacle   │
                                      │    → xdg-desktop-portal               │
                                      │  · full-screen selection overlay      │
-                                     │  · crop → JPEG → lens.google.com      │
-                                     │  · xdg-open the result URL            │
+                                     │  · crop → JPEG → local launcher page  │
+                                     │  · xdg-open it; the browser uploads   │
                                      └───────────────────────────────────────┘
 ```
 
@@ -61,10 +61,13 @@ Four components, each in its own place:
    screenshot, dimmed, with the selection as a "hole" like Spectacle's region
    mode. The default shape is a **freehand lasso**; hold *Shift* while starting
    a drag for a rectangle (or swap the default in Settings).
-4. **Lens upload** (`lens.py`) — one `POST` to `lens.google.com/v3/upload`,
-   whose `Location` header is the result page, with the older
-   `google.com/searchbyimage/upload` as a fallback. The whole
-   unofficial-endpoint risk is isolated in that single file.
+4. **Lens upload** (`lens.py`) — the daemon does **not** upload. It writes a
+   small self-contained HTML page with the JPEG inlined and opens it, and the
+   *browser* posts it to `lens.google.com/v3/upload`. That is not a detour:
+   Google binds the result page to the session that uploaded, so an upload made
+   here produces a URL your browser cannot resolve (see below). As a side
+   effect the daemon never makes a network connection at all. Direct uploading
+   is still implemented and selectable.
 
 The HiDPI arithmetic lives in `hidpi.py`: KWin's coordinates and Qt's widget
 coordinates are **logical** pixels, the screenshot is **physical** pixels, and
@@ -195,7 +198,7 @@ Application-only settings live in
 |---|---|---|
 | `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
 | `lasso_mask` | `true` | Whiten everything outside the loop before uploading |
-| `lens_backend` | `auto` | `auto`, `lens`, `searchbyimage`, or one variant name — see `lens.py` |
+| `lens_backend` | `browser` | `browser` (the browser uploads), `auto`, `lens`, `searchbyimage`, or one variant name |
 | `max_side` | `1000` | Longest side of the uploaded JPEG |
 | `jpeg_quality` | `85` | |
 | `copy_to_clipboard` | `false` | Also put the selection on the clipboard |
@@ -215,9 +218,10 @@ unless you pick one in Settings.
 ## Development
 
 ```bash
-ruff check src tests            # lint (clean)
-python3 tests/test_logic.py     # HiDPI crop math, Lens parsing, raw decode, overlay
-node    tests/test_detection.js # the real main.js against a fake KWin API
+ruff check src tests               # lint (clean)
+python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, raw decode, overlay, lasso
+node    tests/test_detection.js    # the real main.js against a fake KWin API
+python3 tests/test_browser_upload.py   # the launcher page, in a real Chromium
 ```
 
 `tests/test_detection.js` loads `kwinscript/contents/code/main.js` unchanged
@@ -225,7 +229,11 @@ into a sandbox with a stubbed `workspace`/`QTimer`/`callDBus` and replays
 synthetic cursor paths — diagonal shakes, horizontal moves, slow drift, small
 wiggles — so gesture tuning can be checked without logging out.
 `tests/test_logic.py` runs Qt on the `offscreen` platform, so it needs no
-display.
+display. `tests/test_browser_upload.py` loads the generated launcher in
+Chromium through Playwright, intercepts the request it makes and checks that the
+multipart body carries the exact JPEG bytes — the one part that cannot be
+verified by reading the code. It skips itself when Playwright or Chromium is
+missing.
 
 Run the daemon in the foreground while hacking:
 
@@ -342,35 +350,50 @@ and `fullScreen` on it. If it still ends up behind the panel:
 
 ### The Lens page opens with no image on it
 
-This is the failure that looks like a broken upload but is not one. Compare
-every endpoint in one shot:
+This is the failure that looks like a broken upload but is not one, and it is
+why the daemon no longer uploads anything itself.
 
-```bash
-circle-to-search --probe-lens ~/Pictures/something.png
-```
-
-Each row is marked `usable` or `session-bound`, and the URLs are printed so you
-can click them.
-
-**Why `session-bound` matters.** Since 2025 the Lens surface (`udm=26`) answers
-an upload with
+Since 2025 every Lens endpoint answers an upload with
 
 ```
 https://www.google.com/search?vsrid=…&gsessionid=…&lsessionid=…&udm=26&vsdim=1000,562
 ```
 
-`vsdim` proves Google accepted the image — the upload worked. But
-`gsessionid`/`lsessionid` belong to *the daemon's* HTTP session, and your
-browser arrives with different cookies, so Google cannot resolve the picture and
-renders the Lens interface with an empty slot and loading skeletons. Nothing on
-this side can fix that URL; the answer is to use an endpoint that returns a
-*stateless* one (`?p=…` from Lens, `?tbs=sbi:…` from search-by-image).
+`vsdim` echoes the dimensions that were posted, so Google **did** accept the
+image. But `gsessionid`/`lsessionid` identify the HTTP session that uploaded.
+Upload the same picture through lens.google.com in your browser and you get a
+URL of exactly the same shape — the difference is that the cookies for that
+session are in the browser. When a daemon uploads, those cookies live in a
+`requests.Session` that is discarded seconds later, so the browser opens the
+page with the wrong identity and Google renders the Lens interface with an empty
+image slot and loading skeletons. No parameter fixes that URL.
 
-`auto` now does exactly that by itself: it walks the variants and returns the
-first URL with no session id in it, so you should not see the empty page any
-more. To pin the winner from the probe: Settings → General → *Google endpoint*,
-or `lens_backend=<variant>` in the config file (`lens-ccm`, `lens-crs`,
-`lens-subb`, `lens-v1`, `searchbyimage`).
+So the default back end (**Settings → General → Google endpoint → "Let the
+browser upload"**) writes `~/.cache/circle-to-search/lens-XXXX.html`, a
+self-contained page holding the JPEG as base64, and opens it. The page fills a
+file input through the `DataTransfer` API and submits a normal cross-origin
+form, so the browser performs the upload with its own Google session and follows
+the redirect to a result page that works — including `authuser=` when you are
+signed in. The file is 0600, in a 0700 directory, and is deleted two minutes
+later.
+
+If that page stays blank or the browser shows a file-not-found error, your
+browser is probably a Flatpak or Snap without access to `~/.cache`; open the
+path from the log by hand to confirm, then either use a non-sandboxed browser or
+grant it access to that directory.
+
+To go back to uploading from the daemon (useful if Google ever returns
+session-independent URLs), pick another entry in the same setting, or compare
+what the endpoints answer today:
+
+```bash
+circle-to-search --probe-lens ~/Pictures/something.png
+```
+
+Each row is marked `usable` (no session id — it will work anywhere) or
+`session-bound`, with the URLs printed so you can click them. Pin a winner with
+`lens_backend=<variant>` (`lens-ccm`, `lens-crs`, `lens-subb`, `lens-v1`,
+`searchbyimage`).
 
 Other causes, in order of likelihood:
 

@@ -90,15 +90,20 @@ _EN: dict[str, str] = {
         "kept and the rest of the bounding box becomes white."
     ),
     "settings.backend": "Google endpoint:",
-    "settings.backend.auto": "Lens, then search by image",
+    "settings.backend.browser": "Let the browser upload (recommended)",
+    "settings.backend.auto": "Upload from the daemon: Lens, then search by image",
     "settings.backend.lens": "Lens only",
     "settings.backend.sbi": "Search by image only",
     "settings.backend.pin": "Only",
     "settings.backend.hint": (
-        "All of these are undocumented. If the result page opens with the Lens "
-        "interface but no image, the URL was tied to the upload session — run "
-        "circle-to-search --probe-lens FILE to find one that still works."
+        "Google ties a result page to the session that uploaded, so a page opened "
+        "after the daemon uploaded shows the Lens interface with no image. The "
+        "recommended option hands the picture to your browser and lets it do the "
+        "upload, which is what makes the result appear. Compare the alternatives "
+        "with: circle-to-search --probe-lens FILE"
     ),
+    "launcher.failed": "The browser could not start the upload.",
+    "launcher.retry": "Try again",
     "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
     "overlay.hint.rect": "Drag to select · Esc or right-click to cancel",
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
@@ -192,15 +197,20 @@ _UK: dict[str, str] = {
         "лише обведене, а решта прямокутника стає білою."
     ),
     "settings.backend": "Ендпоінт Google:",
-    "settings.backend.auto": "Lens, потім пошук за зображенням",
+    "settings.backend.browser": "Вивантажує браузер (рекомендовано)",
+    "settings.backend.auto": "Вивантажує демон: Lens, потім пошук за зображенням",
     "settings.backend.lens": "Лише Lens",
     "settings.backend.sbi": "Лише пошук за зображенням",
     "settings.backend.pin": "Лише",
     "settings.backend.hint": (
-        "Усі вони неофіційні. Якщо сторінка відкривається з інтерфейсом Lens, але "
-        "без зображення — URL прив’язався до сесії аплоаду; запустіть "
-        "circle-to-search --probe-lens ФАЙЛ, щоб знайти робочий."
+        "Google прив’язує сторінку результату до сесії, яка вивантажила картинку, "
+        "тож після вивантаження демоном сторінка відкривається з інтерфейсом Lens, "
+        "але без зображення. Рекомендований варіант віддає картинку браузеру, і "
+        "той вивантажує її сам — саме тому результат з’являється. Порівняти "
+        "альтернативи: circle-to-search --probe-lens ФАЙЛ"
     ),
+    "launcher.failed": "Браузер не зміг почати вивантаження.",
+    "launcher.retry": "Спробувати ще раз",
     "overlay.hint.lasso": "Обведіть потрібне · Esc або права кнопка — скасувати",
     "overlay.hint.rect": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",

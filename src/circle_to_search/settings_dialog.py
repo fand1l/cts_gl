@@ -173,6 +173,7 @@ class SettingsDialog(QDialog):
         backend_row = QHBoxLayout()
         backend_row.addWidget(QLabel(tr("settings.backend")))
         self.backend_combo = QComboBox(image)
+        self.backend_combo.addItem(tr("settings.backend.browser"), "browser")
         self.backend_combo.addItem(tr("settings.backend.auto"), "auto")
         self.backend_combo.addItem(tr("settings.backend.lens"), "lens")
         self.backend_combo.addItem(tr("settings.backend.sbi"), "searchbyimage")

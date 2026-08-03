@@ -322,8 +322,11 @@ class AppSettings:
 
     @property
     def lens_backend(self) -> str:
-        """``auto``, ``lens``, ``searchbyimage`` or one variant name — see lens.py."""
-        return str(self._settings.value("lens_backend", "auto")) or "auto"
+        """``browser`` (default), ``auto``, ``lens``, ``searchbyimage`` or a variant.
+
+        ``browser`` does not upload anything from this process — see lens.py.
+        """
+        return str(self._settings.value("lens_backend", "browser")) or "browser"
 
     @lens_backend.setter
     def lens_backend(self, value: str) -> None:
