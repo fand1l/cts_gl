@@ -322,9 +322,8 @@ class AppSettings:
 
     @property
     def lens_backend(self) -> str:
-        """``auto``, ``lens`` or ``searchbyimage`` — see lens.py."""
-        value = str(self._settings.value("lens_backend", "auto"))
-        return value if value in ("auto", "lens", "searchbyimage") else "auto"
+        """``auto``, ``lens``, ``searchbyimage`` or one variant name — see lens.py."""
+        return str(self._settings.value("lens_backend", "auto")) or "auto"
 
     @lens_backend.setter
     def lens_backend(self, value: str) -> None:

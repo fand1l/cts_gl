@@ -93,9 +93,11 @@ _EN: dict[str, str] = {
     "settings.backend.auto": "Lens, then search by image",
     "settings.backend.lens": "Lens only",
     "settings.backend.sbi": "Search by image only",
+    "settings.backend.pin": "Only",
     "settings.backend.hint": (
-        "Both are undocumented. If the result page opens without a picture, try "
-        "the other one, or run: circle-to-search --test-lens FILE --verbose"
+        "All of these are undocumented. If the result page opens with the Lens "
+        "interface but no image, the URL was tied to the upload session — run "
+        "circle-to-search --probe-lens FILE to find one that still works."
     ),
     "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
     "overlay.hint.rect": "Drag to select · Esc or right-click to cancel",
@@ -193,9 +195,11 @@ _UK: dict[str, str] = {
     "settings.backend.auto": "Lens, потім пошук за зображенням",
     "settings.backend.lens": "Лише Lens",
     "settings.backend.sbi": "Лише пошук за зображенням",
+    "settings.backend.pin": "Лише",
     "settings.backend.hint": (
-        "Обидва — неофіційні. Якщо сторінка відкривається без картинки, спробуйте "
-        "інший або запустіть: circle-to-search --test-lens ФАЙЛ --verbose"
+        "Усі вони неофіційні. Якщо сторінка відкривається з інтерфейсом Lens, але "
+        "без зображення — URL прив’язався до сесії аплоаду; запустіть "
+        "circle-to-search --probe-lens ФАЙЛ, щоб знайти робочий."
     ),
     "overlay.hint.lasso": "Обведіть потрібне · Esc або права кнопка — скасувати",
     "overlay.hint.rect": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",

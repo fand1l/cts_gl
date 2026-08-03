@@ -135,7 +135,8 @@ what you want to look up.
 Check the upload path on its own, without the GUI:
 
 ```bash
-circle-to-search --test-lens ~/Pictures/something.png --verbose
+circle-to-search --test-lens ~/Pictures/something.png --verbose   # the configured endpoint
+circle-to-search --probe-lens ~/Pictures/something.png            # all of them, compared
 ```
 
 ### Packaging (RPM / COPR)
@@ -194,7 +195,7 @@ Application-only settings live in
 |---|---|---|
 | `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
 | `lasso_mask` | `true` | Whiten everything outside the loop before uploading |
-| `lens_backend` | `auto` | `auto`, `lens` or `searchbyimage` — see `lens.py` |
+| `lens_backend` | `auto` | `auto`, `lens`, `searchbyimage`, or one variant name — see `lens.py` |
 | `max_side` | `1000` | Longest side of the uploaded JPEG |
 | `jpeg_quality` | `85` | |
 | `copy_to_clipboard` | `false` | Also put the selection on the clipboard |
@@ -339,33 +340,50 @@ and `fullScreen` on it. If it still ends up behind the panel:
 * A "Keep Above Others" window rule on another window still wins — check
   System Settings → Window Management → Window Rules.
 
-### Google Lens opens, but there is no picture on the page
+### The Lens page opens with no image on it
 
-Start here — it runs the whole upload path with nothing else in the way and
-prints the URL that would have gone to the browser:
+This is the failure that looks like a broken upload but is not one. Compare
+every endpoint in one shot:
 
 ```bash
-circle-to-search --test-lens ~/Pictures/something.png --verbose
-circle-to-search --test-lens ~/Pictures/something.png --backend searchbyimage
+circle-to-search --probe-lens ~/Pictures/something.png
 ```
 
-Known causes, most likely first:
+Each row is marked `usable` or `session-bound`, and the URLs are printed so you
+can click them.
+
+**Why `session-bound` matters.** Since 2025 the Lens surface (`udm=26`) answers
+an upload with
+
+```
+https://www.google.com/search?vsrid=…&gsessionid=…&lsessionid=…&udm=26&vsdim=1000,562
+```
+
+`vsdim` proves Google accepted the image — the upload worked. But
+`gsessionid`/`lsessionid` belong to *the daemon's* HTTP session, and your
+browser arrives with different cookies, so Google cannot resolve the picture and
+renders the Lens interface with an empty slot and loading skeletons. Nothing on
+this side can fix that URL; the answer is to use an endpoint that returns a
+*stateless* one (`?p=…` from Lens, `?tbs=sbi:…` from search-by-image).
+
+`auto` now does exactly that by itself: it walks the variants and returns the
+first URL with no session id in it, so you should not see the empty page any
+more. To pin the winner from the probe: Settings → General → *Google endpoint*,
+or `lens_backend=<variant>` in the config file (`lens-ccm`, `lens-crs`,
+`lens-subb`, `lens-v1`, `searchbyimage`).
+
+Other causes, in order of likelihood:
 
 * **The cookie-consent interstitial.** From the EU and Ukraine an anonymous
-  upload is answered with a redirect to `consent.google.com`; opening *that* in
-  a browser ends on an error page with no image. A `SOCS`/`CONSENT` cookie is
-  now sent to skip it, and a consent URL that comes back anyway has its
-  `continue=` parameter unwrapped (`--verbose` logs `unwrapped an
-  interstitial`).
-* **The wrong endpoint for your region.** Settings → General → *Google
-  endpoint*, or `lens_backend=searchbyimage` in the config file. `auto` tries
-  Lens first and falls back to `google.com/searchbyimage/upload`, whose result
-  URL is a plain search page that opens anywhere.
+  upload can be answered with a redirect to `consent.google.com`; opening *that*
+  ends on an error page. A `SOCS`/`CONSENT` cookie is sent to skip it, and a
+  consent URL that comes back anyway has its `continue=` parameter unwrapped
+  (`--verbose` logs `unwrapped an interstitial`).
 * **The endpoint changed.** `--verbose` ends with `Google answered 200 without a
   usable result URL`. Open <https://lens.google.com> in Chrome, drop an image on
   it, copy the upload request from the network tab as cURL and compare it with
-  the top of `lens.py` — the URL, the field names and the headers are all in
-  that one file.
+  `VARIANTS` at the top of `lens.py` — the URLs, the field names and the headers
+  are all in that one file.
 
 The same request by hand:
 

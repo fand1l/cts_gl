@@ -29,8 +29,15 @@ older and less pretty than Lens, but the URL it produces is a plain search URL
 that opens in any browser, which makes it a useful safety net when the Lens
 answer cannot be used.
 
-Two things that bite in practice and are handled here:
+Three things that bite in practice and are handled here:
 
+* **Session-bound result URLs.**  Since 2025 the Lens surface (``udm=26``)
+  answers with ``…/search?vsrid=…&gsessionid=…&lsessionid=…``.  Those session
+  ids belong to *this daemon's* HTTP session, so the page opens in the browser
+  with the Lens chrome, an empty image slot and loading skeletons — the upload
+  worked, the browser simply cannot resolve it.  Several endpoint variants are
+  therefore tried (see :data:`VARIANTS`) and the first one whose URL carries no
+  session id wins; ``--probe-lens`` shows what each of them returns today.
 * **The consent interstitial.**  In the EU (and Ukraine) an anonymous request is
   answered with a redirect to ``consent.google.com``.  Opening *that* in the
   browser ends with an error page and no image.  A ``SOCS``/``CONSENT`` cookie
@@ -40,9 +47,10 @@ Two things that bite in practice and are handled here:
   as a file part with an empty filename (which is what ``files={...}`` does for
   a plain string) Google may ignore the upload.
 
-Test the endpoints without the GUI — this prints the whole redirect chain::
+Test the endpoints without the GUI::
 
-    circle-to-search --test-lens /tmp/shot.png --verbose
+    circle-to-search --test-lens /tmp/shot.png --verbose   # the configured one
+    circle-to-search --probe-lens /tmp/shot.png            # all of them, compared
 
 or with curl::
 
@@ -73,7 +81,11 @@ from .logging_setup import get_logger
 log = get_logger("lens")
 
 LENS_UPLOAD_URL = "https://lens.google.com/v3/upload"
+LENS_UPLOAD_V1_URL = "https://lens.google.com/upload"
 SEARCH_BY_IMAGE_URL = "https://www.google.com/searchbyimage/upload"
+
+#: Query parameters that tie a result page to the uploading HTTP session.
+SESSION_PARAMETERS = ("gsessionid", "lsessionid", "sessionid")
 
 BACKEND_AUTO = "auto"
 BACKEND_LENS = "lens"
@@ -258,52 +270,105 @@ def _follow(
     raise LensError(f"too many redirects, last hops: {steps}")
 
 
+@dataclass(frozen=True)
+class Variant:
+    """One way of asking Google to accept an upload."""
+
+    name: str
+    #: ``{st}`` = unix milliseconds, ``{hl}`` = UI language.
+    url: str
+    #: ``lens`` posts encoded_image + processed_image_dimensions,
+    #: ``sbi`` posts the classic search-by-image fields.
+    kind: str = "lens"
+
+    def build_url(self, language: str) -> str:
+        return self.url.format(st=int(time.time() * 1000), hl=language)
+
+
+#: Ordered from "nicest result page" to "most likely to survive being opened in
+#: a different browser session".  ``ep`` selects which Lens surface answers:
+#: ``ccm`` is the Chrome context menu, ``crs`` the Chrome region search and
+#: ``subb`` the search-bubble one; they do not all hand back the same kind of
+#: URL, which is exactly what --probe-lens is for.
+VARIANTS: tuple[Variant, ...] = (
+    Variant("lens-ccm", LENS_UPLOAD_URL + "?ep=ccm&s=&st={st}&hl={hl}"),
+    Variant("lens-crs", LENS_UPLOAD_URL + "?ep=crs&s=&st={st}&hl={hl}"),
+    Variant("lens-subb", LENS_UPLOAD_URL + "?ep=subb&s=&st={st}&hl={hl}&re=df"),
+    Variant("lens-v1", LENS_UPLOAD_V1_URL + "?ep=ccm&s=&st={st}&hl={hl}"),
+    Variant("searchbyimage", SEARCH_BY_IMAGE_URL + "?hl={hl}", kind="sbi"),
+)
+
+VARIANTS_BY_NAME = {variant.name: variant for variant in VARIANTS}
+
+
+def is_stateless_url(url: str) -> bool:
+    """True when the URL does not depend on the session that uploaded.
+
+    The 2025 Lens surface (``udm=26``) answers with
+    ``…/search?vsrid=…&gsessionid=…&lsessionid=…``.  Those session ids belong to
+    the HTTP client that performed the upload — this daemon — so the page opens
+    in the browser with the Lens chrome but no image at all.  A URL that carries
+    no session id is one the browser can resolve on its own, and that is the
+    kind we want to hand to xdg-open.
+    """
+    query = parse_qs(urlparse(url).query)
+    return not any(parameter in query for parameter in SESSION_PARAMETERS)
+
+
+def upload_variant(
+    prepared: PreparedImage,
+    variant: Variant,
+    timeout: float = REQUEST_TIMEOUT,
+    language: str = "en",
+) -> str:
+    """Upload through one specific endpoint variant and return the result URL."""
+    session = _session()
+    url = variant.build_url(language)
+    if variant.kind == "sbi":
+        files = {"encoded_image": ("image.jpg", prepared.payload, "image/jpeg")}
+        data = {"image_url": "", "sbisrc": "Circle to Search"}
+    else:
+        files = {"encoded_image": ("image.jpg", prepared.payload, "image/jpeg")}
+        # A plain form field, not a file part with an empty filename.
+        data = {"processed_image_dimensions": prepared.dimensions}
+
+    log.info("uploading %d KiB via %s", len(prepared.payload) // 1024, variant.name)
+    try:
+        response = session.post(
+            url, files=files, data=data, timeout=timeout, allow_redirects=False
+        )
+    except requests.Timeout as exc:
+        raise LensError(f"{variant.name}: no answer within {timeout:.0f} s") from exc
+    except requests.ConnectionError as exc:
+        raise LensError(f"{variant.name}: no connection to Google: {exc}") from exc
+    except requests.RequestException as exc:
+        raise LensError(f"{variant.name}: the request failed: {exc}") from exc
+    return _follow(session, response, timeout)
+
+
 def upload_lens(
     prepared: PreparedImage, timeout: float = REQUEST_TIMEOUT, language: str = "en"
 ) -> str:
-    """Upload through ``lens.google.com/v3/upload`` and return the result URL."""
-    url = f"{LENS_UPLOAD_URL}?ep=ccm&s=&st={int(time.time() * 1000)}&hl={language}"
-    session = _session()
-    log.info("uploading %d KiB to Google Lens", len(prepared.payload) // 1024)
-    try:
-        response = session.post(
-            url,
-            files={"encoded_image": ("image.jpg", prepared.payload, "image/jpeg")},
-            # A plain form field, not a file part with an empty filename.
-            data={"processed_image_dimensions": prepared.dimensions},
-            timeout=timeout,
-            allow_redirects=False,
-        )
-    except requests.Timeout as exc:
-        raise LensError(f"Google Lens did not answer within {timeout:.0f} s") from exc
-    except requests.ConnectionError as exc:
-        raise LensError(f"no connection to Google Lens: {exc}") from exc
-    except requests.RequestException as exc:
-        raise LensError(f"the request to Google Lens failed: {exc}") from exc
-    return _follow(session, response, timeout)
+    """Upload through the default Lens variant."""
+    return upload_variant(prepared, VARIANTS_BY_NAME["lens-ccm"], timeout, language)
 
 
 def upload_search_by_image(
     prepared: PreparedImage, timeout: float = REQUEST_TIMEOUT, language: str = "en"
 ) -> str:
-    """Upload through the older "search by image" endpoint (fallback)."""
-    session = _session()
-    log.info("uploading %d KiB to Google search-by-image", len(prepared.payload) // 1024)
-    try:
-        response = session.post(
-            f"{SEARCH_BY_IMAGE_URL}?hl={language}",
-            files={"encoded_image": ("image.jpg", prepared.payload, "image/jpeg")},
-            data={"image_url": "", "sbisrc": "Circle to Search"},
-            timeout=timeout,
-            allow_redirects=False,
-        )
-    except requests.Timeout as exc:
-        raise LensError(f"Google did not answer within {timeout:.0f} s") from exc
-    except requests.ConnectionError as exc:
-        raise LensError(f"no connection to Google: {exc}") from exc
-    except requests.RequestException as exc:
-        raise LensError(f"the search-by-image request failed: {exc}") from exc
-    return _follow(session, response, timeout)
+    """Upload through the classic search-by-image endpoint."""
+    return upload_variant(prepared, VARIANTS_BY_NAME["searchbyimage"], timeout, language)
+
+
+def candidates_for(backend: str) -> tuple[Variant, ...]:
+    """Which variants to try, in order, for a configured back end."""
+    if backend in VARIANTS_BY_NAME:
+        return (VARIANTS_BY_NAME[backend],)
+    if backend == BACKEND_LENS:
+        return tuple(variant for variant in VARIANTS if variant.kind == "lens")
+    if backend == BACKEND_SEARCH_BY_IMAGE:
+        return tuple(variant for variant in VARIANTS if variant.kind == "sbi")
+    return VARIANTS
 
 
 def upload(
@@ -312,27 +377,81 @@ def upload(
     backend: str = BACKEND_AUTO,
     language: str = "en",
 ) -> str:
-    """Upload with the chosen back end.
+    """Upload and return a URL that is worth opening in a browser.
 
-    ``auto`` tries Lens first and falls back to search-by-image, so a change on
-    one endpoint does not take the whole feature down.
+    Variants are tried in order and the first *stateless* result wins.  A
+    session-bound URL is remembered but only used when nothing better turned up,
+    because opening it is still better than showing the user an error — it just
+    tends to render the Lens page without the picture.
     """
-    order: tuple[tuple[str, object], ...]
-    if backend == BACKEND_LENS:
-        order = (("lens", upload_lens),)
-    elif backend == BACKEND_SEARCH_BY_IMAGE:
-        order = (("searchbyimage", upload_search_by_image),)
-    else:
-        order = (("lens", upload_lens), ("searchbyimage", upload_search_by_image))
-
     errors: list[str] = []
-    for name, function in order:
+    fallback: str | None = None
+
+    for variant in candidates_for(backend):
         try:
-            return function(prepared, timeout, language)  # type: ignore[operator]
+            url = upload_variant(prepared, variant, timeout, language)
         except LensError as exc:
-            log.warning("%s back end failed: %s", name, exc)
-            errors.append(f"{name}: {exc}")
-    raise LensError("; ".join(errors))
+            log.warning("%s", exc)
+            errors.append(str(exc))
+            continue
+
+        if is_stateless_url(url):
+            log.info("%s produced a stateless result URL", variant.name)
+            return url
+
+        log.warning(
+            "%s produced a session-bound URL (gsessionid/lsessionid): the browser "
+            "would show the Lens page without the image, trying the next endpoint",
+            variant.name,
+        )
+        fallback = fallback or url
+
+    if fallback is not None:
+        log.warning("no stateless URL from any endpoint, opening the session-bound one anyway")
+        return fallback
+    raise LensError("; ".join(errors) if errors else "no upload endpoint answered")
+
+
+@dataclass(frozen=True)
+class ProbeResult:
+    """One row of ``--probe-lens``."""
+
+    variant: str
+    url: str = ""
+    error: str = ""
+    stateless: bool = False
+
+    @property
+    def shape(self) -> str:
+        """A short label for the kind of URL that came back."""
+        if not self.url:
+            return "-"
+        query = parse_qs(urlparse(self.url).query)
+        for key in ("p", "vsrid", "tbs", "q"):
+            if key in query:
+                return f"{key}=…"
+        return "?"
+
+
+def probe(
+    prepared: PreparedImage, timeout: float = REQUEST_TIMEOUT, language: str = "en"
+) -> list[ProbeResult]:
+    """Try every variant and report what each one answers.
+
+    Google keeps moving this; when the result page opens without an image this
+    is the fastest way to find an endpoint that still works.
+    """
+    results: list[ProbeResult] = []
+    for variant in VARIANTS:
+        try:
+            url = upload_variant(prepared, variant, timeout, language)
+        except LensError as exc:
+            results.append(ProbeResult(variant=variant.name, error=str(exc)))
+            continue
+        results.append(
+            ProbeResult(variant=variant.name, url=url, stateless=is_stateless_url(url))
+        )
+    return results
 
 
 def search(

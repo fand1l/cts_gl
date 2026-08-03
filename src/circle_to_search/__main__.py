@@ -50,11 +50,95 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="upload one image file to Google and print the result URL, then exit",
     )
     parser.add_argument(
+        "--probe-lens",
+        metavar="IMAGE",
+        help="upload one image through every known Google endpoint and compare the answers",
+    )
+    parser.add_argument(
         "--backend",
-        choices=("auto", "lens", "searchbyimage"),
-        help="which Google endpoint --test-lens should use (default: the configured one)",
+        help=(
+            "which endpoint --test-lens should use: auto, lens, searchbyimage, "
+            "or one variant name (lens-ccm, lens-crs, lens-subb, lens-v1)"
+        ),
     )
     return parser.parse_args(argv)
+
+
+def _load_prepared(path: str) -> tuple[object, object] | None:
+    from PIL import Image
+
+    from circle_to_search.config import AppSettings
+    from circle_to_search.lens import prepare_image
+
+    settings = AppSettings()
+    source = Path(path).expanduser()
+    if not source.is_file():
+        print(f"no such file: {source}", file=sys.stderr)
+        return None
+    with Image.open(source) as handle:
+        image = handle.convert("RGB")
+    prepared = prepare_image(image, max_side=settings.max_side, quality=settings.jpeg_quality)
+    print(
+        f"image     : {source} ({image.width}x{image.height})\n"
+        f"upload    : {prepared.width}x{prepared.height}, "
+        f"{len(prepared.payload) // 1024} KiB JPEG",
+        file=sys.stderr,
+    )
+    return prepared, settings
+
+
+def probe_lens(path: str) -> int:
+    """``--probe-lens``: ask every endpoint and show which answers are usable.
+
+    Google keeps moving these endpoints, and the ones that still work differ by
+    region.  A result URL carrying ``gsessionid``/``lsessionid`` is bound to the
+    session that uploaded, which is why such a page opens with the Lens
+    interface but no image; the "usable" column is exactly that check.
+    """
+    from circle_to_search.lens import probe
+
+    loaded = _load_prepared(path)
+    if loaded is None:
+        return 2
+    prepared, _ = loaded
+
+    print(file=sys.stderr)
+    results = probe(prepared)  # type: ignore[arg-type]
+    width = max(len(result.variant) for result in results)
+    usable = 0
+    for result in results:
+        if result.error:
+            print(f"{result.variant:<{width}}  FAILED    {result.error}", file=sys.stderr)
+            continue
+        mark = "usable" if result.stateless else "session-bound"
+        usable += int(result.stateless)
+        print(f"{result.variant:<{width}}  {mark:<13} {result.shape}", file=sys.stderr)
+        print(result.url)
+
+    answered = sum(1 for result in results if not result.error)
+    print(file=sys.stderr)
+    if usable:
+        print(
+            "Open the URLs above: the ones marked 'usable' should show the image.\n"
+            "Pin the winner with:  circle-to-search --settings  →  Google endpoint\n"
+            "or lens_backend=<variant> in ~/.config/circle-to-search/circle-to-search.conf",
+            file=sys.stderr,
+        )
+    elif answered:
+        print(
+            "Every endpoint that answered returned a session-bound URL. Open one anyway\n"
+            "and report what the page shows — if the image is there, the check is too\n"
+            "strict; if it is not, Google has closed this route for now.",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "No endpoint answered at all — this looks like a network or proxy problem\n"
+            "rather than a Google change. Check that https://lens.google.com opens in\n"
+            "a browser from this machine.",
+            file=sys.stderr,
+        )
+    return 0 if answered else 1
 
 
 def test_lens(path: str, backend: str | None, verbose: bool) -> int:
@@ -65,32 +149,29 @@ def test_lens(path: str, backend: str | None, verbose: bool) -> int:
     handed to the browser, so the problem can be pinned on the endpoint, the
     network or the crop.
     """
-    from PIL import Image
+    from circle_to_search.lens import LensError, is_stateless_url, upload
 
-    from circle_to_search.config import AppSettings
-    from circle_to_search.lens import LensError, prepare_image, upload
-
-    settings = AppSettings()
-    source = Path(path).expanduser()
-    if not source.is_file():
-        print(f"no such file: {source}", file=sys.stderr)
+    loaded = _load_prepared(path)
+    if loaded is None:
         return 2
+    prepared, settings = loaded
 
-    with Image.open(source) as handle:
-        image = handle.convert("RGB")
-    prepared = prepare_image(image, max_side=settings.max_side, quality=settings.jpeg_quality)
-    print(
-        f"image     : {source} ({image.width}x{image.height})\n"
-        f"upload    : {prepared.width}x{prepared.height}, {len(prepared.payload) // 1024} KiB JPEG",
-        file=sys.stderr,
-    )
     try:
-        url = upload(prepared, backend=backend or settings.lens_backend)
+        url = upload(prepared, backend=backend or settings.lens_backend)  # type: ignore[union-attr,arg-type]
     except LensError as exc:
         print(f"FAILED    : {exc}", file=sys.stderr)
         if not verbose:
             print("Re-run with --verbose to see the full redirect chain.", file=sys.stderr)
         return 1
+
+    if not is_stateless_url(url):
+        print(
+            "WARNING   : the URL carries gsessionid/lsessionid, so it is tied to this\n"
+            "            upload session — the browser will show the Lens page without\n"
+            "            the image. Run --probe-lens to look for an endpoint that\n"
+            "            returns a shareable URL.",
+            file=sys.stderr,
+        )
     print(f"result    : {url}", file=sys.stderr)
     print(url)
     return 0
@@ -160,6 +241,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.test_lens:
         # Needs neither a session bus nor a display.
         return test_lens(args.test_lens, args.backend, args.verbose)
+    if args.probe_lens:
+        return probe_lens(args.probe_lens)
 
     warn_about_session()
 

@@ -39,6 +39,7 @@ from .config import (
     write_detection,
 )
 from .i18n import available_languages, tr
+from .lens import VARIANTS
 from .logging_setup import get_logger
 
 log = get_logger("settings")
@@ -175,6 +176,8 @@ class SettingsDialog(QDialog):
         self.backend_combo.addItem(tr("settings.backend.auto"), "auto")
         self.backend_combo.addItem(tr("settings.backend.lens"), "lens")
         self.backend_combo.addItem(tr("settings.backend.sbi"), "searchbyimage")
+        for variant in VARIANTS:
+            self.backend_combo.addItem(f"{tr('settings.backend.pin')} {variant.name}", variant.name)
         backend_row.addWidget(self.backend_combo, 1)
         form.addRow(backend_row)
         form.addRow(_hint(tr("settings.backend.hint")))

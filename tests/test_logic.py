@@ -164,8 +164,65 @@ try:
 except lens.LensError as exc:
     check("junk raises", "endpoint has most likely changed" in str(exc), str(exc)[:60])
 
+# The exact answer a real Plasma 6 install got on 2026-08-03: the upload works
+# (vsdim proves Google accepted the image) but the URL is bound to the uploading
+# session, so the browser shows the Lens page with an empty image slot.
+SESSION_BOUND = (
+    "https://www.google.com/search?vsrid=CICYmeX6&vsint=CAIqDA&udm=26&lns_mode=un"
+    "&source=lns.web.ccm&vsdim=1000,562&gsessionid=snYQ3ENZqCVs&lsessionid=KPaahsW9"
+    "&lns_surface=26&hl=en"
+)
+check("session-bound detected", not lens.is_stateless_url(SESSION_BOUND))
+check("stateless p= url", lens.is_stateless_url("https://lens.google.com/search?p=TOKEN"))
+check("stateless sbi url", lens.is_stateless_url("https://www.google.com/search?tbs=sbi:X"))
+
+# auto must not stop at a session-bound answer: it keeps trying and returns the
+# first URL the browser can actually resolve on its own.
+fake = with_session([
+    _response(303, SESSION_BOUND),
+    _response(303, SESSION_BOUND),
+    _response(303, SESSION_BOUND),
+    _response(303, SESSION_BOUND),
+    _response(302, "https://www.google.com/search?tbs=sbi:GOOD"),
+])
+picked = lens.upload(prepared, backend=lens.BACKEND_AUTO)
+check("skips session-bound", picked == "https://www.google.com/search?tbs=sbi:GOOD", picked)
+check("tried every variant", len(fake.calls) == len(lens.VARIANTS), str(len(fake.calls)))
+
+# When nothing is stateless the session-bound URL is still opened: a page with
+# the Lens chrome beats a bare error message.
+with_session([_response(303, SESSION_BOUND)] * len(lens.VARIANTS))
+check("last resort", lens.upload(prepared, backend=lens.BACKEND_AUTO) == SESSION_BOUND)
+
+# Pinning one variant by name must send exactly one request.
+fake = with_session([_response(302, "https://lens.google.com/search?p=PINNED")])
+check(
+    "pinned variant",
+    lens.upload(prepared, backend="lens-subb") == "https://lens.google.com/search?p=PINNED",
+)
+check("pinned url", "ep=subb" in fake.calls[0][1], fake.calls[0][1])
+check("one call only", len(fake.calls) == 1)
+
+# The probe reports every variant, working or not.
+with_session([
+    _response(303, SESSION_BOUND),
+    _response(500),
+    _response(302, "https://lens.google.com/search?p=OK"),
+    _response(303, SESSION_BOUND),
+    _response(302, "https://www.google.com/search?tbs=sbi:OK"),
+])
+rows = lens.probe(prepared)
+check("probe rows", len(rows) == len(lens.VARIANTS), str(len(rows)))
+check("probe marks failure", any(row.error for row in rows))
+check("probe marks stateless", sum(row.stateless for row in rows) == 2,
+      str([(r.variant, r.stateless) for r in rows]))
+check("probe shape", rows[0].shape == "vsrid=…", rows[0].shape)
+
 # auto: Lens fails, search-by-image takes over.
 fake = with_session([
+    _response(500),
+    _response(500),
+    _response(500),
     _response(500),
     _response(302, "https://www.google.com/search?tbs=sbi:FALLBACK"),
 ])
@@ -176,8 +233,8 @@ check(
 )
 check(
     "fallback endpoint",
-    fake.calls[1][1].startswith(lens.SEARCH_BY_IMAGE_URL),
-    str(fake.calls[1][1]),
+    fake.calls[-1][1].startswith(lens.SEARCH_BY_IMAGE_URL),
+    str(fake.calls[-1][1]),
 )
 
 lens._session = _real_session_factory  # type: ignore[assignment]
