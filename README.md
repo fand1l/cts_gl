@@ -208,6 +208,7 @@ Application-only settings live in
 | `dim_percent` | `40` | Overlay dimming |
 | `language` | `auto` | `auto`, `uk` or `en` |
 | `use_layer_shell` | `false` | See above |
+| `keep_launcher` | `false` | Keep the browser launcher page instead of deleting it after ten minutes |
 
 Lens always receives a rectangle. By default a lasso is uploaded as the plain
 crop around the loop — nothing is painted over, exactly like circling something
@@ -399,6 +400,34 @@ Each row is marked `usable` (no session id — it will work anywhere) or
 `session-bound`, with the URLs printed so you can click them. Pin a winner with
 `lens_backend=<variant>` (`lens-ccm`, `lens-crs`, `lens-subb`, `lens-v1`,
 `searchbyimage`).
+
+### It worked, then it did not, then it worked again
+
+Everything from the selection onwards now says something when it goes wrong, so
+start by finding out which step went quiet:
+
+| What you see | Where it broke |
+|---|---|
+| No overlay at all when you shake | The KWin script — see the first section |
+| Overlay works, no tab opens, a "Could not open the browser" notification | `xdg-open` (no handler, or a sandboxed browser that cannot read `~/.cache`) |
+| Overlay works and nothing at all happens | Look at `journalctl --user -u circle-to-search -e`; the last line names the step |
+| A local page that says "The upload did not start" | The browser never began the POST — press the button on that page to retry |
+| Google's own error, "unusual traffic" or a CAPTCHA | Google is throttling *your browser session*; wait a minute and try again |
+| The Lens page with an empty image slot | See the section above |
+
+Two things that were silent before this and no longer are: `xdg-open` failing
+(it is now waited on and reported) and a selection that dies half-way leaving
+the daemon convinced one is still in progress — that flag is now cleared on the
+next trigger instead of ignoring every one of them until a restart.
+
+About rate limits: since the browser performs the upload with your own Google
+session, any throttling looks exactly like it does when you use
+lens.google.com by hand — Google answers with a "sorry" or "unusual traffic"
+page rather than failing silently. Uploading the same region repeatedly in quick
+succession is the way to provoke it. The launcher page is kept for ten minutes
+under `~/.cache/circle-to-search/`, so a failed attempt can be re-opened and
+retried with the exact same image; set `keep_launcher=true` in the config file
+to stop the cleanup entirely while debugging.
 
 Other causes, in order of likelihood:
 

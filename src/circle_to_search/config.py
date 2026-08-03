@@ -337,6 +337,15 @@ class AppSettings:
         self._settings.setValue("lens_backend", value)
 
     @property
+    def keep_launcher(self) -> bool:
+        """Do not delete the browser launcher page (for debugging a failed run)."""
+        return self._get_bool("keep_launcher", False)
+
+    @keep_launcher.setter
+    def keep_launcher(self, value: bool) -> None:
+        self._settings.setValue("keep_launcher", bool(value))
+
+    @property
     def use_layer_shell(self) -> bool:
         return self._get_bool("use_layer_shell", False)
 

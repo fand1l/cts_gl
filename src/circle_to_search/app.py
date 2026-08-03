@@ -49,6 +49,10 @@ log = get_logger("app")
 
 _ICON_NAMES = (APP_ID, "circle-to-search", "edit-select", "search")
 
+#: How long the launcher page stays on disk.  It has to outlive a cold browser
+#: start and leave room for one manual reload after a hiccup.
+LAUNCHER_LIFETIME_MS = 10 * 60 * 1000
+
 
 class _UploadSignals(QObject):
     finished = pyqtSignal(str)
@@ -108,6 +112,51 @@ class _UploadTask(QRunnable):
             self.signals.finished.emit(target)
 
 
+class _OpenSignals(QObject):
+    failed = pyqtSignal(str)
+
+
+class _OpenTask(QRunnable):
+    """Run ``xdg-open`` and notice when it fails.
+
+    ``Popen`` returns as soon as the child is spawned, so a missing handler for
+    text/html, a browser that refuses to start or a sandbox that cannot read the
+    file all used to end in complete silence: the log said "opening …" and
+    nothing ever appeared on screen.
+    """
+
+    def __init__(self, target: str) -> None:
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = _OpenSignals()
+        self._target = target
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            result = subprocess.run(
+                ["xdg-open", self._target],
+                capture_output=True,
+                text=True,
+                timeout=30,
+                check=False,
+            )
+        except FileNotFoundError:
+            self.signals.failed.emit("xdg-open is not installed")
+            return
+        except subprocess.TimeoutExpired:
+            # The handler is still running (some browsers do not detach); that
+            # is not a failure, the tab is on screen.
+            log.debug("xdg-open is still running after 30 s, assuming it worked")
+            return
+        except OSError as exc:
+            self.signals.failed.emit(str(exc))
+            return
+        if result.returncode != 0:
+            message = (result.stderr or result.stdout).strip() or f"exit code {result.returncode}"
+            self.signals.failed.emit(f"xdg-open: {message}")
+
+
 class CircleToSearchApp(QObject):
     """Ties the tray icon, the D-Bus service and the overlay together."""
 
@@ -124,7 +173,7 @@ class CircleToSearchApp(QObject):
 
         self._overlay: SelectionOverlay | None = None
         self._dialog: SettingsDialog | None = None
-        self._tasks: set[_UploadTask] = set()
+        self._tasks: set[QRunnable] = set()
         self._busy = False
 
         self._icon = self._load_icon()
@@ -264,9 +313,16 @@ class CircleToSearchApp(QObject):
     # -------------------------------------------------------------- overlay
 
     def _begin_selection(self, screen: QScreen, screen_name: str) -> None:
-        if self._busy or self._overlay is not None:
+        if self._overlay is not None:
             log.info("ignoring trigger, a selection is already in progress")
             return
+        if self._busy:
+            # The flag is cleared when the overlay finishes, so finding it set
+            # with no overlay around means an earlier attempt died somewhere in
+            # between.  Recovering here beats ignoring every trigger until the
+            # service is restarted.
+            log.warning("clearing a stale busy flag from an earlier trigger")
+            self._busy = False
         self._busy = True
         try:
             capture = capture_screen(screen, screen_name)
@@ -302,7 +358,12 @@ class CircleToSearchApp(QObject):
         )
         overlay.cancelled.connect(self._on_cancelled)
         self._overlay = overlay
-        overlay.show_on_screen()
+        try:
+            overlay.show_on_screen()
+        except Exception as exc:
+            log.exception("could not map the overlay")
+            self._release_overlay()
+            notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
 
     def _release_overlay(self) -> None:
         overlay = self._overlay
@@ -349,6 +410,7 @@ class CircleToSearchApp(QObject):
             launcher_strings={
                 "title": tr("app.name"),
                 "status": tr("notify.uploading"),
+                "stuck": tr("launcher.stuck"),
                 "failed": tr("launcher.failed"),
                 "retry": tr("launcher.retry"),
             },
@@ -368,11 +430,12 @@ class CircleToSearchApp(QObject):
         if not url:
             return
         self._open_url(url)
-        if url.startswith("file://"):
-            # The launcher has done its job once the browser has read it; give
-            # it a generous window and then take the screenshot off the disk.
+        if url.startswith("file://") and not self._settings.keep_launcher:
+            # Long enough to survive a cold browser start and to let the page be
+            # reloaded by hand after a failed attempt, short enough that the
+            # screenshot does not sit on disk.
             path = Path(QUrl(url).toLocalFile())
-            QTimer.singleShot(120_000, lambda: self._remove_launcher(path))
+            QTimer.singleShot(LAUNCHER_LIFETIME_MS, lambda: self._remove_launcher(path))
 
     @staticmethod
     def _remove_launcher(path: Path) -> None:
@@ -389,18 +452,17 @@ class CircleToSearchApp(QObject):
         clipboard.setImage(pil_to_qimage(image))
         log.info("selection copied to the clipboard")
 
-    @staticmethod
-    def _open_url(url: str) -> None:
+    def _open_url(self, url: str) -> None:
         log.info("opening %s", url)
-        try:
-            subprocess.Popen(
-                ["xdg-open", url],
-                start_new_session=True,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
-        except OSError as exc:
-            notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=exc))
+        task = _OpenTask(url)
+        task.signals.failed.connect(lambda error, ref=task: self._open_failed(ref, error))
+        self._tasks.add(task)
+        QThreadPool.globalInstance().start(task)
+
+    def _open_failed(self, task: QRunnable, error: str) -> None:
+        self._tasks.discard(task)
+        log.error("could not open the result: %s", error)
+        notify_error(tr("notify.open_failed"), tr("notify.open_failed_body", error=error))
 
     # ------------------------------------------------------------------- GUI
 

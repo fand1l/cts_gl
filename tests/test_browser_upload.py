@@ -13,9 +13,12 @@ Needs Playwright and a Chromium:
 It skips itself (exit 0) when either is missing, so it can sit next to the other
 suites without becoming a hard dependency.
 """
+import contextlib
 import os
+import re
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
@@ -54,6 +57,16 @@ path = write_browser_launcher(prepared, language="uk", variant="lens-ccm",
 html = path.read_text()
 print("launcher size:", len(html)//1024, "KiB")
 
+ok = True
+
+
+def check(name, cond, detail=""):
+    global ok
+    print(("PASS  " if cond else "FAIL  ") + name + ("  " + detail if detail else ""))
+    if not cond:
+        ok = False
+
+
 captured = {}
 with sync_playwright() as pw:
     executable = find_chromium()
@@ -87,6 +100,45 @@ with sync_playwright() as pw:
         ),
     )
 
+    # --- the launcher's safety nets ---------------------------------------
+    baked_st = int(re.search(r"st=(\d+)", path.read_text()).group(1))
+    time.sleep(1.2)
+
+    stamps = []
+    probe = browser.new_page()
+    probe.route(
+        "https://lens.google.com/**",
+        lambda route: (
+            stamps.append(route.request.url),
+            route.fulfill(status=200, body="ok"),
+        ),
+    )
+    # The page navigates away by itself the moment it loads, so goto() may never
+    # see a load event; that is expected here.
+    with contextlib.suppress(Exception):
+        probe.goto(path.resolve().as_uri(), wait_until="commit", timeout=10000)
+    probe.wait_for_timeout(2500)
+    check("submit happened", bool(stamps))
+    if stamps:
+        sent_st = int(re.search(r"st=(\d+)", stamps[0]).group(1))
+        # A stale st= is one thing Google can legitimately reject, and the file
+        # may have waited for a cold browser start.
+        check("timestamp refreshed at submit", sent_st > baked_st, f"{baked_st} -> {sent_st}")
+    probe.close()
+
+    # When the submit does not navigate at all the page must stop pretending to
+    # work instead of spinning forever.
+    stuck = browser.new_page()
+    stuck.add_init_script("HTMLFormElement.prototype.submit = function () {};")
+    stuck.goto(path.resolve().as_uri())
+    check("spinner while trying", stuck.is_visible("#spinner"))
+    check("quiet at first", not stuck.is_visible("#retry"))
+    stuck.wait_for_timeout(16000)
+    check("watchdog message", "did not start" in stuck.inner_text("body"),
+          stuck.inner_text("body").replace("\n", " ")[:60])
+    check("retry offered", stuck.is_visible("#retry"))
+    stuck.close()
+
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(path.resolve().as_uri())
@@ -94,13 +146,6 @@ with sync_playwright() as pw:
     final_url = page.url
     body_text = page.inner_text("body")
     browser.close()
-
-ok = True
-def check(name, cond, detail=""):
-    global ok
-    print(("PASS  " if cond else "FAIL  ") + name + ("  " + detail if detail else ""))
-    if not cond:
-        ok = False
 
 check("no JS errors", not errors, str(errors))
 check("POST issued", captured.get("method") == "POST", str(captured.get("method")))

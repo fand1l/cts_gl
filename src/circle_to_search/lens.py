@@ -543,11 +543,13 @@ _LAUNCHER_TEMPLATE = """<!doctype html>
   <div class="error" id="error">
     <p>{failed}</p>
     <button type="button" id="retry">{retry}</button>
+    <p><a href="https://lens.google.com/" target="_blank" rel="noreferrer">lens.google.com</a></p>
   </div>
 </div>
 <script>
 "use strict";
 var IMAGE_BASE64 = "{payload}";
+var watchdog = null;
 
 function bytes() {{
   var binary = atob(IMAGE_BASE64);
@@ -558,12 +560,31 @@ function bytes() {{
   return buffer;
 }}
 
+function fail(reason) {{
+  document.getElementById("spinner").style.display = "none";
+  document.getElementById("status").textContent = reason;
+  document.getElementById("error").style.display = "block";
+}}
+
 function send() {{
+  var form = document.getElementById("lens-form");
+  // Refresh the timestamp: the page may have waited for a cold browser start,
+  // and a stale st= is one thing Google can legitimately reject.
+  form.action = form.action.replace(/([?&]st=)[0-9]*/, "$1" + Date.now());
   var file = new File([bytes()], "image.jpg", {{ type: "image/jpeg" }});
   var transfer = new DataTransfer();
   transfer.items.add(file);
   document.getElementById("lens-image").files = transfer.files;
-  document.getElementById("lens-form").submit();
+  document.getElementById("error").style.display = "none";
+  document.getElementById("spinner").style.display = "";
+  document.getElementById("status").textContent = "{status}";
+  form.submit();
+  // If the navigation never even starts the page just sits here spinning, which
+  // looks exactly like "it did nothing".  Say so instead, and offer a retry.
+  // (Once the browser *is* navigating this timer no longer runs, so a slow or
+  // throttled Google shows up as Google's own page, not as this message.)
+  window.clearTimeout(watchdog);
+  watchdog = window.setTimeout(function () {{ fail("{stuck}"); }}, 15000);
 }}
 
 document.getElementById("retry").addEventListener("click", send);
@@ -571,9 +592,7 @@ document.getElementById("retry").addEventListener("click", send);
 try {{
   send();
 }} catch (error) {{
-  document.getElementById("spinner").style.display = "none";
-  document.getElementById("status").textContent = String(error);
-  document.getElementById("error").style.display = "block";
+  fail(String(error));
 }}
 </script>
 </body>
@@ -594,6 +613,7 @@ def build_browser_launcher(
     text = {
         "title": "Circle to Search",
         "status": "Sending the selection to Google Lens…",
+        "stuck": "The upload did not start.",
         "failed": "The browser could not start the upload.",
         "retry": "Try again",
     }
@@ -602,6 +622,7 @@ def build_browser_launcher(
         lang=escape(language, quote=True),
         title=escape(text["title"]),
         status=escape(text["status"]),
+        stuck=escape(text["stuck"]),
         failed=escape(text["failed"]),
         retry=escape(text["retry"]),
         action=escape(chosen.build_url(language), quote=True),

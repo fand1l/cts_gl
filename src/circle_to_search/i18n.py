@@ -20,6 +20,8 @@ _EN: dict[str, str] = {
     "notify.uploading": "Sending the selection to Google Lens…",
     "notify.capture_failed": "Screen capture failed",
     "notify.capture_failed_body": "None of the capture back ends worked: {error}",
+    "notify.open_failed": "Could not open the browser",
+    "notify.open_failed_body": "{error}",
     "notify.lens_failed": "Google Lens request failed",
     "notify.lens_failed_body": "{error}",
     "notify.no_screen": "Cannot find the screen",
@@ -103,6 +105,10 @@ _EN: dict[str, str] = {
         "upload, which is what makes the result appear. Compare the alternatives "
         "with: circle-to-search --probe-lens FILE"
     ),
+    "launcher.stuck": (
+        "The upload did not start. Press the button to try again, or open "
+        "lens.google.com and drop the image there."
+    ),
     "launcher.failed": "The browser could not start the upload.",
     "launcher.retry": "Try again",
     "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
@@ -123,6 +129,8 @@ _UK: dict[str, str] = {
     "notify.uploading": "Надсилаю виділення в Google Lens…",
     "notify.capture_failed": "Не вдалося зняти екран",
     "notify.capture_failed_body": "Жоден зі способів захоплення не спрацював: {error}",
+    "notify.open_failed": "Не вдалося відкрити браузер",
+    "notify.open_failed_body": "{error}",
     "notify.lens_failed": "Помилка запиту до Google Lens",
     "notify.lens_failed_body": "{error}",
     "notify.no_screen": "Не знайдено екран",
@@ -210,6 +218,10 @@ _UK: dict[str, str] = {
         "але без зображення. Рекомендований варіант віддає картинку браузеру, і "
         "той вивантажує її сам — саме тому результат з’являється. Порівняти "
         "альтернативи: circle-to-search --probe-lens ФАЙЛ"
+    ),
+    "launcher.stuck": (
+        "Вивантаження не почалося. Натисніть кнопку, щоб спробувати ще раз, або "
+        "відкрийте lens.google.com і перетягніть картинку туди."
     ),
     "launcher.failed": "Браузер не зміг почати вивантаження.",
     "launcher.retry": "Спробувати ще раз",
