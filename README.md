@@ -1,1 +1,368 @@
-# cts_gl
+# Circle to Search for KDE Plasma 6 (Wayland)
+
+Shake the pointer, drag a rectangle over anything on screen, get Google Lens
+results in your browser. A Linux take on Android's "Circle to Search".
+
+No OCR, no vision model, no API keys: the program only cuts out the region and
+uploads it to Google Lens — all the intelligence is Google's.
+
+| | |
+|---|---|
+| ![shake gesture](docs/screenshot-gesture.png) | ![selection overlay](docs/screenshot-overlay.png) |
+| *1. Shake the cursor diagonally* | *2. Drag a rectangle on the frozen screen* |
+| ![settings](docs/screenshot-settings.png) | ![lens result](docs/screenshot-result.png) |
+| *3. Tune the gesture in the tray settings* | *4. Lens opens in your browser* |
+
+> The four images above are placeholders — drop your own PNGs into `docs/`
+> with those names and they will show up.
+
+**Target:** Fedora 44, KDE Plasma 6, Wayland session, KWin 6, Python 3.13 +
+PyQt6. Developed for a Dell XPS 15 9560 (4K panel, so HiDPI and fractional
+scaling are handled explicitly), works with additional monitors at other DPIs.
+
+---
+
+## How it works
+
+```
+   you shake the mouse
+            │
+            ▼
+┌────────────────────────────────────┐  D-Bus: Trigger(x, y, "eDP-1")
+│  KWin script (JavaScript)          │ ───────────────────────────────┐
+│  · polls workspace.cursorPos       │                                │
+│  · finds diagonal reversals        │                                │
+│  · raises the overlay above panels │                                │
+└────────────────────────────────────┘                                │
+                                                                      ▼
+                                     ┌───────────────────────────────────────┐
+                                     │  Python daemon (systemd --user)       │
+                                     │  · io.github.fand1l.CircleToSearch    │
+                                     │  · capture: ScreenShot2 → spectacle   │
+                                     │    → xdg-desktop-portal               │
+                                     │  · full-screen selection overlay      │
+                                     │  · crop → JPEG → lens.google.com      │
+                                     │  · xdg-open the result URL            │
+                                     └───────────────────────────────────────┘
+```
+
+Four components, each in its own place:
+
+1. **KWin script** (`kwinscript/`) — on Wayland an ordinary client cannot ask
+   for the global pointer position, but the compositor knows it. The script
+   polls `workspace.cursorPos` on one QTimer (50 ms while moving, 250 ms when
+   idle), recognises the gesture, and does exactly one D-Bus call when it fires.
+   No D-Bus traffic in the polling path — that is what made
+   `plasma-cursor-eyes` infamous for eating CPU.
+2. **Python daemon** (`src/circle_to_search/`) — a resident `systemd --user`
+   service exporting `Trigger(int32 x, int32 y, string screen)` over
+   `PyQt6.QtDBus` (one Qt event loop for D-Bus and GUI alike).
+3. **Overlay** (`overlay.py`) — a frameless full-screen widget showing the
+   screenshot, dimmed, with the selection as a "hole" like Spectacle's region
+   mode.
+4. **Lens upload** (`lens.py`) — one `POST` to `lens.google.com/v3/upload`,
+   whose `Location` header is the result page. The whole unofficial-endpoint
+   risk is isolated in that single file.
+
+The HiDPI arithmetic lives in `hidpi.py`: KWin's coordinates and Qt's widget
+coordinates are **logical** pixels, the screenshot is **physical** pixels, and
+the scale is *measured* (screenshot size ÷ logical screen size) rather than
+assumed, which also covers fractional scaling like 150 %.
+
+### Why layer-shell is off by default
+
+There are no Python bindings for `layer-shell-qt` (a C++ library without
+GObject introspection). The only piece reachable from Python is its Qt
+*shell-integration plugin*, requested with
+`QT_WAYLAND_SHELL_INTEGRATION=layer-shell` before `QApplication` is created.
+That is implemented (Settings → General → "Use layer-shell for the overlay";
+the plugin file is checked to exist first, because Qt aborts when asked for a
+shell integration it cannot load) but **off by default**: without the C++ API
+the surface cannot be anchored or given an exclusive zone, so the result is less
+predictable than a plain full-screen window that the KWin script pushes above
+the panels. Try it if you like; the fallback is the tested path.
+
+---
+
+## Installation
+
+```bash
+git clone https://github.com/fand1l/cts_gl.git
+cd cts_gl
+./install.sh
+```
+
+`install.sh` checks the session (Wayland + Plasma 6 + KWin running), offers to
+`sudo dnf install` anything missing, and then installs **entirely into your home
+directory** — nothing else needs root:
+
+| What | Where |
+|---|---|
+| Python package | `~/.local/share/circle-to-search/` |
+| Launcher | `~/.local/bin/circle-to-search` |
+| KWin script | `kpackagetool6 --type=KWin/Script --install ./kwinscript` |
+| Desktop entry | `~/.local/share/applications/io.github.fand1l.CircleToSearch.desktop` |
+| Icon | `~/.local/share/icons/hicolor/scalable/apps/` |
+| Service | `~/.config/systemd/user/circle-to-search.service` |
+
+It then enables the script (`kwriteconfig6 --file kwinrc --group Plugins --key
+circletosearchEnabled true` + `reconfigure`) and starts
+`systemctl --user enable --now circle-to-search.service`.
+
+Flags: `-y` (don't ask before dnf), `--no-deps` (never call dnf), `--force`
+(install even if the session checks fail).
+
+Uninstall with `./uninstall.sh` (add `--purge` to drop the settings too).
+
+### Verify
+
+```bash
+systemctl --user status circle-to-search.service      # should be active
+busctl --user list | grep CircleToSearch              # the name is on the bus
+busctl --user call io.github.fand1l.CircleToSearch \
+    /io/github/fand1l/CircleToSearch \
+    io.github.fand1l.CircleToSearch Ping              # prints the version
+journalctl --user -u plasma-kwin_wayland -f | grep -i circle
+                                                      # "KWin script started"
+```
+
+Then shake the pointer: **down-right, up-left, down-right** at roughly 45°,
+about 150 px per swing, inside 600 ms. Or press **Meta+Shift+L**.
+
+### Packaging (RPM / COPR)
+
+`circle-to-search.spec` builds a noarch package.
+
+```bash
+sudo dnf install rpm-build rpmdevtools copr-cli
+rpmdev-setuptree
+git archive --format=tar.gz --prefix=circle-to-search-1.0.0/ \
+    -o ~/rpmbuild/SOURCES/circle-to-search-1.0.0.tar.gz HEAD
+rpmbuild -ba circle-to-search.spec        # local RPM
+```
+
+To publish it:
+
+1. Log into <https://copr.fedorainfracloud.org>, **API keys** → paste the token
+   block into `~/.config/copr`.
+2. `copr-cli create circle-to-search --chroot fedora-44-x86_64 --description "Circle to Search for KDE Plasma"`
+3. `rpmbuild -bs circle-to-search.spec`
+4. `copr-cli build circle-to-search ~/rpmbuild/SRPMS/circle-to-search-1.0.0-1.*.src.rpm`
+5. Users then run
+   `sudo dnf copr enable <your-fedora-account>/circle-to-search && sudo dnf install circle-to-search`.
+
+The RPM cannot enable the KWin script or the service for you (both are per-user
+settings) — `%post` prints the three commands to run once.
+
+---
+
+## Settings
+
+Tray icon → **Settings**, or `circle-to-search --settings`.
+
+Detection values are stored in `~/.config/kwinrc` under
+`[Script-circletosearch]` via `kwriteconfig6`, which is exactly where the KWin
+script's `readConfig()` reads them, and KWin is asked to `reconfigure`
+afterwards. The same values are editable from System Settings → Window
+Management → KWin Scripts → Circle to Search ⚙.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `enabled` | `true` | Detect the shake at all |
+| `reversals` | `2` | Direction reversals needed to fire |
+| `windowMs` | `600` | They must all happen inside this window |
+| `minAmplitudePx` | `150` | Minimum length of one swing |
+| `angleTolerance` | `30` | Allowed deviation from 45° |
+| `pollMs` | `50` | Cursor polling interval while moving |
+| `cooldownMs` | `1500` | Ignore further shakes for this long |
+| `minStepPx` | `6` | Movement below this is noise |
+| `shortcut` | `Meta+Shift+L` | Fallback global shortcut |
+
+Application-only settings (JPEG quality, longest side, clipboard copy, dimming,
+language, layer-shell, autostart) live in
+`~/.config/circle-to-search/circle-to-search.conf`.
+
+The UI is available in Ukrainian and English; it follows the system locale
+unless you pick one in Settings.
+
+---
+
+## Development
+
+```bash
+ruff check src tests            # lint (clean)
+python3 tests/test_logic.py     # HiDPI crop math, Lens parsing, raw decode, overlay
+node    tests/test_detection.js # the real main.js against a fake KWin API
+```
+
+`tests/test_detection.js` loads `kwinscript/contents/code/main.js` unchanged
+into a sandbox with a stubbed `workspace`/`QTimer`/`callDBus` and replays
+synthetic cursor paths — diagonal shakes, horizontal moves, slow drift, small
+wiggles — so gesture tuning can be checked without logging out.
+`tests/test_logic.py` runs Qt on the `offscreen` platform, so it needs no
+display.
+
+Run the daemon in the foreground while hacking:
+
+```bash
+systemctl --user stop circle-to-search.service
+python3 src/circle_to_search/__main__.py --verbose
+```
+
+---
+
+## What can break, and how to debug it
+
+### The KWin script never runs
+
+```bash
+journalctl --user -u plasma-kwin_wayland -f | grep -i circle
+```
+
+No `circle-to-search: KWin script started` line means KWin did not load it:
+
+* Is it installed? `kpackagetool6 --type=KWin/Script --list | grep circletosearch`,
+  or check `~/.local/share/kwin/scripts/circletosearch/metadata.json`.
+* Is it enabled? `kreadconfig6 --file kwinrc --group Plugins --key circletosearchEnabled`
+  must print `true`. Fix with
+  `kwriteconfig6 --file kwinrc --group Plugins --key circletosearchEnabled true`
+  followed by `qdbus6 org.kde.KWin /KWin reconfigure`.
+* Still nothing → System Settings → Window Management → KWin Scripts, tick
+  **Circle to Search**, and as a last resort log out and back in.
+
+**Live-test the detection code** without reinstalling: System Settings → Window
+Management → KWin Scripts → *KWin Script Console* (or run `kwin-script-console`
+/ `plasma-interactiveconsole --kwin`), paste `main.js`, press Run, and shake.
+`print()` output goes to the console and to the KWin journal. Offline,
+`node tests/test_detection.js` replays recorded gestures against the same file.
+
+### The trigger fires too often / never fires
+
+Raise or lower the thresholds in Settings → Detection:
+
+* **too often** — increase `minAmplitudePx` (200–250), lower `angleTolerance`
+  (15–20°), increase `reversals` to 3, or shorten `windowMs` to 400.
+* **never** — lower `minAmplitudePx` to 80–100, raise `angleTolerance` to 40°,
+  lengthen `windowMs` to 900, and make sure the movement really is diagonal:
+  both `|dx|` and `|dy|` must exceed `minStepPx` on every sample.
+* A HiDPI screen makes swings *shorter in logical pixels* than they feel —
+  `minAmplitudePx` is in logical px, so 150 logical px on a 200 %-scaled 4K
+  panel is 300 physical px of travel.
+* A very fast flick can outrun a 50 ms poll: lower `pollMs` to 30 ms.
+* Turn detection off entirely from the tray and use `Meta+Shift+L`.
+
+After any change the daemon calls `reconfigure` itself; if you edited `kwinrc`
+by hand, run `qdbus6 org.kde.KWin /KWin reconfigure`.
+
+### D-Bus
+
+```bash
+busctl --user list | grep CircleToSearch
+busctl --user introspect io.github.fand1l.CircleToSearch /io/github/fand1l/CircleToSearch
+busctl --user call io.github.fand1l.CircleToSearch \
+    /io/github/fand1l/CircleToSearch \
+    io.github.fand1l.CircleToSearch Trigger iis 100 100 ""
+```
+
+The last command must open the overlay immediately. If it does but shaking does
+not, the problem is in the KWin script; if it does not, look at
+`journalctl --user -u circle-to-search.service -e`.
+
+### Screen capture fails
+
+The daemon logs which back end won:
+`captured 3840x2160 px via kwin-screenshot2 in 47 ms`.
+
+* `org.kde.KWin.ScreenShot2 … AccessDenied` — KWin only allows callers whose
+  desktop file declares `X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2`
+  *and* whose `Exec=` starts with the caller's real binary. For a Python app the
+  real binary is the interpreter, so `install.sh` writes the resolved path
+  (`readlink -f $(command -v python3)` → `/usr/bin/python3.13`). If Python was
+  upgraded since installing, re-run `./install.sh`. Compare the two:
+
+  ```bash
+  grep ^Exec ~/.local/share/applications/io.github.fand1l.CircleToSearch.desktop
+  readlink -f /proc/$(systemctl --user show -p MainPID --value circle-to-search)/exe
+  ```
+
+  Run `kbuildsycoca6` once afterwards so KService sees the new desktop file.
+* Falling through to **spectacle** is fine, just slower
+  (`sudo dnf install spectacle`).
+* Falling through to the **portal** shows a confirmation dialog — that is the
+  portal's design, not a bug.
+* Wrong-looking crops on a multi-monitor setup mean the fallback back ends had
+  to cut one output out of a whole-desktop image; the log line
+  `cropping desktop image (…) to (…)` tells you it happened.
+
+### The overlay appears *under* the panel
+
+That is exactly what the KWin script's second job prevents: it looks for a
+window captioned `Circle to Search Overlay` and sets `keepAbove`, `noBorder`
+and `fullScreen` on it. If it still ends up behind the panel:
+
+* Look for `circle-to-search: promoted the overlay window` in the KWin journal.
+  Missing → the window was not recognised; check the caption in the KWin debug
+  console (`qdbus6 org.kde.KWin /KWin org.kde.KWin.showDebugConsole`, Windows
+  tab). The caption must match `OVERLAY_WINDOW_TITLE` in
+  `src/circle_to_search/__init__.py`.
+* Make sure the KWin script is loaded at all (first section) — without it the
+  overlay is only a `WindowStaysOnTopHint` window, which Plasma panels can
+  cover.
+* Try the layer-shell path: Settings → General → *Use layer-shell for the
+  overlay*, then `systemctl --user restart circle-to-search.service`. It needs
+  `layer-shell-qt` installed (`sudo dnf install layer-shell-qt`); the daemon
+  logs `using the layer-shell integration from …` when it takes that route.
+* A "Keep Above Others" window rule on another window still wins — check
+  System Settings → Window Management → Window Rules.
+
+### Google Lens
+
+Test the endpoint on its own, without the app:
+
+```bash
+curl -sS -D- -o /dev/null -X POST \
+  "https://lens.google.com/v3/upload?ep=ccm&s=&st=$(date +%s%3N)" \
+  -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
+  -F 'encoded_image=@/tmp/shot.jpg;type=image/jpeg' \
+  -F 'processed_image_dimensions=1000,562' | grep -i '^location'
+```
+
+Expected: `location: https://lens.google.com/search?p=…`.
+
+* A `200` and no `Location` → Google changed the endpoint. Everything about it
+  lives in `lens.py`; open Lens in Chrome, watch the network tab for the upload
+  request and update the URL/fields there. The app tries to scrape the result
+  URL out of the HTML first, so it may keep working for a while.
+* `Timeout` / `no connection` → the daemon raises a notification; nothing is
+  ever swallowed silently.
+* The upload runs on a worker thread, so a slow network never freezes the
+  overlay or the desktop.
+
+### Everything else
+
+```bash
+journalctl --user -u circle-to-search.service -f               # the daemon
+journalctl --user -u plasma-kwin_wayland -f | grep -i circle   # the KWin half
+systemctl --user restart circle-to-search.service
+```
+
+Start it in the foreground with `--verbose` to see every decision, including
+the measured HiDPI scale and the exact crop box:
+
+```
+INFO  eDP-1: logical 2560x1440+0+0, physical 3840x2160, scale 1.500x1.500
+INFO  selection 420x260 logical → 630x390 physical at 1200,825
+```
+
+---
+
+## Explicitly not used
+
+`pyautogui`, `pynput`, `python-xlib`, `mss`, `pyscreenshot` — all of them rely
+on X11 and are broken or silently wrong under Wayland. Screen access goes
+through KWin/Spectacle/the portal, and the pointer position comes from the
+compositor.
+
+## License
+
+MIT — see [LICENSE](LICENSE).

@@ -1,0 +1,25 @@
+{
+    "KPackageStructure": "KWin/Script",
+    "KPlugin": {
+        "Authors": [
+            {
+                "Email": "maximus171007@gmail.com",
+                "Name": "fand1l"
+            }
+        ],
+        "Category": "Accessibility",
+        "Description": "Shake the cursor to select a screen region and search it with Google Lens",
+        "Description[uk]": "Потрясіть курсором, щоб виділити ділянку екрана й знайти її через Google Lens",
+        "EnabledByDefault": true,
+        "Icon": "edit-select",
+        "Id": "circletosearch",
+        "License": "MIT",
+        "Name": "Circle to Search",
+        "Name[uk]": "Обвести й знайти",
+        "Version": "1.0.0",
+        "Website": "https://github.com/fand1l/cts_gl"
+    },
+    "X-KDE-ConfigModule": "kcm_kwin_scripts",
+    "X-Plasma-API": "javascript",
+    "X-Plasma-MainScript": "code/main.js"
+}

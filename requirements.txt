@@ -1,0 +1,6 @@
+# Fedora packages are preferred (install.sh uses dnf):
+#   sudo dnf install python3-pyqt6 python3-pillow python3-requests
+# This file is only for a pip/venv setup.
+PyQt6>=6.6
+Pillow>=10.0
+requests>=2.31

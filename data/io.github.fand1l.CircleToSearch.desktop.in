@@ -1,0 +1,23 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Circle to Search
+Name[uk]=Обвести й знайти
+GenericName=Region search
+GenericName[uk]=Пошук за ділянкою екрана
+Comment=Select a screen region and search it with Google Lens
+Comment[uk]=Виділіть ділянку екрана й знайдіть її через Google Lens
+Keywords=lens;screenshot;search;ocr;region;
+Keywords[uk]=лінза;скріншот;пошук;ділянка;
+Exec=@PYTHON@ @APPDIR@/circle_to_search/__main__.py
+Icon=io.github.fand1l.CircleToSearch
+Terminal=false
+Categories=Utility;Graphics;
+StartupNotify=false
+X-GNOME-UsesNotifications=true
+X-KDE-StartupNotify=false
+# KWin only lets processes use org.kde.KWin.ScreenShot2 when a desktop file
+# whose Exec starts with the caller's executable (as resolved through
+# /proc/<pid>/exe) declares the interface here.  @PYTHON@ is substituted with
+# the *resolved* interpreter path (e.g. /usr/bin/python3.13) for that reason.
+X-KDE-DBUS-Restricted-Interfaces=org.kde.KWin.ScreenShot2

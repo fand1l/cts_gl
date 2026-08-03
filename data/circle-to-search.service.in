@@ -1,0 +1,18 @@
+[Unit]
+Description=Circle to Search (Google Lens region search for KDE Plasma Wayland)
+Documentation=https://github.com/fand1l/cts_gl
+PartOf=graphical-session.target
+After=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart=@PYTHON@ @APPDIR@/circle_to_search/__main__.py
+Restart=on-failure
+RestartSec=3
+# stderr goes straight to the journal:
+#   journalctl --user -u circle-to-search.service -f
+SyslogIdentifier=circle-to-search
+Slice=app.slice
+
+[Install]
+WantedBy=graphical-session.target

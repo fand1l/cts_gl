@@ -1,0 +1,75 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "circle-to-search"
+version = "1.0.0"
+description = "Shake the cursor, drag a rectangle, search it with Google Lens — for KDE Plasma 6 on Wayland"
+readme = "README.md"
+requires-python = ">=3.13"
+license = { text = "MIT" }
+authors = [{ name = "fand1l" }]
+keywords = ["kde", "plasma", "wayland", "kwin", "google-lens", "screenshot"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: X11 Applications :: KDE",
+    "Intended Audience :: End Users/Desktop",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Desktop Environment :: K Desktop Environment (KDE)",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "PyQt6>=6.6",
+    "Pillow>=10.0",
+    "requests>=2.31",
+]
+
+[project.urls]
+Homepage = "https://github.com/fand1l/cts_gl"
+Issues = "https://github.com/fand1l/cts_gl/issues"
+
+[project.scripts]
+circle-to-search = "circle_to_search.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "src" }
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+src = ["src"]
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle
+    "W",
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # bugbear
+    "UP",   # pyupgrade
+    "C4",   # comprehensions
+    "SIM",  # simplify
+    "RET",  # returns
+    "PTH",  # pathlib
+    "RUF",
+]
+ignore = [
+    "RET504",  # an explicit name before return often reads better here
+    # The UI is bilingual: Cyrillic letters and "×" in string literals are
+    # intentional, not homoglyph typos.
+    "RUF001",
+    "RUF002",
+    "RUF003",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"src/circle_to_search/config.py" = ["N815"]
+
+[tool.ruff.format]
+quote-style = "double"

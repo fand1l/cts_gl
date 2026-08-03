@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<kcfg xmlns="http://www.kde.org/standards/kcfg/1.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.kde.org/standards/kcfg/1.0
+                          http://www.kde.org/standards/kcfg/1.0/kcfg.xsd">
+    <!--
+      These keys live in ~/.config/kwinrc under [Script-circletosearch].
+      The Python settings dialog writes exactly the same keys with
+      kwriteconfig6, so both user interfaces stay in sync.
+    -->
+    <kcfgfile name="kwinrc"/>
+    <group name="Script-circletosearch">
+        <entry name="enabled" type="Bool">
+            <label>Detect the cursor shake gesture</label>
+            <default>true</default>
+        </entry>
+        <entry name="reversals" type="Int">
+            <label>Number of direction reversals needed to trigger</label>
+            <default>2</default>
+            <min>1</min>
+            <max>6</max>
+        </entry>
+        <entry name="windowMs" type="Int">
+            <label>Time window in which the reversals have to happen (ms)</label>
+            <default>600</default>
+            <min>150</min>
+            <max>3000</max>
+        </entry>
+        <entry name="minAmplitudePx" type="Int">
+            <label>Minimum length of one swing (logical px)</label>
+            <default>150</default>
+            <min>20</min>
+            <max>1000</max>
+        </entry>
+        <entry name="angleTolerance" type="Int">
+            <label>Allowed deviation from a 45 degree diagonal (degrees)</label>
+            <default>30</default>
+            <min>5</min>
+            <max>44</max>
+        </entry>
+        <entry name="pollMs" type="Int">
+            <label>Cursor polling interval while moving (ms)</label>
+            <default>50</default>
+            <min>20</min>
+            <max>200</max>
+        </entry>
+        <entry name="cooldownMs" type="Int">
+            <label>Time to ignore further shakes after a trigger (ms)</label>
+            <default>1500</default>
+            <min>0</min>
+            <max>10000</max>
+        </entry>
+        <entry name="minStepPx" type="Int">
+            <label>Movement below this is treated as noise (px)</label>
+            <default>6</default>
+            <min>1</min>
+            <max>40</max>
+        </entry>
+        <entry name="shortcut" type="String">
+            <label>Fallback global shortcut registered by the script</label>
+            <default>Meta+Shift+L</default>
+        </entry>
+    </group>
+</kcfg>
