@@ -300,9 +300,14 @@ shot = Image.new("RGB", (screen.geometry().width() * 2, screen.geometry().height
 metrics = hidpi.measure_screen(screen.name(), screen.geometry(), shot.size, 2.0)
 
 
-def make_overlay(mode: str) -> SelectionOverlay:
+def make_overlay(mode: str, mask_outside: bool = False) -> SelectionOverlay:
     overlay = SelectionOverlay(
-        QPixmap.fromImage(pil_to_qimage(shot)), metrics, screen, dim_percent=40, mode=mode
+        QPixmap.fromImage(pil_to_qimage(shot)),
+        metrics,
+        screen,
+        dim_percent=40,
+        mode=mode,
+        mask_outside=mask_outside,
     )
     overlay.resize(screen.geometry().size())
     return overlay
@@ -350,6 +355,27 @@ check("lasso polygon", lasso.selection_polygon().count() == 4)
 lasso.render(QPixmap(lasso.size()))
 check("lasso paints", True)
 check("lasso path closed", lasso._selection_path().elementCount() >= 4)
+
+# The loop marks out the edges: what is un-dimmed — and therefore what will be
+# uploaded — is the bounding box, not the shape.  With the optional mask on, the
+# revealed area becomes the shape itself, so the preview never lies.
+check(
+    "reveal is the bbox",
+    lasso._reveal_path().boundingRect().toRect() == QRect(100, 100, 200, 200),
+    str(lasso._reveal_path().boundingRect()),
+)
+check("reveal is a rectangle", lasso._reveal_path().elementCount() == 5,
+      str(lasso._reveal_path().elementCount()))
+
+masking = make_overlay(MODE_LASSO, mask_outside=True)
+masking._has_selection = True
+masking._drag_mode = MODE_LASSO
+masking._points = list(lasso._points)
+masking._current = QPoint(100, 200)
+check("mask mode reveals the shape",
+      masking._reveal_path().elementCount() == lasso._selection_path().elementCount())
+masking.render(QPixmap(masking.size()))
+check("mask mode paints", True)
 
 # --- lasso masking ---------------------------------------------------------
 crop = hidpi.logical_rect_to_physical(lasso._selection_rect(), metrics)

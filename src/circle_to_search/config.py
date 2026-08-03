@@ -313,8 +313,12 @@ class AppSettings:
 
     @property
     def lasso_mask(self) -> bool:
-        """Paint everything outside the lasso white before uploading."""
-        return self._get_bool("lasso_mask", True)
+        """Paint everything outside the lasso white before uploading.
+
+        Off by default: the loop is there to mark out the edges, and Google
+        should get the screenshot as it looks, not a shape cut out of it.
+        """
+        return self._get_bool("lasso_mask", False)
 
     @lasso_mask.setter
     def lasso_mask(self, value: bool) -> None:

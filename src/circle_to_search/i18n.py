@@ -84,10 +84,11 @@ _EN: dict[str, str] = {
     "settings.mode.hint": (
         "Hold Shift while starting a drag to use the other shape for one selection."
     ),
-    "settings.lasso_mask": "Whiten everything outside the lasso",
+    "settings.lasso_mask": "Keep only the inside of the loop (whiten the rest)",
     "settings.lasso_mask.hint": (
-        "Lens always receives a rectangle. With this on, only what you circled is "
-        "kept and the rest of the bounding box becomes white."
+        "Off by default: the loop only marks out the edges and the upload is the "
+        "plain rectangle around it, the way Circle to Search works on a phone. "
+        "Turn it on to isolate a single object from its surroundings."
     ),
     "settings.backend": "Google endpoint:",
     "settings.backend.browser": "Let the browser upload (recommended)",
@@ -191,10 +192,11 @@ _UK: dict[str, str] = {
     "settings.mode.hint": (
         "Затисніть Shift на початку руху, щоб один раз скористатися іншою формою."
     ),
-    "settings.lasso_mask": "Забілювати все за межами ласо",
+    "settings.lasso_mask": "Залишати тільки обведене (решту забілювати)",
     "settings.lasso_mask.hint": (
-        "Lens у будь-якому разі отримує прямокутник. З цією опцією залишається "
-        "лише обведене, а решта прямокутника стає білою."
+        "Вимкнено за замовчуванням: ласо лише вказує межі, а надсилається "
+        "звичайний прямокутник навколо нього — так само, як Circle to Search на "
+        "телефоні. Вмикайте, щоб відділити один об’єкт від фону."
     ),
     "settings.backend": "Ендпоінт Google:",
     "settings.backend.browser": "Вивантажує браузер (рекомендовано)",

@@ -59,8 +59,11 @@ Four components, each in its own place:
    `PyQt6.QtDBus` (one Qt event loop for D-Bus and GUI alike).
 3. **Overlay** (`overlay.py`) — a frameless full-screen widget showing the
    screenshot, dimmed, with the selection as a "hole" like Spectacle's region
-   mode. The default shape is a **freehand lasso**; hold *Shift* while starting
-   a drag for a rectangle (or swap the default in Settings).
+   mode. The default gesture is a **freehand lasso**, and like Circle to Search
+   on a phone the loop only *marks out the edges*: what gets uploaded is the
+   plain rectangle around it, so the un-dimmed area always shows exactly what
+   Google will receive. Hold *Shift* while starting a drag for a rectangle (or
+   swap the default in Settings).
 4. **Lens upload** (`lens.py`) — the daemon does **not** upload. It writes a
    small self-contained HTML page with the JPEG inlined and opens it, and the
    *browser* posts it to `lens.google.com/v3/upload`. That is not a detour:
@@ -197,7 +200,7 @@ Application-only settings live in
 | Key | Default | Meaning |
 |---|---|---|
 | `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
-| `lasso_mask` | `true` | Whiten everything outside the loop before uploading |
+| `lasso_mask` | `false` | Keep only the inside of the loop and whiten the rest — off, because the loop is there to set the bounds |
 | `lens_backend` | `browser` | `browser` (the browser uploads), `auto`, `lens`, `searchbyimage`, or one variant name |
 | `max_side` | `1000` | Longest side of the uploaded JPEG |
 | `jpeg_quality` | `85` | |
@@ -206,9 +209,11 @@ Application-only settings live in
 | `language` | `auto` | `auto`, `uk` or `en` |
 | `use_layer_shell` | `false` | See above |
 
-Lens always receives a rectangle — a lasso is uploaded as its bounding box with
-everything outside the loop painted white, so only what you circled is visible
-to Google.
+Lens always receives a rectangle. By default a lasso is uploaded as the plain
+crop around the loop — nothing is painted over, exactly like circling something
+on Android. `lasso_mask=true` instead whitens everything outside the loop, which
+is useful for isolating one object from a busy background; the overlay follows
+the setting, so the bright area is always what gets sent.
 
 The UI is available in Ukrainian and English; it follows the system locale
 unless you pick one in Settings.

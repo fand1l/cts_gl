@@ -295,6 +295,7 @@ class CircleToSearchApp(QObject):
             screen=screen,
             dim_percent=self._settings.dim_percent,
             mode=self._settings.selection_mode,
+            mask_outside=self._settings.lasso_mask,
         )
         overlay.selected.connect(
             lambda rect, polygon: self._on_selected(rect, polygon, capture.image, metrics)
@@ -326,8 +327,9 @@ class CircleToSearchApp(QObject):
         log.info("cropping %s out of %dx%d", box, metrics.physical_width, metrics.physical_height)
         cropped = image.crop(box)
 
-        # A lasso is uploaded as its bounding box with everything outside the
-        # loop painted white, so Lens only sees what was actually circled.
+        # The lasso only marks out the edges: by default the upload is the plain
+        # rectangular crop, the way Circle to Search behaves on a phone.  The
+        # optional mask whitens everything outside the loop instead.
         if polygon.count() >= 3 and self._settings.lasso_mask:
             points = polygon_to_crop_space(polygon, rect.x(), rect.y(), metrics)
             cropped = mask_outside_polygon(cropped, points)

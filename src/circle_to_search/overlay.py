@@ -8,9 +8,11 @@ mode looks.
 Two selection modes:
 
 * **lasso** (default) — draw freehand around whatever you want, like Android's
-  Circle to Search.  The crop that gets uploaded is the bounding box of the
-  loop; everything outside the loop can be painted white
-  (:class:`AppSettings.lasso_mask`) so Lens sees only what was circled.
+  Circle to Search.  The loop only *marks out the edges*: what gets uploaded is
+  the plain rectangular crop around it, exactly as it looks on screen.  Turning
+  on :class:`AppSettings.lasso_mask` additionally whitens everything outside the
+  loop, which is occasionally useful for isolating one object but is not what
+  Circle to Search does.
 * **rectangle** — the classic drag.  Hold *Shift* while starting a lasso drag to
   get a rectangle for that one selection (and vice versa).
 
@@ -85,12 +87,17 @@ class SelectionOverlay(QWidget):
         screen: QScreen,
         dim_percent: int = 40,
         mode: str = MODE_LASSO,
+        mask_outside: bool = False,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._metrics = metrics
         self._target_screen = screen
         self._mode = mode if mode in (MODE_LASSO, MODE_RECTANGLE) else MODE_LASSO
+        #: Whether the upload will keep only the inside of the loop.  It decides
+        #: what the overlay un-dims, so that the bright area is always exactly
+        #: what Google is going to receive.
+        self._mask_outside = mask_outside
         self._drag_mode = self._mode
         self._finished = False
 
@@ -197,25 +204,47 @@ class SelectionOverlay(QWidget):
             return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
-        path = self._selection_path()
 
-        # Cut the "hole": redraw the untouched screenshot inside the selection.
+        # Cut the "hole" showing exactly what will be uploaded: the bounding box
+        # (the loop only marks out the edges, like Circle to Search on Android)
+        # or the loop itself when the outside is going to be whitened.
         # Clipping is used instead of a source rectangle so that the lasso and
-        # the rectangle take exactly the same code path.
+        # the rectangle take the same code path.
         painter.save()
-        painter.setClipPath(path)
+        painter.setClipPath(self._reveal_path())
         painter.drawPixmap(0, 0, self._sharp)
         painter.restore()
 
         pen = QPen(self._accent)
         pen.setWidth(1)
         pen.setCosmetic(True)
-        painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawPath(path)
+
+        if self._drag_mode == MODE_LASSO and not self._mask_outside:
+            # Show both: the stroke follows the hand, the dashed box is the crop.
+            outline = QColor(self._accent)
+            outline.setAlpha(150)
+            dashed = QPen(outline)
+            dashed.setWidth(1)
+            dashed.setCosmetic(True)
+            dashed.setStyle(Qt.PenStyle.DashLine)
+            painter.setPen(dashed)
+            painter.drawRect(selection.adjusted(0, 0, -1, -1))
+
+        painter.setPen(pen)
+        painter.drawPath(self._selection_path())
 
         self._draw_size_label(painter, selection)
         painter.end()
+
+    def _reveal_path(self) -> QPainterPath:
+        """The area to un-dim: what the upload will actually contain."""
+        if self._drag_mode == MODE_LASSO and self._mask_outside:
+            return self._selection_path()
+        rect = self._selection_rect()
+        path = QPainterPath()
+        path.addRect(float(rect.x()), float(rect.y()), float(rect.width()), float(rect.height()))
+        return path
 
     def _selection_path(self) -> QPainterPath:
         """The selection outline: a polygon for the lasso, a rect otherwise."""
