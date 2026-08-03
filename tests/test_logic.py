@@ -25,11 +25,21 @@ from PyQt6.QtWidgets import QApplication
 
 app = QApplication(sys.argv[:1])
 
+import requests  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from circle_to_search import hidpi, i18n, lens  # noqa: E402
-from circle_to_search.overlay import SelectionOverlay  # noqa: E402
-from circle_to_search.screenshot import _decode_raw, pil_to_qimage  # noqa: E402
+from circle_to_search.imageops import (  # noqa: E402
+    mask_outside_polygon,
+    pil_to_qimage,
+    polygon_to_crop_space,
+)
+from circle_to_search.overlay import (  # noqa: E402
+    MODE_LASSO,
+    MODE_RECTANGLE,
+    SelectionOverlay,
+)
+from circle_to_search.screenshot import _decode_raw  # noqa: E402
 
 failures: list[str] = []
 
@@ -78,14 +88,99 @@ img = Image.new("RGB", (2400, 1200), (10, 120, 200))
 prepared = lens.prepare_image(img, max_side=1000, quality=85)
 check("resize", (prepared.width, prepared.height) == (1000, 500), str(prepared.dimensions))
 check("jpeg magic", prepared.payload[:2] == b"\xff\xd8")
-url, headers, files = lens.build_request(prepared)
-check("url", url.startswith("https://lens.google.com/v3/upload?ep=ccm&s=&st="), url)
-check("ua", "Chrome/" in headers["User-Agent"])
-check("fields", set(files) == {"encoded_image", "processed_image_dimensions"})
-check("dims field", files["processed_image_dimensions"][1] == b"1000,500")
-
 small = lens.prepare_image(Image.new("RGB", (50, 50)), max_side=1000)
 check("no upscale", (small.width, small.height) == (50, 50))
+
+# The real session must carry the consent cookie and a browser UA, otherwise
+# Google answers EU clients with an interstitial instead of a result.
+real_session = lens._session()
+check("consent cookie", real_session.cookies.get("SOCS") == lens.CONSENT_COOKIES["SOCS"])
+check("browser ua", "Chrome/" in real_session.headers["User-Agent"])
+
+
+def _response(status: int, location: str = "", body: str = "", url: str = "https://x/") -> object:
+    response = requests.Response()
+    response.status_code = status
+    response.url = url
+    if location:
+        response.headers["Location"] = location
+    response._content = body.encode()
+    return response
+
+
+class _FakeSession:
+    """Replays a scripted list of responses and records what was sent."""
+
+    def __init__(self, script: list) -> None:
+        self.script = list(script)
+        self.calls: list[tuple] = []
+
+    def post(self, url, files=None, data=None, timeout=None, allow_redirects=None):
+        self.calls.append(("post", url, files, data))
+        return self.script.pop(0)
+
+    def get(self, url, timeout=None, allow_redirects=None):
+        self.calls.append(("get", url))
+        return self.script.pop(0)
+
+
+def with_session(script: list):
+    fake = _FakeSession(script)
+    lens._session = lambda: fake  # type: ignore[assignment]
+    return fake
+
+
+_real_session_factory = lens._session
+
+# Happy path: one redirect straight to a Lens result page.
+fake = with_session([_response(302, "https://lens.google.com/search?p=TOKEN")])
+result = lens.upload_lens(prepared)
+check("upload result", result == "https://lens.google.com/search?p=TOKEN", result)
+method, posted_url, files, data = fake.calls[0]
+check("upload url", posted_url.startswith("https://lens.google.com/v3/upload?ep=ccm&s=&st="),
+      posted_url)
+check("image part", files["encoded_image"][2] == "image/jpeg")
+check("image bytes", files["encoded_image"][1][:2] == b"\xff\xd8")
+# A plain form field, not a file part with an empty filename: sent the wrong
+# way Google ignores the upload and the result page opens without a picture.
+check("dims is a form field", data == {"processed_image_dimensions": "1000,500"}, str(data))
+
+# The EU consent interstitial has to be unwrapped, not opened in the browser.
+fake = with_session([
+    _response(302, "https://consent.google.com/m?continue=https%3A%2F%2Flens.google.com"
+                   "%2Fsearch%3Fp%3DTOK&gl=UA"),
+])
+check("consent unwrapped", lens.upload_lens(prepared) == "https://lens.google.com/search?p=TOK")
+
+# 200 with the URL buried in the HTML.
+with_session([_response(200, body='x <a href="https://lens.google.com/search?p=HTML">y</a>')])
+check("html fallback", lens.upload_lens(prepared) == "https://lens.google.com/search?p=HTML")
+
+# 200 with nothing usable must raise a descriptive error, not open a junk page.
+with_session([_response(200, body="<html>sorry</html>")])
+try:
+    lens.upload_lens(prepared)
+    check("junk raises", False)
+except lens.LensError as exc:
+    check("junk raises", "endpoint has most likely changed" in str(exc), str(exc)[:60])
+
+# auto: Lens fails, search-by-image takes over.
+fake = with_session([
+    _response(500),
+    _response(302, "https://www.google.com/search?tbs=sbi:FALLBACK"),
+])
+check(
+    "auto falls back",
+    lens.upload(prepared, backend=lens.BACKEND_AUTO)
+    == "https://www.google.com/search?tbs=sbi:FALLBACK",
+)
+check(
+    "fallback endpoint",
+    fake.calls[1][1].startswith(lens.SEARCH_BY_IMAGE_URL),
+    str(fake.calls[1][1]),
+)
+
+lens._session = _real_session_factory  # type: ignore[assignment]
 
 html_body = '<meta http-equiv="refresh" content="0; url=https://lens.google.com/search?p=abc&amp;x=1">'
 check(
@@ -128,26 +223,92 @@ check("unknown lang", i18n.current_language() == "en")
 check("missing key", i18n.tr("no.such.key") == "no.such.key")
 check("format", "42" in i18n.tr("notify.lens_failed_body", error=42))
 
+# --- lens redirect handling ------------------------------------------------
+check("result url lens", lens.is_result_url("https://lens.google.com/search?p=abc"))
+check("result url google", lens.is_result_url("https://www.google.com/search?tbs=sbi:xyz"))
+check("result url consent", not lens.is_result_url("https://consent.google.com/m?continue=x"))
+consent = "https://consent.google.com/m?continue=https%3A%2F%2Flens.google.com%2Fsearch%3Fp%3Dq"
+check(
+    "unwrap consent",
+    lens.unwrap_interstitial(consent) == "https://lens.google.com/search?p=q",
+    lens.unwrap_interstitial(consent),
+)
+plain = "https://lens.google.com/search?p=q"
+check("unwrap passthrough", lens.unwrap_interstitial(plain) == plain)
+
+
 # --- overlay ---------------------------------------------------------------
 screen = app.primaryScreen()
 shot = Image.new("RGB", (screen.geometry().width() * 2, screen.geometry().height() * 2), "green")
 metrics = hidpi.measure_screen(screen.name(), screen.geometry(), shot.size, 2.0)
-pixmap = QPixmap.fromImage(pil_to_qimage(shot))
-overlay = SelectionOverlay(pixmap, metrics, screen, dim_percent=40)
-got: list[QRect] = []
-overlay.selected.connect(got.append)
+
+
+def make_overlay(mode: str) -> SelectionOverlay:
+    overlay = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(shot)), metrics, screen, dim_percent=40, mode=mode
+    )
+    overlay.resize(screen.geometry().size())
+    return overlay
+
+
+# Nothing may be selected before the first press: this was a visible bug where
+# a rectangle appeared anchored at the top-left corner as soon as the pointer
+# moved over the freshly mapped overlay.
+rect_overlay = make_overlay(MODE_RECTANGLE)
+rect_overlay._current = QPoint(400, 300)  # pointer moved, no button pressed
+check("no phantom selection", rect_overlay._selection_rect().isEmpty(),
+      str(rect_overlay._selection_rect()))
+rect_overlay.render(QPixmap(rect_overlay.size()))
+check("hint paints", True)
+
+rect_overlay._has_selection = True
+rect_overlay._origin = QPoint(100, 100)
+rect_overlay._current = QPoint(300, 250)
+check("rect selection", rect_overlay._selection_rect() == QRect(100, 100, 200, 150))
+check("rect has no polygon", rect_overlay.selection_polygon().count() == 0)
+
+got: list[tuple] = []
+rect_overlay.selected.connect(lambda r, p: got.append((r, p)))
 cancelled: list[bool] = []
-overlay.cancelled.connect(lambda: cancelled.append(True))
-overlay.resize(screen.geometry().size())
-overlay._origin = QPoint(100, 100)
-overlay._current = QPoint(300, 250)
-check("selection rect", overlay._selection_rect() == QRect(100, 100, 200, 150))
-overlay.render(QPixmap(overlay.size()))  # exercises paintEvent
-check("paint ok", True)
-overlay._finish(lambda: overlay.selected.emit(
-    hidpi.logical_rect_to_physical(overlay._selection_rect(), metrics)))
-check("emitted once", len(got) == 1 and got[0] == QRect(200, 200, 400, 300), str(got))
+rect_overlay.cancelled.connect(lambda: cancelled.append(True))
+rect_overlay.render(QPixmap(rect_overlay.size()))
+rect_overlay._finish(
+    lambda: rect_overlay.selected.emit(
+        hidpi.logical_rect_to_physical(rect_overlay._selection_rect(), metrics),
+        rect_overlay.selection_polygon(),
+    )
+)
+check("emitted once", len(got) == 1 and got[0][0] == QRect(200, 200, 400, 300), str(got))
 check("no double cancel", not cancelled)
+
+# Lasso: a diamond around (200, 200).
+lasso = make_overlay(MODE_LASSO)
+lasso._has_selection = True
+lasso._drag_mode = MODE_LASSO
+lasso._points = [QPoint(200, 100), QPoint(300, 200), QPoint(200, 300), QPoint(100, 200)]
+lasso._current = QPoint(100, 200)
+check("lasso bbox", lasso._selection_rect() == QRect(100, 100, 200, 200),
+      str(lasso._selection_rect()))
+check("lasso polygon", lasso.selection_polygon().count() == 4)
+lasso.render(QPixmap(lasso.size()))
+check("lasso paints", True)
+check("lasso path closed", lasso._selection_path().elementCount() >= 4)
+
+# --- lasso masking ---------------------------------------------------------
+crop = hidpi.logical_rect_to_physical(lasso._selection_rect(), metrics)
+points = polygon_to_crop_space(lasso.selection_polygon(), crop.x(), crop.y(), metrics)
+check("crop space origin", points[0] == (200, 0), str(points))
+check("crop space count", len(points) == 4)
+
+source = Image.new("RGB", (crop.width(), crop.height()), (10, 200, 30))
+masked = mask_outside_polygon(source, points)
+check("mask size", masked.size == source.size)
+check("mask centre kept", masked.getpixel((crop.width() // 2, crop.height() // 2)) == (10, 200, 30),
+      str(masked.getpixel((crop.width() // 2, crop.height() // 2))))
+check("mask corner white", masked.getpixel((1, 1)) == (255, 255, 255),
+      str(masked.getpixel((1, 1))))
+degenerate = mask_outside_polygon(source, [(0, 0), (5, 0)])
+check("mask degenerate", degenerate.getpixel((1, 1)) == (10, 200, 30))
 
 print()
 if failures:

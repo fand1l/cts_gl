@@ -35,7 +35,7 @@ from urllib.parse import unquote, urlparse
 from PIL import Image
 from PyQt6.QtCore import QEventLoop, QObject, QRect, QTimer, pyqtSlot
 from PyQt6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage, QDBusUnixFileDescriptor
-from PyQt6.QtGui import QImage, QScreen
+from PyQt6.QtGui import QScreen
 
 from .logging_setup import get_logger
 
@@ -488,19 +488,3 @@ def _crop_desktop_to_screen(image: Image.Image, screen: QScreen) -> Image.Image:
         return image
     log.debug("cropping desktop image %s to %s", image.size, (left, top, right, bottom))
     return image.crop((left, top, right, bottom))
-
-
-def pil_to_qimage(image: Image.Image) -> QImage:
-    """Convert a Pillow image into a standalone ``QImage`` (owns its memory)."""
-    rgb = image if image.mode == "RGB" else image.convert("RGB")
-    payload = rgb.tobytes("raw", "RGB")
-    qimage = QImage(
-        payload,
-        rgb.width,
-        rgb.height,
-        rgb.width * 3,
-        QImage.Format.Format_RGB888,
-    )
-    # copy() detaches from the Python buffer, which is about to be garbage
-    # collected; without it the QImage would point at freed memory.
-    return qimage.copy()

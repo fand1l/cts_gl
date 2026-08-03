@@ -77,7 +77,28 @@ _EN: dict[str, str] = {
     "settings.language": "Language:",
     "settings.language.auto": "System",
     "settings.restart_note": "Detection settings are applied to KWin immediately.",
-    "overlay.hint": "Drag to select · Esc or right-click to cancel",
+    "settings.group.selection": "Selection",
+    "settings.mode": "Selection shape:",
+    "settings.mode.lasso": "Lasso (freehand)",
+    "settings.mode.rect": "Rectangle",
+    "settings.mode.hint": (
+        "Hold Shift while starting a drag to use the other shape for one selection."
+    ),
+    "settings.lasso_mask": "Whiten everything outside the lasso",
+    "settings.lasso_mask.hint": (
+        "Lens always receives a rectangle. With this on, only what you circled is "
+        "kept and the rest of the bounding box becomes white."
+    ),
+    "settings.backend": "Google endpoint:",
+    "settings.backend.auto": "Lens, then search by image",
+    "settings.backend.lens": "Lens only",
+    "settings.backend.sbi": "Search by image only",
+    "settings.backend.hint": (
+        "Both are undocumented. If the result page opens without a picture, try "
+        "the other one, or run: circle-to-search --test-lens FILE --verbose"
+    ),
+    "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
+    "overlay.hint.rect": "Drag to select · Esc or right-click to cancel",
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
 }
@@ -156,7 +177,28 @@ _UK: dict[str, str] = {
     "settings.language": "Мова:",
     "settings.language.auto": "Системна",
     "settings.restart_note": "Налаштування детекції застосовуються до KWin одразу.",
-    "overlay.hint": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",
+    "settings.group.selection": "Виділення",
+    "settings.mode": "Форма виділення:",
+    "settings.mode.lasso": "Ласо (від руки)",
+    "settings.mode.rect": "Прямокутник",
+    "settings.mode.hint": (
+        "Затисніть Shift на початку руху, щоб один раз скористатися іншою формою."
+    ),
+    "settings.lasso_mask": "Забілювати все за межами ласо",
+    "settings.lasso_mask.hint": (
+        "Lens у будь-якому разі отримує прямокутник. З цією опцією залишається "
+        "лише обведене, а решта прямокутника стає білою."
+    ),
+    "settings.backend": "Ендпоінт Google:",
+    "settings.backend.auto": "Lens, потім пошук за зображенням",
+    "settings.backend.lens": "Лише Lens",
+    "settings.backend.sbi": "Лише пошук за зображенням",
+    "settings.backend.hint": (
+        "Обидва — неофіційні. Якщо сторінка відкривається без картинки, спробуйте "
+        "інший або запустіть: circle-to-search --test-lens ФАЙЛ --verbose"
+    ),
+    "overlay.hint.lasso": "Обведіть потрібне · Esc або права кнопка — скасувати",
+    "overlay.hint.rect": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",
 }

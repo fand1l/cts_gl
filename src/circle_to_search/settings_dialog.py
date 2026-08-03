@@ -154,6 +154,31 @@ class SettingsDialog(QDialog):
         form.addRow(_hint(tr("settings.maxside.hint")))
         layout.addWidget(image)
 
+        selection = QGroupBox(tr("settings.group.selection"), page)
+        selection_layout = QVBoxLayout(selection)
+        mode_row = QHBoxLayout()
+        mode_row.addWidget(QLabel(tr("settings.mode")))
+        self.mode_combo = QComboBox(selection)
+        self.mode_combo.addItem(tr("settings.mode.lasso"), "lasso")
+        self.mode_combo.addItem(tr("settings.mode.rect"), "rectangle")
+        mode_row.addWidget(self.mode_combo, 1)
+        selection_layout.addLayout(mode_row)
+        selection_layout.addWidget(_hint(tr("settings.mode.hint")))
+        self.lasso_mask_box = QCheckBox(tr("settings.lasso_mask"), selection)
+        selection_layout.addWidget(self.lasso_mask_box)
+        selection_layout.addWidget(_hint(tr("settings.lasso_mask.hint")))
+        layout.addWidget(selection)
+
+        backend_row = QHBoxLayout()
+        backend_row.addWidget(QLabel(tr("settings.backend")))
+        self.backend_combo = QComboBox(image)
+        self.backend_combo.addItem(tr("settings.backend.auto"), "auto")
+        self.backend_combo.addItem(tr("settings.backend.lens"), "lens")
+        self.backend_combo.addItem(tr("settings.backend.sbi"), "searchbyimage")
+        backend_row.addWidget(self.backend_combo, 1)
+        form.addRow(backend_row)
+        form.addRow(_hint(tr("settings.backend.hint")))
+
         behaviour = QGroupBox(tr("settings.group.behaviour"), page)
         behaviour_layout = QVBoxLayout(behaviour)
 
@@ -225,6 +250,11 @@ class SettingsDialog(QDialog):
         self.dim_value.setText(f"{settings.dim_percent} %")
         self.layer_shell_box.setChecked(settings.use_layer_shell)
         self.autostart_box.setChecked(autostart_enabled())
+        self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(settings.selection_mode)))
+        self.lasso_mask_box.setChecked(settings.lasso_mask)
+        self.backend_combo.setCurrentIndex(
+            max(0, self.backend_combo.findData(settings.lens_backend))
+        )
 
         index = self.language_combo.findData(settings.language)
         self.language_combo.setCurrentIndex(max(0, index))
@@ -258,6 +288,9 @@ class SettingsDialog(QDialog):
         settings.copy_to_clipboard = self.clipboard_box.isChecked()
         settings.dim_percent = self.dim_slider.value()
         settings.use_layer_shell = self.layer_shell_box.isChecked()
+        settings.selection_mode = str(self.mode_combo.currentData())
+        settings.lasso_mask = self.lasso_mask_box.isChecked()
+        settings.lens_backend = str(self.backend_combo.currentData())
         settings.language = str(self.language_combo.currentData())
         settings.sync()
 

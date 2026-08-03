@@ -1,7 +1,7 @@
 # Circle to Search for KDE Plasma 6 (Wayland)
 
-Shake the pointer, drag a rectangle over anything on screen, get Google Lens
-results in your browser. A Linux take on Android's "Circle to Search".
+Shake the pointer, circle anything on screen with a freehand lasso, get Google
+Lens results in your browser. A Linux take on Android's "Circle to Search".
 
 No OCR, no vision model, no API keys: the program only cuts out the region and
 uploads it to Google Lens — all the intelligence is Google's.
@@ -9,7 +9,7 @@ uploads it to Google Lens — all the intelligence is Google's.
 | | |
 |---|---|
 | ![shake gesture](docs/screenshot-gesture.png) | ![selection overlay](docs/screenshot-overlay.png) |
-| *1. Shake the cursor diagonally* | *2. Drag a rectangle on the frozen screen* |
+| *1. Shake the cursor diagonally* | *2. Circle something on the frozen screen* |
 | ![settings](docs/screenshot-settings.png) | ![lens result](docs/screenshot-result.png) |
 | *3. Tune the gesture in the tray settings* | *4. Lens opens in your browser* |
 
@@ -59,10 +59,12 @@ Four components, each in its own place:
    `PyQt6.QtDBus` (one Qt event loop for D-Bus and GUI alike).
 3. **Overlay** (`overlay.py`) — a frameless full-screen widget showing the
    screenshot, dimmed, with the selection as a "hole" like Spectacle's region
-   mode.
+   mode. The default shape is a **freehand lasso**; hold *Shift* while starting
+   a drag for a rectangle (or swap the default in Settings).
 4. **Lens upload** (`lens.py`) — one `POST` to `lens.google.com/v3/upload`,
-   whose `Location` header is the result page. The whole unofficial-endpoint
-   risk is isolated in that single file.
+   whose `Location` header is the result page, with the older
+   `google.com/searchbyimage/upload` as a fallback. The whole
+   unofficial-endpoint risk is isolated in that single file.
 
 The HiDPI arithmetic lives in `hidpi.py`: KWin's coordinates and Qt's widget
 coordinates are **logical** pixels, the screenshot is **physical** pixels, and
@@ -127,7 +129,14 @@ journalctl --user -u plasma-kwin_wayland -f | grep -i circle
 ```
 
 Then shake the pointer: **down-right, up-left, down-right** at roughly 45°,
-about 150 px per swing, inside 600 ms. Or press **Meta+Shift+L**.
+about 150 px per swing, inside 600 ms. Or press **Meta+Shift+L**. Then circle
+what you want to look up.
+
+Check the upload path on its own, without the GUI:
+
+```bash
+circle-to-search --test-lens ~/Pictures/something.png --verbose
+```
 
 ### Packaging (RPM / COPR)
 
@@ -178,9 +187,24 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `minStepPx` | `6` | Movement below this is noise |
 | `shortcut` | `Meta+Shift+L` | Fallback global shortcut |
 
-Application-only settings (JPEG quality, longest side, clipboard copy, dimming,
-language, layer-shell, autostart) live in
-`~/.config/circle-to-search/circle-to-search.conf`.
+Application-only settings live in
+`~/.config/circle-to-search/circle-to-search.conf`:
+
+| Key | Default | Meaning |
+|---|---|---|
+| `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
+| `lasso_mask` | `true` | Whiten everything outside the loop before uploading |
+| `lens_backend` | `auto` | `auto`, `lens` or `searchbyimage` — see `lens.py` |
+| `max_side` | `1000` | Longest side of the uploaded JPEG |
+| `jpeg_quality` | `85` | |
+| `copy_to_clipboard` | `false` | Also put the selection on the clipboard |
+| `dim_percent` | `40` | Overlay dimming |
+| `language` | `auto` | `auto`, `uk` or `en` |
+| `use_layer_shell` | `false` | See above |
+
+Lens always receives a rectangle — a lasso is uploaded as its bounding box with
+everything outside the loop painted white, so only what you circled is visible
+to Google.
 
 The UI is available in Ukrainian and English; it follows the system locale
 unless you pick one in Settings.
@@ -315,28 +339,54 @@ and `fullScreen` on it. If it still ends up behind the panel:
 * A "Keep Above Others" window rule on another window still wins — check
   System Settings → Window Management → Window Rules.
 
-### Google Lens
+### Google Lens opens, but there is no picture on the page
 
-Test the endpoint on its own, without the app:
+Start here — it runs the whole upload path with nothing else in the way and
+prints the URL that would have gone to the browser:
+
+```bash
+circle-to-search --test-lens ~/Pictures/something.png --verbose
+circle-to-search --test-lens ~/Pictures/something.png --backend searchbyimage
+```
+
+Known causes, most likely first:
+
+* **The cookie-consent interstitial.** From the EU and Ukraine an anonymous
+  upload is answered with a redirect to `consent.google.com`; opening *that* in
+  a browser ends on an error page with no image. A `SOCS`/`CONSENT` cookie is
+  now sent to skip it, and a consent URL that comes back anyway has its
+  `continue=` parameter unwrapped (`--verbose` logs `unwrapped an
+  interstitial`).
+* **The wrong endpoint for your region.** Settings → General → *Google
+  endpoint*, or `lens_backend=searchbyimage` in the config file. `auto` tries
+  Lens first and falls back to `google.com/searchbyimage/upload`, whose result
+  URL is a plain search page that opens anywhere.
+* **The endpoint changed.** `--verbose` ends with `Google answered 200 without a
+  usable result URL`. Open <https://lens.google.com> in Chrome, drop an image on
+  it, copy the upload request from the network tab as cURL and compare it with
+  the top of `lens.py` — the URL, the field names and the headers are all in
+  that one file.
+
+The same request by hand:
 
 ```bash
 curl -sS -D- -o /dev/null -X POST \
   "https://lens.google.com/v3/upload?ep=ccm&s=&st=$(date +%s%3N)" \
   -H 'User-Agent: Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' \
+  -H 'Cookie: SOCS=CAESHAgBEhIaAB' \
   -F 'encoded_image=@/tmp/shot.jpg;type=image/jpeg' \
   -F 'processed_image_dimensions=1000,562' | grep -i '^location'
 ```
 
-Expected: `location: https://lens.google.com/search?p=…`.
+Expected: `location: https://lens.google.com/search?p=…`. A `location:` pointing
+at `consent.google.com` confirms the first cause above.
 
-* A `200` and no `Location` → Google changed the endpoint. Everything about it
-  lives in `lens.py`; open Lens in Chrome, watch the network tab for the upload
-  request and update the URL/fields there. The app tries to scrape the result
-  URL out of the HTML first, so it may keep working for a while.
 * `Timeout` / `no connection` → the daemon raises a notification; nothing is
   ever swallowed silently.
 * The upload runs on a worker thread, so a slow network never freezes the
   overlay or the desktop.
+* Want to see exactly what was sent? Turn on *Also copy the selection to the
+  clipboard* and paste it somewhere — that is the image, lasso mask and all.
 
 ### Everything else
 

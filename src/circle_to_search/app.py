@@ -7,7 +7,7 @@ from pathlib import Path
 
 from PIL import Image
 from PyQt6.QtCore import QObject, QRect, QRunnable, Qt, QThreadPool, QTimer, pyqtSignal, pyqtSlot
-from PyQt6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QPixmap, QScreen
+from PyQt6.QtGui import QAction, QCursor, QGuiApplication, QIcon, QPixmap, QPolygon, QScreen
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import APP_ID, DBUS_SERVICE, __version__
@@ -20,12 +20,13 @@ from .config import (
 )
 from .dbus_service import ServiceObject, register_service, unregister_service
 from .hidpi import ScreenMetrics, measure_screen
-from .i18n import set_language, tr
+from .i18n import current_language, set_language, tr
+from .imageops import mask_outside_polygon, pil_to_qimage, polygon_to_crop_space
 from .lens import LensError, prepare_image, upload
 from .logging_setup import get_logger
 from .notify import notify, notify_error
 from .overlay import SelectionOverlay
-from .screenshot import CaptureError, capture_screen, pil_to_qimage
+from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
 
 log = get_logger("app")
@@ -41,7 +42,14 @@ class _UploadSignals(QObject):
 class _UploadTask(QRunnable):
     """Runs the Lens upload off the GUI thread."""
 
-    def __init__(self, image: Image.Image, max_side: int, quality: int) -> None:
+    def __init__(
+        self,
+        image: Image.Image,
+        max_side: int,
+        quality: int,
+        backend: str,
+        language: str,
+    ) -> None:
         super().__init__()
         # QThreadPool deletes an auto-delete runnable as soon as run() returns,
         # which would take `signals` down with it while the queued emission is
@@ -52,12 +60,14 @@ class _UploadTask(QRunnable):
         self._image = image
         self._max_side = max_side
         self._quality = quality
+        self._backend = backend
+        self._language = language
 
     @pyqtSlot()
     def run(self) -> None:
         try:
             prepared = prepare_image(self._image, max_side=self._max_side, quality=self._quality)
-            url = upload(prepared)
+            url = upload(prepared, backend=self._backend, language=self._language)
         except LensError as exc:
             self.signals.failed.emit(str(exc))
         except Exception as exc:
@@ -253,8 +263,11 @@ class CircleToSearchApp(QObject):
             metrics=metrics,
             screen=screen,
             dim_percent=self._settings.dim_percent,
+            mode=self._settings.selection_mode,
         )
-        overlay.selected.connect(lambda rect: self._on_selected(rect, capture.image, metrics))
+        overlay.selected.connect(
+            lambda rect, polygon: self._on_selected(rect, polygon, capture.image, metrics)
+        )
         overlay.cancelled.connect(self._on_cancelled)
         self._overlay = overlay
         overlay.show_on_screen()
@@ -270,18 +283,37 @@ class CircleToSearchApp(QObject):
         log.info("selection cancelled")
         self._release_overlay()
 
-    def _on_selected(self, rect: QRect, image: Image.Image, metrics: ScreenMetrics) -> None:
+    def _on_selected(
+        self,
+        rect: QRect,
+        polygon: QPolygon,
+        image: Image.Image,
+        metrics: ScreenMetrics,
+    ) -> None:
         self._release_overlay()
         box = (rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height())
         log.info("cropping %s out of %dx%d", box, metrics.physical_width, metrics.physical_height)
         cropped = image.crop(box)
+
+        # A lasso is uploaded as its bounding box with everything outside the
+        # loop painted white, so Lens only sees what was actually circled.
+        if polygon.count() >= 3 and self._settings.lasso_mask:
+            points = polygon_to_crop_space(polygon, rect.x(), rect.y(), metrics)
+            cropped = mask_outside_polygon(cropped, points)
+            log.debug("masked everything outside the %d-point lasso", len(points))
 
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
 
         notify(tr("notify.uploading"), transient=True, timeout_ms=3000)
 
-        task = _UploadTask(cropped, self._settings.max_side, self._settings.jpeg_quality)
+        task = _UploadTask(
+            cropped,
+            self._settings.max_side,
+            self._settings.jpeg_quality,
+            self._settings.lens_backend,
+            current_language(),
+        )
         task.signals.finished.connect(lambda url, ref=task: self._finish_upload(ref, url=url))
         task.signals.failed.connect(lambda error, ref=task: self._finish_upload(ref, error=error))
         self._tasks.add(task)

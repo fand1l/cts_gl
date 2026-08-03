@@ -302,6 +302,35 @@ class AppSettings:
         self._settings.setValue("language", value)
 
     @property
+    def selection_mode(self) -> str:
+        """``lasso`` (freehand, the default) or ``rectangle``."""
+        value = str(self._settings.value("selection_mode", "lasso"))
+        return value if value in ("lasso", "rectangle") else "lasso"
+
+    @selection_mode.setter
+    def selection_mode(self, value: str) -> None:
+        self._settings.setValue("selection_mode", value)
+
+    @property
+    def lasso_mask(self) -> bool:
+        """Paint everything outside the lasso white before uploading."""
+        return self._get_bool("lasso_mask", True)
+
+    @lasso_mask.setter
+    def lasso_mask(self, value: bool) -> None:
+        self._settings.setValue("lasso_mask", bool(value))
+
+    @property
+    def lens_backend(self) -> str:
+        """``auto``, ``lens`` or ``searchbyimage`` — see lens.py."""
+        value = str(self._settings.value("lens_backend", "auto"))
+        return value if value in ("auto", "lens", "searchbyimage") else "auto"
+
+    @lens_backend.setter
+    def lens_backend(self, value: str) -> None:
+        self._settings.setValue("lens_backend", value)
+
+    @property
     def use_layer_shell(self) -> bool:
         return self._get_bool("use_layer_shell", False)
 

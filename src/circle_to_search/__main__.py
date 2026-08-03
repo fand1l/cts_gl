@@ -44,7 +44,56 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         action="store_true",
         help="open the selection overlay immediately instead of waiting for a trigger",
     )
+    parser.add_argument(
+        "--test-lens",
+        metavar="IMAGE",
+        help="upload one image file to Google and print the result URL, then exit",
+    )
+    parser.add_argument(
+        "--backend",
+        choices=("auto", "lens", "searchbyimage"),
+        help="which Google endpoint --test-lens should use (default: the configured one)",
+    )
     return parser.parse_args(argv)
+
+
+def test_lens(path: str, backend: str | None, verbose: bool) -> int:
+    """``--test-lens``: the whole upload path with nothing else in the way.
+
+    This is the tool to reach for when the result page opens without a picture:
+    it prints which endpoint answered and the exact URL that would have been
+    handed to the browser, so the problem can be pinned on the endpoint, the
+    network or the crop.
+    """
+    from PIL import Image
+
+    from circle_to_search.config import AppSettings
+    from circle_to_search.lens import LensError, prepare_image, upload
+
+    settings = AppSettings()
+    source = Path(path).expanduser()
+    if not source.is_file():
+        print(f"no such file: {source}", file=sys.stderr)
+        return 2
+
+    with Image.open(source) as handle:
+        image = handle.convert("RGB")
+    prepared = prepare_image(image, max_side=settings.max_side, quality=settings.jpeg_quality)
+    print(
+        f"image     : {source} ({image.width}x{image.height})\n"
+        f"upload    : {prepared.width}x{prepared.height}, {len(prepared.payload) // 1024} KiB JPEG",
+        file=sys.stderr,
+    )
+    try:
+        url = upload(prepared, backend=backend or settings.lens_backend)
+    except LensError as exc:
+        print(f"FAILED    : {exc}", file=sys.stderr)
+        if not verbose:
+            print("Re-run with --verbose to see the full redirect chain.", file=sys.stderr)
+        return 1
+    print(f"result    : {url}", file=sys.stderr)
+    print(url)
+    return 0
 
 
 def find_layer_shell_plugin() -> Path | None:
@@ -107,6 +156,11 @@ def warn_about_session() -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     setup_logging(args.verbose)
+
+    if args.test_lens:
+        # Needs neither a session bus nor a display.
+        return test_lens(args.test_lens, args.backend, args.verbose)
+
     warn_about_session()
 
     # AppSettings only needs QtCore, so the layer-shell decision can be made

@@ -1,9 +1,18 @@
 """The frozen-screen selection overlay.
 
 A frameless, always-on-top, full-screen widget that shows the screenshot that
-was just taken, dims it, and lets the user drag a rectangle.  The un-dimmed
-screenshot shows through inside the rectangle, the same way Spectacle's region
+was just taken, dims it, and lets the user draw a selection.  The un-dimmed
+screenshot shows through inside the selection, the same way Spectacle's region
 mode looks.
+
+Two selection modes:
+
+* **lasso** (default) — draw freehand around whatever you want, like Android's
+  Circle to Search.  The crop that gets uploaded is the bounding box of the
+  loop; everything outside the loop can be painted white
+  (:class:`AppSettings.lasso_mask`) so Lens sees only what was circled.
+* **rectangle** — the classic drag.  Hold *Shift* while starting a lasso drag to
+  get a rectangle for that one selection (and vice versa).
 
 Why not layer-shell?  There are no Python bindings for ``layer-shell-qt`` (it is
 a C++ library without GObject introspection), so the only thing reachable from
@@ -19,7 +28,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
@@ -27,9 +36,11 @@ from PyQt6.QtGui import (
     QKeyEvent,
     QMouseEvent,
     QPainter,
+    QPainterPath,
     QPaintEvent,
     QPen,
     QPixmap,
+    QPolygon,
     QScreen,
 )
 from PyQt6.QtWidgets import QApplication, QWidget
@@ -44,6 +55,13 @@ log = get_logger("overlay")
 #: Selections smaller than this (in logical pixels) are treated as a stray click.
 MIN_SELECTION = 10
 
+#: Freehand points closer together than this are dropped: it keeps the polygon
+#: small without any visible difference.
+_LASSO_MIN_STEP = 3
+
+MODE_LASSO = "lasso"
+MODE_RECTANGLE = "rectangle"
+
 _LABEL_MARGIN = 8
 _LABEL_PADDING = 6
 
@@ -52,10 +70,12 @@ class SelectionOverlay(QWidget):
     """Full-screen selection surface.
 
     Emits :attr:`selected` with the crop box in *physical* pixels of the
-    screenshot, or :attr:`cancelled`.  Exactly one of the two is emitted.
+    screenshot plus the lasso outline in widget-logical pixels (empty for a
+    rectangle selection), or :attr:`cancelled`.  Exactly one of the two is
+    emitted.
     """
 
-    selected = pyqtSignal(QRect)
+    selected = pyqtSignal(QRect, QPolygon)
     cancelled = pyqtSignal()
 
     def __init__(
@@ -64,16 +84,23 @@ class SelectionOverlay(QWidget):
         metrics: ScreenMetrics,
         screen: QScreen,
         dim_percent: int = 40,
+        mode: str = MODE_LASSO,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._metrics = metrics
         self._target_screen = screen
+        self._mode = mode if mode in (MODE_LASSO, MODE_RECTANGLE) else MODE_LASSO
+        self._drag_mode = self._mode
         self._finished = False
+
         self._dragging = False
+        #: False until the first press: without it the selection would be drawn
+        #: from the widget origin to the pointer before anything was clicked.
+        self._has_selection = False
         self._origin = QPoint()
         self._current = QPoint()
-        self._show_hint = True
+        self._points: list[QPoint] = []
 
         self.setWindowTitle(OVERLAY_WINDOW_TITLE)
         self.setObjectName("CircleToSearchOverlay")
@@ -146,7 +173,12 @@ class SelectionOverlay(QWidget):
         self.activateWindow()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
         self.grabKeyboard()
-        log.debug("overlay mapped on %s at %s", self._target_screen.name(), geometry)
+        log.debug(
+            "overlay mapped on %s at %s in %s mode",
+            self._target_screen.name(),
+            geometry,
+            self._mode,
+        )
 
     # ---------------------------------------------------------------- events
 
@@ -154,40 +186,58 @@ class SelectionOverlay(QWidget):
         painter = QPainter(self)
         painter.drawPixmap(0, 0, self._dimmed)
 
-        selection = self._selection_rect()
-        if selection.isNull() or selection.width() < 1 or selection.height() < 1:
-            if self._show_hint:
-                self._draw_hint(painter)
+        if not self._has_selection:
+            self._draw_hint(painter)
             painter.end()
             return
 
+        selection = self._selection_rect()
+        if selection.width() < 1 or selection.height() < 1:
+            painter.end()
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        path = self._selection_path()
+
         # Cut the "hole": redraw the untouched screenshot inside the selection.
-        scale = self._metrics.scale
-        source = QRectF(
-            selection.x() * scale,
-            selection.y() * scale,
-            selection.width() * scale,
-            selection.height() * scale,
-        )
-        painter.drawPixmap(QRectF(selection), self._sharp, source)
+        # Clipping is used instead of a source rectangle so that the lasso and
+        # the rectangle take exactly the same code path.
+        painter.save()
+        painter.setClipPath(path)
+        painter.drawPixmap(0, 0, self._sharp)
+        painter.restore()
 
         pen = QPen(self._accent)
         pen.setWidth(1)
         pen.setCosmetic(True)
         painter.setPen(pen)
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        painter.drawRect(selection.adjusted(0, 0, -1, -1))
+        painter.drawPath(path)
 
         self._draw_size_label(painter, selection)
         painter.end()
 
+    def _selection_path(self) -> QPainterPath:
+        """The selection outline: a polygon for the lasso, a rect otherwise."""
+        path = QPainterPath()
+        if self._drag_mode == MODE_LASSO and len(self._points) >= 3:
+            # QPainterPath only takes floating point coordinates in PyQt6.
+            path.moveTo(float(self._points[0].x()), float(self._points[0].y()))
+            for point in self._points[1:]:
+                path.lineTo(float(point.x()), float(point.y()))
+            path.closeSubpath()
+            return path
+        rect = self._selection_rect()
+        path.addRect(float(rect.x()), float(rect.y()), float(rect.width()), float(rect.height()))
+        return path
+
     def _draw_hint(self, painter: QPainter) -> None:
-        text = tr("overlay.hint")
+        text = tr("overlay.hint.lasso" if self._mode == MODE_LASSO else "overlay.hint.rect")
         font = QFont(self.font())
         font.setPointSizeF(max(10.0, font.pointSizeF() + 1.0))
         painter.setFont(font)
         metrics = painter.fontMetrics()
-        width = metrics.horizontalAdvance(text) + 2 * _LABEL_PADDING * 2
+        width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
         height = metrics.height() + 2 * _LABEL_PADDING
         box = QRect(
             (self.width() - width) // 2,
@@ -232,32 +282,50 @@ class SelectionOverlay(QWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        # Shift swaps the mode for this one selection.
+        shifted = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+        if shifted:
+            self._drag_mode = MODE_RECTANGLE if self._mode == MODE_LASSO else MODE_LASSO
+        else:
+            self._drag_mode = self._mode
+
+        position = event.position().toPoint()
         self._dragging = True
-        self._show_hint = False
-        self._origin = event.position().toPoint()
-        self._current = self._origin
+        self._has_selection = True
+        self._origin = position
+        self._current = position
+        self._points = [position]
         self.update()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
-        self._current = event.position().toPoint()
-        if self._dragging or self._show_hint:
-            self.update()
+        position = event.position().toPoint()
+        self._current = position
+        if not self._dragging:
+            return
+        if self._drag_mode == MODE_LASSO:
+            last = self._points[-1] if self._points else None
+            if (
+                last is None
+                or abs(position.x() - last.x()) >= _LASSO_MIN_STEP
+                or abs(position.y() - last.y()) >= _LASSO_MIN_STEP
+            ):
+                self._points.append(position)
+        self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton or not self._dragging:
             return
         self._dragging = False
         self._current = event.position().toPoint()
+        if self._drag_mode == MODE_LASSO:
+            self._points.append(self._current)
         selection = self._selection_rect()
 
         if selection.width() < MIN_SELECTION or selection.height() < MIN_SELECTION:
             # A stray click, not a selection: keep the overlay open so the user
             # can try again instead of silently doing nothing.
             log.debug("ignoring %dx%d selection", selection.width(), selection.height())
-            self._origin = QPoint()
-            self._current = QPoint()
-            self._show_hint = True
-            self.update()
+            self._reset_selection()
             return
 
         physical = logical_rect_to_physical(selection, self._metrics)
@@ -265,16 +333,19 @@ class SelectionOverlay(QWidget):
             self._cancel()
             return
 
+        polygon = self.selection_polygon()
         log.info(
-            "selection %dx%d logical → %dx%d physical at %d,%d",
+            "%s selection %dx%d logical → %dx%d physical at %d,%d (%d outline points)",
+            self._drag_mode,
             selection.width(),
             selection.height(),
             physical.width(),
             physical.height(),
             physical.x(),
             physical.y(),
+            polygon.count(),
         )
-        self._finish(lambda: self.selected.emit(physical))
+        self._finish(lambda: self.selected.emit(physical, polygon))
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
@@ -304,21 +375,47 @@ class SelectionOverlay(QWidget):
 
     # --------------------------------------------------------------- helpers
 
-    def _selection_rect(self) -> QRect:
-        """Drag rectangle in widget-logical pixels.
+    def selection_polygon(self) -> QPolygon:
+        """The lasso outline in widget-logical pixels (empty for a rectangle)."""
+        if self._drag_mode != MODE_LASSO or len(self._points) < 3:
+            return QPolygon()
+        return QPolygon(self._points)
 
-        Built from the two corners by hand rather than with
+    def _selection_rect(self) -> QRect:
+        """Selection bounding box in widget-logical pixels.
+
+        Returns an empty rectangle until the user actually presses the button —
+        otherwise plain pointer movement would paint a selection anchored at the
+        widget origin.
+
+        The rectangle is built from its two corners by hand rather than with
         ``QRect(topLeft, bottomRight)``: that constructor is inclusive on both
         ends, so dragging from x=100 to x=300 would come out 201 px wide and the
         size label would disagree with the crop the user asked for.
         """
-        if self._origin.isNull() and self._current.isNull():
+        if not self._has_selection:
             return QRect()
+
+        if self._drag_mode == MODE_LASSO:
+            if len(self._points) < 2:
+                return QRect()
+            xs = [point.x() for point in self._points]
+            ys = [point.y() for point in self._points]
+            left, right = min(xs), max(xs)
+            top, bottom = min(ys), max(ys)
+            return QRect(left, top, right - left, bottom - top).intersected(self.rect())
+
         left = min(self._origin.x(), self._current.x())
         top = min(self._origin.y(), self._current.y())
         width = abs(self._current.x() - self._origin.x())
         height = abs(self._current.y() - self._origin.y())
         return QRect(left, top, width, height).intersected(self.rect())
+
+    def _reset_selection(self) -> None:
+        self._has_selection = False
+        self._origin = QPoint()
+        self._points = []
+        self.update()
 
     def _cancel(self) -> None:
         self._finish(self.cancelled.emit)
