@@ -178,6 +178,7 @@ class CircleToSearchApp(QObject):
 
         self._service = ServiceObject(self)
         self._service.triggered.connect(self.on_trigger)
+        self._service.shake_triggered.connect(self.on_shake_trigger)
         self._service.triggered_current.connect(self.on_trigger_current)
         self._service.settings_requested.connect(self.show_settings)
         self._service.gesture_progress.connect(self.on_gesture_progress)
@@ -291,6 +292,19 @@ class CircleToSearchApp(QObject):
             notify_error(tr("notify.no_screen"), tr("notify.no_screen_body", name=screen_name))
             return
         self._begin_selection(screen, screen_name or screen.name())
+
+    @pyqtSlot(int, int, str)
+    def on_shake_trigger(self, x: int, y: int, screen_name: str) -> None:
+        """``TriggerShake`` — the gesture, which the user can switch off.
+
+        The KWin script checks the same setting, but it reads it from its own
+        copy of the configuration; checking here as well means the checkbox
+        cannot be defeated by a stale script.
+        """
+        if not read_detection().enabled:
+            log.info("ignoring a shake: detection is switched off")
+            return
+        self.on_trigger(x, y, screen_name)
 
     @pyqtSlot()
     def on_trigger_current(self) -> None:
@@ -407,12 +421,37 @@ class CircleToSearchApp(QObject):
         )
         overlay.cancelled.connect(self._on_cancelled)
         self._overlay = overlay
+        QTimer.singleShot(500, lambda: self._check_overlay_geometry(screen))
         try:
             overlay.show_on_screen()
         except Exception as exc:
             log.exception("could not map the overlay")
             self._release_overlay()
             notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
+
+    def _check_overlay_geometry(self, screen: QScreen) -> None:
+        """Say so when the overlay was not given the whole output.
+
+        A window left in the work area shows the panel above it and paints the
+        screenshot shifted down by the panel's height, which looks like two
+        panels stacked on top of each other.  Promoting it is the KWin script's
+        job; this is how the journal shows whether that worked.
+        """
+        overlay = self._overlay
+        if overlay is None or not overlay.isVisible():
+            return
+        expected = screen.geometry().size()
+        actual = overlay.size()
+        if actual != expected:
+            log.warning(
+                "the overlay is %dx%d but %s is %dx%d — the KWin script did not "
+                "make it full screen, so the screenshot will look shifted",
+                actual.width(),
+                actual.height(),
+                screen.name(),
+                expected.width(),
+                expected.height(),
+            )
 
     def _release_overlay(self) -> None:
         overlay = self._overlay

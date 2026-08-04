@@ -22,6 +22,13 @@
 
 "use strict";
 
+/* Bumped whenever the script changes.  KWin keeps a loaded script running until
+ * it is explicitly unloaded, so this is how you tell whether the version on
+ * disk is the version in memory:
+ *   journalctl --user -u plasma-kwin_wayland | grep "script started"
+ */
+var SCRIPT_VERSION = "1.1.0";
+
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
 var DBUS_INTERFACE = "io.github.fand1l.CircleToSearch";
@@ -166,7 +173,7 @@ function loadConfig() {
      * actually changed — otherwise the journal fills with identical lines. */
     if (summary !== lastConfigSummary) {
         lastConfigSummary = summary;
-        print("circle-to-search: config " + summary);
+        print("circle-to-search: config v" + SCRIPT_VERSION + " " + summary);
         resetDetector();
     }
 }
@@ -652,7 +659,7 @@ function fire(x, y, now) {
     state.lastTriggerAt = now;
     resetDetector();
     endGlow();
-    trigger(x, y);
+    trigger(x, y, "TriggerShake");
 }
 
 /* ----------------------------------------------------------------- outputs */
@@ -713,11 +720,18 @@ function screenNameAt(x, y) {
     return "";
 }
 
-function trigger(x, y) {
+/*
+ * `method` is "TriggerShake" for the gesture and "Trigger" for the shortcut:
+ * the daemon honours the "detect cursor shake" setting for the first and never
+ * for the second, so pressing the key always works and a stale script cannot
+ * defeat the checkbox.
+ */
+function trigger(x, y, method) {
     var screenName = screenNameAt(x, y);
-    print("circle-to-search: trigger at " + x + "," + y + " on '" + screenName + "'");
+    print("circle-to-search: " + (method || "Trigger") + " at " + x + "," + y
+        + " on '" + screenName + "'");
     /* `| 0` forces a 32-bit integer so the call matches the "iis" signature. */
-    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "Trigger",
+    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, method || "Trigger",
              Math.round(x) | 0, Math.round(y) | 0, screenName);
     startOverlayWatch();
 }
@@ -763,21 +777,85 @@ function isOverlay(window) {
     }
 }
 
-function promote(window) {
+/*
+ * Set one property, and survive it being read-only.
+ *
+ * This used to be a single try block around the whole promotion, which meant
+ * that one unsettable property (`noBorder` and `skipSwitcher` are not writable
+ * for every window type) skipped everything after it — including the fullScreen
+ * assignment that actually matters.  The overlay was then left in the work
+ * area: the panel stayed visible above it and the screenshot inside it was
+ * drawn shifted down by the panel's height, which looks like two panels.
+ */
+function setProperty(window, name, value) {
     try {
-        window.keepAbove = true;
-        window.noBorder = true;
-        window.skipTaskbar = true;
-        window.skipPager = true;
-        window.skipSwitcher = true;
-        if (!window.fullScreen) {
-            window.fullScreen = true;
-        }
-        workspace.activeWindow = window;
-        print("circle-to-search: promoted the overlay window");
+        window[name] = value;
+        return true;
     } catch (error) {
-        print("circle-to-search: cannot promote the overlay: " + error);
+        if (cfg.debug) {
+            print("circle-to-search: cannot set " + name + ": " + error);
+        }
+        return false;
     }
+}
+
+function outputFor(window) {
+    try {
+        var geometry = window.frameGeometry;
+        var output = screenAt(geometry.x + geometry.width / 2, geometry.y + geometry.height / 2);
+        return output ? output.geometry : null;
+    } catch (error) {
+        return null;
+    }
+}
+
+function coversOutput(window, geometry) {
+    try {
+        var frame = window.frameGeometry;
+        return frame.x <= geometry.x
+            && frame.y <= geometry.y
+            && frame.width >= geometry.width
+            && frame.height >= geometry.height;
+    } catch (error) {
+        return false;
+    }
+}
+
+function describeGeometry(window) {
+    try {
+        var frame = window.frameGeometry;
+        return frame.width + "x" + frame.height + "+" + frame.x + "+" + frame.y;
+    } catch (error) {
+        return "?";
+    }
+}
+
+function promote(window) {
+    var geometry = outputFor(window);
+
+    /* The one that matters goes first, and none of these can stop the others. */
+    var full = setProperty(window, "fullScreen", true);
+    setProperty(window, "keepAbove", true);
+    setProperty(window, "noBorder", true);
+    setProperty(window, "skipTaskbar", true);
+    setProperty(window, "skipPager", true);
+    setProperty(window, "skipSwitcher", true);
+    setProperty(window, "onAllDesktops", true);
+
+    /* Belt and braces: whatever the placement policy decided, the overlay has
+     * to cover the whole output, panel included. */
+    if (geometry !== null && !coversOutput(window, geometry)) {
+        setProperty(window, "frameGeometry", {
+            x: geometry.x,
+            y: geometry.y,
+            width: geometry.width,
+            height: geometry.height
+        });
+    }
+
+    setProperty(workspace, "activeWindow", window);
+    print("circle-to-search: promoted the overlay (fullScreen=" + full
+        + " geometry=" + describeGeometry(window) + ")");
 }
 
 function checkForOverlay() {
@@ -823,24 +901,23 @@ function isGlow(window) {
  * raised — never full-screened, which would make KWin hide the panels for it.
  */
 function placeGlow(window) {
-    try {
-        window.keepAbove = true;
-        window.noBorder = true;
-        window.skipTaskbar = true;
-        window.skipPager = true;
-        window.skipSwitcher = true;
-        var output = screenAt(window.frameGeometry.x, window.frameGeometry.y);
-        var geometry = output ? output.geometry : null;
-        if (geometry) {
-            window.frameGeometry = {
-                x: geometry.x,
-                y: geometry.y,
-                width: geometry.width,
-                height: geometry.height
-            };
-        }
-    } catch (error) {
-        print("circle-to-search: cannot place the glow: " + error);
+    var geometry = outputFor(window);
+    setProperty(window, "keepAbove", true);
+    setProperty(window, "noBorder", true);
+    setProperty(window, "skipTaskbar", true);
+    setProperty(window, "skipPager", true);
+    setProperty(window, "skipSwitcher", true);
+    setProperty(window, "onAllDesktops", true);
+    if (geometry !== null && !coversOutput(window, geometry)) {
+        setProperty(window, "frameGeometry", {
+            x: geometry.x,
+            y: geometry.y,
+            width: geometry.width,
+            height: geometry.height
+        });
+    }
+    if (cfg.debug) {
+        print("circle-to-search: placed the glow at " + describeGeometry(window));
     }
 }
 
@@ -913,7 +990,7 @@ function init() {
         }
     );
 
-    print("circle-to-search: KWin script started");
+    print("circle-to-search: KWin script started (v" + SCRIPT_VERSION + ")");
 }
 
 init();

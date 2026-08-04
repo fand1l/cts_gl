@@ -192,10 +192,15 @@ install_data_files() {
 install_kwin_script() {
     info "Installing the KWin script"
     if command -v kpackagetool6 >/dev/null 2>&1; then
+        local action="--install"
         if kpackagetool6 --type=KWin/Script --list 2>/dev/null | grep -qx "$SCRIPT_ID"; then
-            kpackagetool6 --type=KWin/Script --upgrade "$SOURCE_DIR/kwinscript" >/dev/null
-        else
-            kpackagetool6 --type=KWin/Script --install "$SOURCE_DIR/kwinscript" >/dev/null
+            action="--upgrade"
+        fi
+        if ! kpackagetool6 --type=KWin/Script "$action" "$SOURCE_DIR/kwinscript"; then
+            warn "kpackagetool6 $action failed — falling back to a plain copy."
+            rm -rf "${KWINSCRIPTDIR:?}/$SCRIPT_ID"
+            mkdir -p "$KWINSCRIPTDIR"
+            cp -r "$SOURCE_DIR/kwinscript" "$KWINSCRIPTDIR/$SCRIPT_ID"
         fi
     else
         warn "kpackagetool6 is missing — copying the package by hand instead."
@@ -207,7 +212,43 @@ install_kwin_script() {
     info "Enabling it in kwinrc"
     kwriteconfig6 --file kwinrc --group Plugins --key "${SCRIPT_ID}Enabled" --type bool true
     seed_detection_defaults
+    reload_kwin_script
+}
+
+# --------------------------------------------------------------------------- #
+# Getting the *new* code into a running KWin.
+#
+# "reconfigure" only makes KWin re-read settings: a script that is already
+# loaded keeps running its old code until it is unloaded, so upgrading the
+# package on disk changed nothing until the next login.  Unload it explicitly,
+# then toggle the plugin so KWin loads it again from disk.
+# --------------------------------------------------------------------------- #
+reload_kwin_script() {
+    info "Reloading the script inside KWin"
+
+    if command -v busctl >/dev/null 2>&1; then
+        busctl --user call org.kde.KWin /Scripting org.kde.kwin.Scripting \
+            unloadScript s "$SCRIPT_ID" >/dev/null 2>&1 || true
+    fi
+
+    kwriteconfig6 --file kwinrc --group Plugins --key "${SCRIPT_ID}Enabled" --type bool false
     reconfigure_kwin
+    sleep 1
+    kwriteconfig6 --file kwinrc --group Plugins --key "${SCRIPT_ID}Enabled" --type bool true
+    reconfigure_kwin
+    sleep 2
+}
+
+# Ask the journal which version KWin actually has in memory.
+running_script_version() {
+    journalctl --user -u plasma-kwin_wayland --since "-60s" -o cat 2>/dev/null \
+        | grep -o "KWin script started (v[^)]*)" | tail -1 \
+        | sed -e 's/.*(v//' -e 's/)//'
+}
+
+packaged_script_version() {
+    grep -o 'var SCRIPT_VERSION = "[^"]*"' "$SOURCE_DIR/kwinscript/contents/code/main.js" \
+        | head -1 | sed -e 's/.*"\(.*\)"/\1/'
 }
 
 seed_detection_defaults() {
@@ -281,6 +322,21 @@ verify() {
         warn "  KWin script package was not found."
         ok=0
     fi
+
+    local packaged running
+    packaged="$(packaged_script_version)"
+    running="$(running_script_version)"
+    if [[ -n "$running" && "$running" == "$packaged" ]]; then
+        info "  KWin is running script v$running."
+    elif [[ -n "$running" ]]; then
+        warn "  KWin is still running script v$running, but v$packaged was installed."
+        warn "    Toggle it off and on in System Settings → Window Management →"
+        warn "    KWin Scripts, or log out and back in."
+        ok=0
+    else
+        warn "  Could not tell which script version KWin is running."
+        warn "    Check with: journalctl --user -u plasma-kwin_wayland -n 100 | grep circle"
+    fi
     return $((1 - ok))
 }
 
@@ -305,6 +361,10 @@ ${GREEN}${BOLD}Done.${RESET}
   Tray:     the "Circle to Search" icon has "Capture now" and "Settings".
 
   If nothing happens:
+    0. journalctl --user -u plasma-kwin_wayland | grep "script started"
+       — the version there must match $(packaged_script_version). If it does
+       not, KWin is still running the old code: toggle the script off and on in
+       System Settings → Window Management → KWin Scripts.
     1. journalctl --user -u plasma-kwin_wayland -f | grep -i circle
        (no "KWin script started" line → the script is not loaded: open
         System Settings → Window Management → KWin Scripts and tick

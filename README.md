@@ -281,6 +281,38 @@ python3 src/circle_to_search/__main__.py --verbose
 
 ## What can break, and how to debug it
 
+### A setting has no effect, or a new feature is missing
+
+KWin keeps a script running until it is explicitly unloaded, so upgrading the
+package on disk changes nothing by itself — `reconfigure` only re-reads
+*settings*. Check which version is actually in memory:
+
+```bash
+journalctl --user -u plasma-kwin_wayland | grep "script started"
+#  circle-to-search: KWin script started (v1.1.0)
+grep SCRIPT_VERSION kwinscript/contents/code/main.js
+```
+
+If they differ, KWin is running old code. `install.sh` now forces a reload
+(`unloadScript` over D-Bus, then a plugin off/on toggle) and warns when the
+version still does not match. By hand:
+
+```bash
+kwriteconfig6 --file kwinrc --group Plugins --key circletosearchEnabled false
+qdbus6 org.kde.KWin /KWin reconfigure
+kwriteconfig6 --file kwinrc --group Plugins --key circletosearchEnabled true
+qdbus6 org.kde.KWin /KWin reconfigure
+```
+
+or untick and re-tick **Circle to Search** in System Settings → Window
+Management → KWin Scripts.
+
+Detection settings themselves do not need any of that: the running script
+re-reads them on `options.configChanged` and at least every four seconds. The
+"Detect cursor shake" checkbox is additionally honoured by the daemon — a
+gesture arrives as `TriggerShake`, which is ignored while the box is unticked,
+whereas the global shortcut sends a plain `Trigger` and always works.
+
 ### The KWin script never runs
 
 ```bash
@@ -415,6 +447,32 @@ The daemon logs which back end won:
 * Wrong-looking crops on a multi-monitor setup mean the fallback back ends had
   to cut one output out of a whole-desktop image; the log line
   `cropping desktop image (…) to (…)` tells you it happened.
+
+### Two panels, or the screenshot looks shifted down
+
+The overlay is showing the screenshot from its own top-left corner, but the
+window was left in the *work area* — below the panel. You then see the live
+panel at the top and, right under it, the panel that was in the screenshot.
+
+Promoting the overlay to full screen is the KWin script's job. It sets each
+window property independently now, because a single unsettable one (`noBorder`
+and `skipSwitcher` are not writable for every window type) used to abort the
+whole promotion — including the full-screen assignment — and forces the frame
+geometry to the output as a fallback. The journal shows the outcome:
+
+```
+circle-to-search: promoted the overlay (fullScreen=true geometry=3840x2160+0+0)
+```
+
+and the daemon complains when it ends up with less than the whole screen:
+
+```
+the overlay is 3840x2125 but eDP-1 is 3840x2160 — the KWin script did not make
+it full screen, so the screenshot will look shifted
+```
+
+If you see either, the usual cause is the previous section: KWin is still
+running the old script.
 
 ### The overlay appears *under* the panel
 

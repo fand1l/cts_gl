@@ -96,7 +96,9 @@ function run(name, config, path, expectTriggers, options) {
         tick();
     }
 
-    const triggers = harness.calls.filter((c) => c[3] === "Trigger");
+        /* A gesture arrives as TriggerShake so the daemon can honour the "detect
+     * cursor shake" setting itself; a shortcut press stays a plain Trigger. */
+    const triggers = harness.calls.filter((c) => c[3] === "TriggerShake");
     harness.triggers = triggers;
     const ok = triggers.length === expectTriggers;
     console.log(
@@ -106,7 +108,7 @@ function run(name, config, path, expectTriggers, options) {
     if (triggers.length) {
         const args = triggers[0];
         if (args[0] !== "io.github.fand1l.CircleToSearch"
-            || args[3] !== "Trigger"
+            || args[3] !== "TriggerShake"
             || !Number.isInteger(args[4])
             || !Number.isInteger(args[5])
             || typeof args[6] !== "string") {
@@ -289,7 +291,7 @@ for (const step of shake(4, 200, 1000, 4, 40).map((p) => ({ x: p.x + 2600, y: p.
     harness2.setNow(step.t);
     tick2();
 }
-const triggers2 = harness2.calls.filter((c) => c[3] === "Trigger");
+const triggers2 = harness2.calls.filter((c) => c[3] === "TriggerShake");
 const screenOk = triggers2.length === 1 && triggers2[0][6] === "HDMI-A-1";
 console.log(`${screenOk ? "PASS" : "FAIL"}  screen name: ${JSON.stringify(triggers2.map((c) => c[6]))}`);
 if (!screenOk) failures += 1;
@@ -335,7 +337,7 @@ run("glow during a shake", defaults, shake(3, 200, 1000, 4, 40), 1);
 /* Turning the glow off means no progress traffic whatsoever. */
 run("no glow when disabled", { glow: false }, shake(3, 200, 1000, 4, 40), 1);
 {
-    const chatter = lastHarness.calls.filter((c) => c[3] !== "Trigger").length;
+    const chatter = lastHarness.calls.filter((c) => c[3] !== "TriggerShake").length;
     console.log(`${chatter === 0 ? "PASS" : "FAIL"}  glow disabled sends nothing extra: ${chatter}`);
     if (chatter !== 0) failures += 1;
 }
@@ -420,7 +422,7 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     };
 
     play(shake(3, 200, 1000, 4, 30));
-    const before = harness.calls.filter((c) => c[3] === "Trigger").length;
+    const before = harness.calls.filter((c) => c[3] === "TriggerShake").length;
 
     /* The user unticks "Detect cursor shake". */
     harness.config.enabled = false;
@@ -429,7 +431,7 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     tick();
 
     play(shake(3, 200, 30000, 4, 30));
-    const after = harness.calls.filter((c) => c[3] === "Trigger").length;
+    const after = harness.calls.filter((c) => c[3] === "TriggerShake").length;
 
     const ok = before === 1 && after === 1;
     console.log(`${ok ? "PASS" : "FAIL"}  disabling at runtime stops it: ` +
@@ -441,9 +443,21 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     harness.setNow(60000);
     tick();
     play(shake(3, 200, 70000, 4, 30));
-    const again = harness.calls.filter((c) => c[3] === "Trigger").length;
+    const again = harness.calls.filter((c) => c[3] === "TriggerShake").length;
     console.log(`${again === 2 ? "PASS" : "FAIL"}  re-enabling at runtime works: ${again}`);
     if (again !== 2) failures += 1;
+}
+
+/* The shake and the shortcut must not use the same D-Bus method: the daemon
+ * gates one on the setting and never the other. */
+{
+    run("method used by a gesture", defaults, shake(3, 200, 1000, 4, 30), 1);
+    const methods = lastHarness.calls.map((c) => c[3]);
+    const usesShake = methods.indexOf("TriggerShake") !== -1;
+    const plain = methods.indexOf("Trigger") !== -1;
+    console.log(`${usesShake && !plain ? "PASS" : "FAIL"}  a gesture calls TriggerShake, ` +
+                `not Trigger: ${JSON.stringify(Array.from(new Set(methods)))}`);
+    if (!usesShake || plain) failures += 1;
 }
 
 console.log(failures === 0 ? "\nall good" : `\n${failures} failure(s)`);

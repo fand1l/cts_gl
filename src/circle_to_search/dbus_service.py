@@ -3,6 +3,7 @@
 Interface ``io.github.fand1l.CircleToSearch`` on the session bus::
 
     Trigger(int32 x, int32 y, string screen)               -> ()
+    TriggerShake(int32 x, int32 y, string screen)          -> ()
     TriggerCurrentScreen()                                 -> ()
     GestureProgress(int32 x, int32 y, int32 count,
                     int32 needed, string screen)           -> ()
@@ -51,6 +52,19 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
         log.info("TriggerCurrentScreen()")
         self._service.triggered_current.emit()
 
+    @pyqtSlot(int, int, str)
+    def TriggerShake(self, x: int, y: int, screen: str) -> None:
+        """Same as :meth:`Trigger`, but the KWin script says it was a shake.
+
+        The daemon can then honour "Detect cursor shake" itself instead of
+        trusting that the script picked the setting up — the checkbox failing to
+        take effect is the kind of bug a user notices immediately and cannot
+        work around.  The plain Trigger stays unconditional, because the global
+        shortcut and busctl calls are deliberate actions.
+        """
+        log.info("TriggerShake(%d, %d, %r)", x, y, screen)
+        self._service.shake_triggered.emit(x, y, screen)
+
     @pyqtSlot(int, int, int, int, str)
     def GestureProgress(self, x: int, y: int, count: int, needed: int, screen: str) -> None:
         """A shake is under way: light the cursor up at ``x``/``y``.
@@ -81,6 +95,7 @@ class ServiceObject(QObject):
     """Qt-side signals produced by incoming D-Bus calls."""
 
     triggered = pyqtSignal(int, int, str)
+    shake_triggered = pyqtSignal(int, int, str)
     triggered_current = pyqtSignal()
     settings_requested = pyqtSignal()
     gesture_progress = pyqtSignal(int, int, int, int, str)
