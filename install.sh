@@ -274,8 +274,15 @@ minSpeedPxPerSec=700
 maxCurvaturePct=140
 reversalTolerance=40
 disableInFullscreen=true
+restoreFocus=true
 shortcut=Meta+Shift+L
 EOF
+
+    # Not settings but transient state: the calibration window sets one and the
+    # daemon the other, and a crash while either was on would otherwise leave
+    # the gesture measuring instead of firing, or recording for nobody.
+    kwriteconfig6 --file kwinrc --group "$group" --key calibrating --type bool false
+    kwriteconfig6 --file kwinrc --group "$group" --key collectTraces --type bool false
 }
 
 reconfigure_kwin() {

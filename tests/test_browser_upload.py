@@ -146,7 +146,10 @@ with sync_playwright() as pw:
     # work instead of spinning forever.
     stuck = browser.new_page()
     stuck.add_init_script("HTMLFormElement.prototype.submit = function () {};")
-    stuck.goto(path.resolve().as_uri())
+    # This page does not navigate away (the submit is neutered above), but wait
+    # for the DOM rather than "load": the load event is not what is being
+    # tested and waiting for it only adds ways to time out.
+    stuck.goto(path.resolve().as_uri(), wait_until="domcontentloaded", timeout=30000)
     check("spinner while trying", stuck.is_visible("#spinner"))
     check("quiet at first", not stuck.is_visible("#retry"))
     stuck.wait_for_timeout(16000)
@@ -157,10 +160,23 @@ with sync_playwright() as pw:
 
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
-    page.goto(path.resolve().as_uri())
+    # "commit", not the default "load": the page submits itself the moment it is
+    # ready, and on a slow machine it navigates away before the load event
+    # arrives — which makes goto() raise about a page that is working perfectly.
+    with contextlib.suppress(Exception):
+        page.goto(path.resolve().as_uri(), wait_until="commit", timeout=30000)
+
+    def result_arrived():
+        # Reading the body of a page that is mid-navigation raises; that just
+        # means "not yet".
+        try:
+            return "RESULT PAGE" in page.inner_text("body")
+        except Exception:
+            return False
+
     # Loaded, submitted, redirected and rendered — all of it has to have
     # happened before the body is worth reading.
-    wait_until(page, lambda: "RESULT PAGE" in page.inner_text("body"))
+    wait_until(page, result_arrived)
     final_url = page.url
     body_text = page.inner_text("body")
     browser.close()
