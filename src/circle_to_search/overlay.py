@@ -23,6 +23,13 @@ get slightly wrong and impossible to take back once it has been uploaded, which
 is the whole reason for the pause; :class:`AppSettings.confirm_selection` turns
 it off for anyone who prefers the older send-on-release behaviour.
 
+There is also a **text layer**, when text recognition is switched on: the words
+found on the frozen screen become selectable, and a drag that starts on one of
+them takes text rather than an area — the way a browser tells text and pictures
+apart, so nothing has to be switched over first.  Recognition runs while the
+overlay is already up, so the words arrive a moment later; until they do, a
+small badge says the screen is being read.
+
 Why not layer-shell?  There are no Python bindings for ``layer-shell-qt`` (it is
 a C++ library without GObject introspection), so the only thing reachable from
 Python is its Qt *shell integration plugin* via
@@ -36,6 +43,7 @@ window, raised above the panels by the KWin script (``keepAbove``/``fullScreen``
 from __future__ import annotations
 
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
@@ -56,9 +64,10 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from . import OVERLAY_WINDOW_TITLE
-from .hidpi import ScreenMetrics, logical_rect_to_physical
+from .hidpi import ScreenMetrics, logical_rect_to_physical, physical_rect_to_logical
 from .i18n import tr
 from .logging_setup import get_logger
+from .ocr import Word, words_to_text
 
 log = get_logger("overlay")
 
@@ -106,11 +115,29 @@ _CURSORS = {
     "move": Qt.CursorShape.SizeAllCursor,
 }
 
+#: How often the "reading the screen…" badge ticks, and how many dots it has.
+_SCAN_TICK_MS = 130
+_SCAN_DOTS = 4
+
+#: Grabbing a word needs a little slack: text is small and pointers are not.
+_WORD_SLACK = 3
+
 #: What the user asked to do with the selection.
 ACTION_SEARCH = "search"
 ACTION_COPY = "copy"
 ACTION_SAVE = "save"
+#: Only the tray's recent list uses this one now: on the overlay the text is
+#: taken by dragging across it, not by asking for a whole region to be read.
 ACTION_TEXT = "text"
+
+
+@dataclass(frozen=True)
+class PlacedWord:
+    """A recognised word, moved into the coordinates the overlay draws in."""
+
+    text: str
+    rect: QRect
+    line: tuple[int, int, int]
 
 
 class SelectionOverlay(QWidget):
@@ -125,7 +152,8 @@ class SelectionOverlay(QWidget):
     selected = pyqtSignal(QRect, QPolygon)
     copy_requested = pyqtSignal(QRect, QPolygon)
     save_requested = pyqtSignal(QRect, QPolygon)
-    text_requested = pyqtSignal(QRect, QPolygon)
+    #: A run of recognised words the user dragged across.
+    text_selected = pyqtSignal(str)
     cancelled = pyqtSignal()
 
     #: Group mode only (see multiscreen.py): the selection in *global logical*
@@ -197,6 +225,18 @@ class SelectionOverlay(QWidget):
         self._preview = QRect()
         self._deactivation_guard: Callable[[], bool] | None = None
 
+        #: The text layer.  Recognition runs while the overlay is already up, so
+        #: these arrive late; until then `_scanning` drives a small badge saying
+        #: so, because several seconds of nothing looks like a hang.
+        self._words: list[PlacedWord] = []
+        self._scanning = False
+        self._scan_phase = 0
+        self._scan_timer: QTimer | None = None
+        #: Indices into `_words`; the range between them is what is selected.
+        self._text_anchor: int | None = None
+        self._text_focus: int | None = None
+        self._selecting_text = False
+
         self.setWindowTitle(OVERLAY_WINDOW_TITLE)
         self.setObjectName("CircleToSearchOverlay")
         self.setWindowFlags(
@@ -239,6 +279,120 @@ class SelectionOverlay(QWidget):
 
     def _enable_deactivation(self) -> None:
         self._accept_deactivation = True
+
+    # ------------------------------------------------------------ text layer
+
+    def set_scanning(self, scanning: bool) -> None:
+        """Show (or stop showing) that the screen is being read."""
+        if scanning == self._scanning:
+            return
+        self._scanning = scanning
+        if scanning:
+            timer = QTimer(self)
+            timer.setInterval(_SCAN_TICK_MS)
+            timer.timeout.connect(self._tick_scan)
+            timer.start()
+            self._scan_timer = timer
+        elif self._scan_timer is not None:
+            self._scan_timer.stop()
+            self._scan_timer = None
+        self.update()
+
+    def _tick_scan(self) -> None:
+        self._scan_phase = (self._scan_phase + 1) % _SCAN_DOTS
+        # Only the badge, not the whole 4K screenshot: repainting all of it ten
+        # times a second is exactly what made the old cursor glow unusable.
+        self.update(self._badge_rect().translated(-self._offset))
+
+    def set_words(self, words: list[Word]) -> None:
+        """Hand over what was recognised, in physical pixels of the screenshot."""
+        placed: list[PlacedWord] = []
+        for word in words:
+            rect = physical_rect_to_logical(
+                QRect(word.left, word.top, word.width, word.height), self._metrics
+            )
+            if rect.width() < 1 or rect.height() < 1:
+                continue
+            placed.append(PlacedWord(text=word.text, rect=rect, line=word.line))
+        self._words = placed
+        self.set_scanning(False)
+        log.info("text layer: %d word(s)", len(placed))
+        self.update()
+
+    @property
+    def has_words(self) -> bool:
+        return bool(self._words)
+
+    def has_text_selection(self) -> bool:
+        return self._text_anchor is not None and self._text_focus is not None
+
+    def selected_words(self) -> list[PlacedWord]:
+        if self._text_anchor is None or self._text_focus is None:
+            return []
+        first, last = sorted((self._text_anchor, self._text_focus))
+        return self._words[first : last + 1]
+
+    def selected_text(self) -> str:
+        return words_to_text(
+            [
+                Word(
+                    text=word.text,
+                    left=word.rect.x(),
+                    top=word.rect.y(),
+                    width=word.rect.width(),
+                    height=word.rect.height(),
+                    confidence=100.0,
+                    order=(*word.line, index),
+                )
+                for index, word in enumerate(self.selected_words())
+            ]
+        )
+
+    def _word_at(self, position: QPoint) -> int | None:
+        """Index of the word under a point, with a little slack around it."""
+        for index, word in enumerate(self._words):
+            if word.rect.adjusted(-_WORD_SLACK, -_WORD_SLACK, _WORD_SLACK, _WORD_SLACK).contains(
+                position
+            ):
+                return index
+        return None
+
+    def _nearest_word(self, position: QPoint) -> int | None:
+        """The word a drag has reached, even when it is between two of them.
+
+        Without this, dragging through the gap between words or past the end of
+        a line would keep dropping the selection back to where it started.
+        """
+        direct = self._word_at(position)
+        if direct is not None:
+            return direct
+        best: int | None = None
+        best_distance = 0
+        for index, word in enumerate(self._words):
+            centre = word.rect.center()
+            # Vertical distance counts for more: the word on the line you are on
+            # beats one that happens to be nearer in a straight line.
+            distance = (centre.x() - position.x()) ** 2 + 4 * (centre.y() - position.y()) ** 2
+            if best is None or distance < best_distance:
+                best = index
+                best_distance = distance
+        return best
+
+    def _clear_text_selection(self) -> None:
+        if self._text_anchor is None and self._text_focus is None:
+            return
+        self._text_anchor = None
+        self._text_focus = None
+        self._selecting_text = False
+        self.update()
+
+    def select_all_text(self) -> None:
+        if not self._words:
+            return
+        self._reset_selection()
+        self._text_anchor = 0
+        self._text_focus = len(self._words) - 1
+        self.update()
 
     @property
     def in_group(self) -> bool:
@@ -398,15 +552,26 @@ class SelectionOverlay(QWidget):
         painter.translate(-self._offset)
         painter.drawPixmap(0, 0, self._sharp)
 
+        if self.has_text_selection():
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            self._draw_text_selection(painter)
+            self._draw_badge(painter)
+            painter.end()
+            return
+
         if not self._has_selection and self._preview.isNull():
             self._dim_everything(painter)
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            self._draw_word_hints(painter)
             self._draw_hint(painter)
+            self._draw_badge(painter)
             painter.end()
             return
 
         selection = self._selection_rect()
         if selection.width() < 1 or selection.height() < 1:
             self._dim_everything(painter)
+            self._draw_badge(painter)
             painter.end()
             return
 
@@ -449,6 +614,7 @@ class SelectionOverlay(QWidget):
             self._draw_handles(painter)
             self._draw_confirm_hint(painter)
         self._draw_size_label(painter, selection)
+        self._draw_badge(painter)
         painter.end()
 
     def _visible_area(self) -> QRectF:
@@ -505,6 +671,95 @@ class SelectionOverlay(QWidget):
             height,
         )
         self._draw_box(painter, box, text)
+
+    # ------------------------------------------------------ the text layer
+
+    def _draw_word_hints(self, painter: QPainter) -> None:
+        """Barely-there marks under the recognised words.
+
+        Enough to say "this can be taken", quiet enough not to turn the frozen
+        screen into a highlighter accident.  Only before anything is selected —
+        once there is a selection they would only add noise.
+        """
+        if not self._words:
+            return
+        tint = QColor(self._accent)
+        tint.setAlpha(38)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(tint)
+        for word in self._words:
+            painter.drawRoundedRect(word.rect.adjusted(-1, -1, 1, 1), 2, 2)
+
+    def _draw_text_selection(self, painter: QPainter) -> None:
+        """The selected run: undimmed, so it reads, with the accent over it."""
+        selected = self.selected_words()
+        if not selected:
+            return
+
+        area = QPainterPath()
+        for word in selected:
+            area.addRoundedRect(QRectF(word.rect.adjusted(-2, -1, 2, 1)), 3, 3)
+
+        if self._dim.alpha():
+            outside = QPainterPath()
+            outside.addRect(self._visible_area())
+            painter.fillPath(outside.subtracted(area), self._dim)
+
+        tint = QColor(self._accent)
+        tint.setAlpha(90)
+        painter.fillPath(area, tint)
+
+        pen = QPen(self._accent)
+        pen.setWidth(1)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawPath(area)
+
+        self._draw_text_hint(painter, selected)
+
+    def _draw_text_hint(self, painter: QPainter, selected: list[PlacedWord]) -> None:
+        text = tr("overlay.text_hint", count=len(selected))
+        font = QFont(self.font())
+        font.setPointSizeF(max(10.0, font.pointSizeF() + 1.0))
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
+        height = metrics.height() + 2 * _LABEL_PADDING
+
+        bounds = selected[0].rect
+        for word in selected[1:]:
+            bounds = bounds.united(word.rect)
+        x = self._offset.x() + (self.width() - width) // 2
+        y = bounds.bottom() + _LABEL_MARGIN * 2
+        if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
+            y = bounds.top() - height - _LABEL_MARGIN * 2
+        y = max(self._offset.y() + _LABEL_MARGIN, y)
+        self._draw_box(painter, QRect(x, y, width, height), text)
+
+    def _badge_rect(self) -> QRect:
+        """Where the "reading the screen" badge sits, in screen coordinates."""
+        metrics = self.fontMetrics()
+        width = metrics.horizontalAdvance(tr("overlay.scanning")) + 8 * _LABEL_PADDING
+        height = metrics.height() + 2 * _LABEL_PADDING
+        return QRect(
+            self._offset.x() + (self.width() - width) // 2,
+            self._offset.y() + self.height() - height - _LABEL_MARGIN * 4,
+            width,
+            height,
+        )
+
+    def _draw_badge(self, painter: QPainter) -> None:
+        """Say that the screen is being read, and keep saying it.
+
+        Several seconds of nothing happening looks like a hang; a line that
+        moves says "working" without asking for attention.
+        """
+        if not self._scanning:
+            return
+        dots = "." * (self._scan_phase + 1)
+        painter.setFont(self.font())
+        self._draw_box(painter, self._badge_rect(), tr("overlay.scanning") + dots)
 
     def _draw_handles(self, painter: QPainter) -> None:
         """The grab squares on the edges and corners of the confirmed box."""
@@ -569,8 +824,9 @@ class SelectionOverlay(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
+        where = event.position().toPoint() + self._offset
+
         if self._confirming:
-            where = event.position().toPoint() + self._offset
             grab = self._handle_at(where)
             if grab is not None:
                 self._grab = grab
@@ -580,6 +836,20 @@ class SelectionOverlay(QWidget):
             # A press outside the selection means "no, that one" — start again.
             self._confirming = False
             self._reset_selection()
+
+        # Pressing on a recognised word selects text instead of an area, the
+        # same way a browser tells text and image apart.  Everywhere else is
+        # still an ordinary drag, so nothing has to be switched on first.
+        word = self._word_at(where)
+        if word is not None:
+            self._reset_selection()
+            self._selecting_text = True
+            self._text_anchor = word
+            self._text_focus = word
+            self.setCursor(Qt.CursorShape.IBeamCursor)
+            self.update()
+            return
+        self._clear_text_selection()
 
         # Shift swaps the mode for this one selection.
         shifted = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
@@ -601,6 +871,13 @@ class SelectionOverlay(QWidget):
         position = event.position().toPoint()
         self._current = position
 
+        if self._selecting_text:
+            focus = self._nearest_word(position + self._offset)
+            if focus is not None and focus != self._text_focus:
+                self._text_focus = focus
+                self.update()
+            return
+
         if self._confirming:
             where = position + self._offset
             if self._grab is not None:
@@ -611,6 +888,12 @@ class SelectionOverlay(QWidget):
             return
 
         if not self._dragging:
+            # An I-beam is the whole hint that the text can be taken.
+            if self._words:
+                over_word = self._word_at(position + self._offset) is not None
+                self.setCursor(
+                    Qt.CursorShape.IBeamCursor if over_word else Qt.CursorShape.CrossCursor
+                )
             return
         if self._drag_mode == MODE_LASSO:
             last = self._points[-1] if self._points else None
@@ -624,6 +907,11 @@ class SelectionOverlay(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._selecting_text:
+            self._selecting_text = False
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            self.update()
             return
         if self._grab is not None:
             self._grab = None
@@ -677,10 +965,42 @@ class SelectionOverlay(QWidget):
         self.setCursor(Qt.CursorShape.CrossCursor)
         self._changed()
 
+    def mouseDoubleClickEvent(self, event: QMouseEvent) -> None:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        word = self._word_at(event.position().toPoint() + self._offset)
+        if word is None:
+            return
+        self._reset_selection()
+        self._text_anchor = word
+        self._text_focus = word
+        self.update()
+
     def keyPressEvent(self, event: QKeyEvent) -> None:
         key = event.key()
         if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+            # One Esc drops the text selection, so a mis-drag does not throw the
+            # whole capture away; the next one closes the overlay.
+            if self.has_text_selection():
+                self._clear_text_selection()
+                return
             self._cancel()
+            return
+
+        if key == Qt.Key.Key_T and self._words:
+            self.select_all_text()
+            return
+
+        if self.has_text_selection() and key in (
+            Qt.Key.Key_Return,
+            Qt.Key.Key_Enter,
+            Qt.Key.Key_C,
+            Qt.Key.Key_Space,
+        ):
+            text = self.selected_text()
+            if text:
+                log.info("copying %d character(s) of recognised text", len(text))
+                self._finish(lambda: self.text_selected.emit(text))
             return
 
         if not self._confirming:
@@ -695,9 +1015,6 @@ class SelectionOverlay(QWidget):
             return
         if key == Qt.Key.Key_S:
             self._commit(ACTION_SAVE)
-            return
-        if key == Qt.Key.Key_T:
-            self._commit(ACTION_TEXT)
             return
 
         arrows = {
@@ -727,6 +1044,7 @@ class SelectionOverlay(QWidget):
             and self._accept_deactivation
             and not self.isActiveWindow()
             and not self._dragging
+            and not self._selecting_text
             and self._grab is None
             and not self._finished
         ):
@@ -927,12 +1245,14 @@ class SelectionOverlay(QWidget):
         signals = {
             ACTION_COPY: self.copy_requested,
             ACTION_SAVE: self.save_requested,
-            ACTION_TEXT: self.text_requested,
         }
         signal = signals.get(action, self.selected)
         self._finish(lambda: signal.emit(physical, polygon))
 
     def _reset_selection(self) -> None:
+        self._text_anchor = None
+        self._text_focus = None
+        self._selecting_text = False
         self._has_selection = False
         self._confirming = False
         self._box = QRect()
@@ -950,6 +1270,7 @@ class SelectionOverlay(QWidget):
         if self._finished:
             return
         self._finished = True
+        self.set_scanning(False)
         self.releaseKeyboard()
         self.hide()
         emit()

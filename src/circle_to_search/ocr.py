@@ -6,6 +6,15 @@ on**, and it adds no Python dependency at all: the work is done by calling
 ``tesseract``, which Fedora packages, rather than by pulling in a machine
 learning stack that would dwarf the rest of the program.
 
+Two ways to ask:
+
+* :func:`recognise` returns the text and nothing else — used for a crop that is
+  already on disk, where there is nothing to point at.
+* :func:`recognise_words` returns every word **with the box it sits in**, which
+  is what lets the overlay put a text layer over the frozen screen so a sentence
+  can be dragged across and copied instead of the whole page arriving in a
+  notification.
+
 Nothing here talks to a network.  The image never leaves the machine, which is
 the point of having a local option next to "upload it to Google".
 """
@@ -15,6 +24,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 import tempfile
+from dataclasses import dataclass
 from pathlib import Path
 
 from PIL import Image
@@ -37,13 +47,53 @@ _LANGUAGE_PACKS = {
 #: Always worth adding: most screens have some English on them.
 _FALLBACK = "eng"
 
-#: Recognition of a screen-sized region takes well under a second; anything
-#: beyond this means something is wrong, not slow.
+#: Recognition of a whole 4K screen takes a few seconds; anything beyond this
+#: means something is wrong, not slow.
 _TIMEOUT_S = 60
+
+#: Words tesseract is this unsure about are usually noise from a gradient or an
+#: icon, and a text layer full of those is worse than a smaller one.
+MIN_CONFIDENCE = 40.0
+
+#: LSTM only (skips the slower legacy engine) and no second pass over an
+#: inverted copy.  Both are pure speed on screenshots, which are already
+#: dark-on-light or light-on-dark and never both.
+_SPEED = ["--oem", "1", "-c", "tessedit_do_invert=0"]
 
 
 class OcrError(Exception):
     """Recognition could not be run, or produced nothing usable."""
+
+
+@dataclass(frozen=True)
+class Word:
+    """One recognised word and the box it occupies, in **physical** pixels.
+
+    ``order`` is tesseract's own (block, paragraph, line, word) numbering, which
+    is reading order — that is what makes "from this word to that one" mean the
+    same thing as dragging across a paragraph.
+    """
+
+    text: str
+    left: int
+    top: int
+    width: int
+    height: int
+    confidence: float
+    order: tuple[int, int, int, int]
+
+    @property
+    def line(self) -> tuple[int, int, int]:
+        """Everything but the word number: identifies the line it is on."""
+        return self.order[:3]
+
+    @property
+    def right(self) -> int:
+        return self.left + self.width
+
+    @property
+    def bottom(self) -> int:
+        return self.top + self.height
 
 
 def binary_path() -> str | None:
@@ -103,11 +153,10 @@ def pick_languages(ui_language: str, configured: str = "") -> str:
     return available[0] if available else _FALLBACK
 
 
-def recognise(image: Image.Image, languages: str = _FALLBACK) -> str:
-    """Return the text in ``image``.  Raises :class:`OcrError` when it cannot.
+def _run(image: Image.Image, languages: str, extra: list[str]) -> str:
+    """Run tesseract over ``image`` and return its standard output.
 
-    Call this off the GUI thread: tesseract takes a noticeable fraction of a
-    second even on a small crop.
+    Call this off the GUI thread: a whole 4K screen takes a few seconds.
     """
     binary = binary_path()
     if binary is None:
@@ -122,9 +171,10 @@ def recognise(image: Image.Image, languages: str = _FALLBACK) -> str:
         except (OSError, ValueError) as exc:
             raise OcrError(f"cannot write the image for recognition: {exc}") from exc
 
-        command = [binary, str(source), "stdout"]
+        command = [binary, str(source), "stdout", *_SPEED]
         if languages:
             command += ["-l", languages]
+        command += extra
         log.debug("running %s", " ".join(command))
         try:
             result = subprocess.run(
@@ -142,11 +192,102 @@ def recognise(image: Image.Image, languages: str = _FALLBACK) -> str:
     if result.returncode != 0:
         message = result.stderr.strip().splitlines()
         raise OcrError(message[-1] if message else f"{BINARY} exited with {result.returncode}")
+    return result.stdout
 
-    text = clean(result.stdout)
+
+def recognise(image: Image.Image, languages: str = _FALLBACK) -> str:
+    """Return the text in ``image``.  Raises :class:`OcrError` when it cannot."""
+    text = clean(_run(image, languages, []))
     if not text:
         raise OcrError("no text was found in the selection")
     return text
+
+
+def recognise_words(image: Image.Image, languages: str = _FALLBACK) -> list[Word]:
+    """Every word in ``image``, with the box it sits in.
+
+    Returns an empty list when the image simply has no text on it — that is an
+    ordinary outcome for a photograph, not an error.  Only a *failure* to run
+    raises.
+    """
+    return parse_tsv(_run(image, languages, ["tsv"]))
+
+
+def parse_tsv(raw: str) -> list[Word]:
+    """Turn tesseract's TSV into words, in reading order.
+
+    Its columns are level, page, block, paragraph, line, word, left, top,
+    width, height, conf, text.  Only level 5 rows are words; the rest describe
+    the boxes those words are grouped into and carry no text.  Rows that cannot
+    be parsed are skipped rather than raising: a text layer with a hole in it is
+    still worth having.
+    """
+    words: list[Word] = []
+    for line in raw.splitlines():
+        parts = line.split("\t")
+        if len(parts) < 12 or parts[0] != "5":
+            continue
+        text = parts[11].strip()
+        if not text:
+            continue
+        try:
+            block, paragraph, line_no, word_no = (int(parts[index]) for index in (2, 3, 4, 5))
+            left, top, width, height = (int(parts[index]) for index in (6, 7, 8, 9))
+            confidence = float(parts[10])
+        except ValueError:
+            continue
+        if confidence < MIN_CONFIDENCE or width < 1 or height < 1:
+            continue
+        words.append(
+            Word(
+                text=text,
+                left=left,
+                top=top,
+                width=width,
+                height=height,
+                confidence=confidence,
+                order=(block, paragraph, line_no, word_no),
+            )
+        )
+    words.sort(key=lambda word: word.order)
+    return words
+
+
+def words_to_text(words: list[Word]) -> str:
+    """Join words back into text, one line per recognised line.
+
+    A blank line between paragraphs, because that is what the layout said and
+    pasting a wall of text loses it.
+    """
+    pieces: list[str] = []
+    previous: tuple[int, int, int] | None = None
+    for word in words:
+        if previous is None:
+            pieces.append(word.text)
+        elif word.line == previous:
+            pieces.append(" " + word.text)
+        elif word.line[:2] == previous[:2]:
+            pieces.append("\n" + word.text)
+        else:
+            pieces.append("\n\n" + word.text)
+        previous = word.line
+    return "".join(pieces).strip()
+
+
+def words_in(words: list[Word], left: int, top: int, right: int, bottom: int) -> list[Word]:
+    """The words whose *middle* falls inside a box, in reading order.
+
+    The middle rather than the whole box: a word clipped by the edge of the
+    selection belongs to whichever side most of it is on, which is what a person
+    drawing the rectangle meant.
+    """
+    inside = []
+    for word in words:
+        centre_x = word.left + word.width // 2
+        centre_y = word.top + word.height // 2
+        if left <= centre_x <= right and top <= centre_y <= bottom:
+            inside.append(word)
+    return inside
 
 
 def clean(raw: str) -> str:

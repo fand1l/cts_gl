@@ -303,7 +303,7 @@ back. So the drag now only *marks the area out*, and the overlay waits:
 | **Enter** (or Space) | search it with Lens |
 | **C** | copy it to the clipboard |
 | **S** | save it as a PNG (Pictures, or `save_directory`) |
-| **T** | read the text out of it and copy that (optional, see below) |
+| **T** | select all the recognised text (optional, see below) |
 | **Esc** / right-click | cancel |
 
 Before pressing anything the box can be adjusted: drag any of the eight
@@ -415,14 +415,31 @@ How it works, and where it can disappoint:
 * The KWin script promotes every overlay it finds, not just the first, or the
   ones on the other screens would sit under their panels.
 
-### Reading the text instead of searching for the picture
+### Selecting the text on the frozen screen
 
-Sometimes the answer is not "what is this" but "let me copy that". **T** runs
-`tesseract` on the selection and puts the text on the clipboard.
+Sometimes the answer is not "what is this" but "let me copy that". With text
+recognition on, the overlay **starts reading the screen the moment it opens**
+and the words become selectable where they are:
 
-It is **off until you say so**, and the first time you press **T** you are asked
-once — with what it needs and what it does — and never again either way. The
-switch afterwards is Settings → General → *Read text from the selection with T*,
+* **drag across a word** and you get text instead of an area — the way a browser
+  tells text and pictures apart, so there is no mode to switch into;
+* **double-click** takes one word, **T** takes everything that was found;
+* **Enter** or **C** copies the selection, **Esc** lets go of it (a second
+  **Esc** closes the overlay);
+* the pointer turns into an I-beam over anything that can be taken, and the
+  recognised words carry a faint tint so you can see there is something there.
+
+Reading a 4K screen takes a couple of seconds, so a small badge at the bottom
+says *Читаю текст на екрані…* while it works — the overlay is usable the whole
+time, and the words simply appear when they are ready.
+
+Whatever was recognised **inside a crop is kept with it**, so *Recent captures →
+Read the text* is instant instead of running `tesseract` a second time. Entries
+that carry text are marked with a ¶ in the tray.
+
+It is **off until you say so**. The first time an overlay closes you are asked
+once, in a notification with two buttons; the welcome window offers it too. The
+switch afterwards is Settings → General → *Make the text on screen selectable*,
 which also says whether `tesseract` was found and which language packs it has.
 
 ```bash
@@ -432,13 +449,15 @@ sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng
 The language is picked from the interface language plus English, restricted to
 the packs that are actually installed — naming a missing one makes `tesseract`
 fail outright instead of doing its best. Set `ocr_languages=deu+eng` in
-`circle-to-search.conf` to override that.
+`circle-to-search.conf` to override that. It runs with `--oem 1` and
+`tessedit_do_invert=0`, which is markedly faster on screenshots and costs
+nothing: they are never both dark-on-light and light-on-dark at once.
 
 This is the only part of the program that may be absent: there is no Python
 dependency for it, nothing is uploaded, no key is needed, and if `tesseract` is
-missing you get one notification with the install command and everything else
-carries on as before. The "no OCR" rule the rest of the README describes still
-holds for the default path — the image search is still entirely Google's job.
+missing nothing happens except a line in the journal. The "no OCR" rule the rest
+of the README describes still holds for the default path — the image search is
+still entirely Google's job.
 
 ### Learning from the times it was wrong
 

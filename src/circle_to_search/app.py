@@ -184,6 +184,39 @@ class _OcrTask(QRunnable):
             self.signals.finished.emit(text)
 
 
+class _WordsSignals(QObject):
+    finished = pyqtSignal(object)
+    failed = pyqtSignal(str)
+
+
+class _WordsTask(QRunnable):
+    """Reads the whole frozen screen, with a box around every word.
+
+    Started as soon as the overlay is up rather than on a key press: by the time
+    the user has decided what they want, the text is usually already selectable,
+    and when it is not the overlay says so instead of looking stuck.
+    """
+
+    def __init__(self, image: Image.Image, languages: str) -> None:
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = _WordsSignals()
+        self._image = image
+        self._languages = languages
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            words = ocr.recognise_words(self._image, self._languages)
+        except ocr.OcrError as exc:
+            self.signals.failed.emit(str(exc))
+        except Exception as exc:
+            log.exception("unexpected error while reading the screen")
+            self.signals.failed.emit(str(exc))
+        else:
+            self.signals.finished.emit(words)
+
+
 class _OpenSignals(QObject):
     failed = pyqtSignal(str)
 
@@ -262,6 +295,8 @@ class CircleToSearchApp(QObject):
         self._pending_trace: tuple[str, float] | None = None
         self._opening_trace = ""
         self._awaiting_shortcut = False
+        #: What was read off the frozen screen, in physical pixels of it.
+        self._ocr_words: list[ocr.Word] = []
 
         self._recent = RecentCaptures()
 
@@ -414,7 +449,7 @@ class CircleToSearchApp(QObject):
             notify_error(tr("notify.recent_gone"), str(path))
             return
         log.info("reusing %s (%s)", path.name, action)
-        self._deliver(image, action, remember=False)
+        self._deliver(image, action, remember=False, text=self._recent.text_of(path))
 
     def _clear_recent(self) -> None:
         removed = self._recent.clear()
@@ -583,11 +618,11 @@ class CircleToSearchApp(QObject):
             mask_outside=self._settings.lasso_mask,
             confirm=self._settings.confirm_selection,
         )
+        overlay.text_selected.connect(self._on_text_selected)
         for signal, action in (
             (overlay.selected, ACTION_SEARCH),
             (overlay.copy_requested, ACTION_COPY),
             (overlay.save_requested, ACTION_SAVE),
-            (overlay.text_requested, ACTION_TEXT),
         ):
             signal.connect(
                 lambda rect, polygon, chosen=action: self._on_selected(
@@ -599,6 +634,7 @@ class CircleToSearchApp(QObject):
         # Set only here: this is the one point where an opening really happened,
         # so a capture that failed cannot leave a trace behind for the next one.
         self._opening_trace = trace
+        self._start_reading(overlay, capture.image)
         QTimer.singleShot(500, lambda: self._check_overlay_geometry(screen))
         try:
             overlay.show_on_screen()
@@ -655,9 +691,15 @@ class CircleToSearchApp(QObject):
         group = OverlayGroup(overlays, self)
         group.committed.connect(self._on_group_committed)
         group.cancelled.connect(self._on_group_cancelled)
+        for overlay in overlays:
+            # Taking text closes the whole group, so it cannot go through the
+            # group's own committed/cancelled pair.
+            overlay.text_selected.connect(self._on_text_selected)
         self._group = group
         self._desktop = desktop
         self._opening_trace = trace
+        for overlay, shot in zip(overlays, shots, strict=True):
+            self._start_reading(overlay, shot.image)
         try:
             group.show()
         except Exception as exc:
@@ -768,16 +810,42 @@ class CircleToSearchApp(QObject):
             cropped = mask_outside_polygon(cropped, points)
             log.debug("masked everything outside the %d-point lasso", len(points))
 
-        self._deliver(cropped, action)
+        # The screen has already been read, so the words inside the crop are
+        # known: keeping them with it means "read the text" from the tray later
+        # is instant instead of another run of tesseract.
+        inside = ocr.words_in(
+            self._ocr_words,
+            rect.x(),
+            rect.y(),
+            rect.x() + rect.width(),
+            rect.y() + rect.height(),
+        )
+        self._deliver(cropped, action, text=ocr.words_to_text(inside))
 
-    def _deliver(self, cropped: Image.Image, action: str, *, remember: bool = True) -> None:
+    def _deliver(
+        self,
+        cropped: Image.Image,
+        action: str,
+        *,
+        remember: bool = True,
+        text: str = "",
+    ) -> None:
         """Do whatever the user asked with a finished crop.
 
         Shared by the single-screen path, the composed multi-screen one and the
         tray's recent list, so the four actions cannot drift apart between them.
+        ``text`` is whatever was already recognised inside the crop, so it is
+        never recognised twice.
         """
         if remember and self._settings.keep_recent:
-            self._recent.add(cropped)
+            self._recent.add(cropped, text=text)
+        if action == ACTION_TEXT and text:
+            clipboard = QGuiApplication.clipboard()
+            if clipboard is not None:
+                clipboard.setText(text)
+            log.info("reused %d character(s) of already-recognised text", len(text))
+            notify(tr("notify.ocr_done"), ocr.summarise(text), timeout_ms=8000)
+            return
         if action == ACTION_COPY:
             self._copy_to_clipboard(cropped)
             notify(tr("notify.copied"), transient=True, timeout_ms=3000)
@@ -840,6 +908,66 @@ class CircleToSearchApp(QObject):
 
     # ------------------------------------------------ optional text (OCR)
 
+    def _start_reading(self, overlay: SelectionOverlay, image: Image.Image) -> None:
+        """Begin reading the frozen screen, if the user has allowed it.
+
+        Fire and forget: the overlay is already usable, and the words arrive
+        whenever they arrive.  Nothing here may raise into the capture path.
+        """
+        self._ocr_words = []
+        if not self._settings.ocr_enabled:
+            return
+        if not ocr.is_available():
+            log.warning("text recognition is on but %s is not installed", ocr.BINARY)
+            return
+
+        languages = ocr.pick_languages(current_language(), self._settings.ocr_languages)
+        log.info("reading the screen with %s", languages)
+        overlay.set_scanning(True)
+
+        task = _WordsTask(image, languages)
+        task.signals.finished.connect(
+            lambda words, ref=task, target=overlay: self._words_ready(ref, target, words)
+        )
+        task.signals.failed.connect(
+            lambda error, ref=task, target=overlay: self._words_failed(ref, target, error)
+        )
+        self._tasks.add(task)
+        QThreadPool.globalInstance().start(task)
+
+    def _words_ready(
+        self, task: QRunnable, overlay: SelectionOverlay, words: list[ocr.Word]
+    ) -> None:
+        self._tasks.discard(task)
+        self._ocr_words = list(words)
+        # The overlay may have been closed and replaced while tesseract worked;
+        # handing words to a dead window would be harmless but pointless, and
+        # handing them to the *next* one would put them in the wrong places.
+        if overlay is not self._overlay and overlay not in self._group_overlays():
+            log.debug("the overlay closed before the text was ready")
+            return
+        overlay.set_words(words)
+
+    def _words_failed(self, task: QRunnable, overlay: SelectionOverlay, error: str) -> None:
+        self._tasks.discard(task)
+        log.warning("could not read the screen: %s", error)
+        overlay.set_scanning(False)
+
+    def _group_overlays(self) -> list[SelectionOverlay]:
+        return self._group.overlays if self._group is not None else []
+
+    @pyqtSlot(str)
+    def _on_text_selected(self, text: str) -> None:
+        """The user dragged across some words and asked for them."""
+        self._release_overlay()
+        self._release_group()
+        self._finish_opening()
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(text)
+        log.info("copied %d character(s) of recognised text", len(text))
+        notify(tr("notify.ocr_done"), ocr.summarise(text), timeout_ms=8000)
+
     def _extract_text(self, image: Image.Image) -> None:
         """Read the text out of the selection instead of searching for it."""
         if not self._settings.ocr_enabled and not self._ask_about_ocr():
@@ -860,6 +988,42 @@ class CircleToSearchApp(QObject):
         task.signals.failed.connect(lambda error, ref=task: self._finish_ocr(ref, error=error))
         self._tasks.add(task)
         QThreadPool.globalInstance().start(task)
+
+    def _maybe_offer_ocr(self) -> None:
+        """Offer text recognition once, after an overlay has been used.
+
+        A notification rather than a dialog, and afterwards rather than during:
+        a modal window over the frozen screen would be in the way of the very
+        thing it is asking about.
+        """
+        if self._settings.ocr_asked or self._settings.ocr_enabled:
+            return
+        if not supports_actions():
+            return
+        self._settings.ocr_asked = True
+        self._settings.sync()
+        body = (
+            tr("ocr.offer.found")
+            if ocr.is_available()
+            else tr("ocr.offer.missing", command=ocr.INSTALL_HINT)
+        )
+        notify(
+            tr("ocr.offer.title"),
+            body,
+            timeout_ms=20000,
+            actions=(("yes", tr("ocr.offer.yes")), ("no", tr("ocr.offer.no"))),
+            on_action=self._on_ocr_offer_answered,
+        )
+
+    def _on_ocr_offer_answered(self, key: str) -> None:
+        enable = key != "no"
+        self._settings.ocr_enabled = enable
+        self._settings.sync()
+        log.info("text recognition %s from the offer", "enabled" if enable else "declined")
+        if self._dialog is not None:
+            self._dialog.reload()
+        if enable:
+            notify(tr("ocr.offer.on"), tr("ocr.offer.on_body"), timeout_ms=8000)
 
     def _ask_about_ocr(self) -> bool:
         """The one-time question.  True when recognition may go ahead now.
@@ -996,6 +1160,7 @@ class CircleToSearchApp(QObject):
 
     def _finish_opening(self) -> None:
         """One overlay opening is over: ask about it, or count it and move on."""
+        self._maybe_offer_ocr()
         trace = self._opening_trace
         self._opening_trace = ""
         if not trace:

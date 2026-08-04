@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from . import ocr
 from .config import (
     AppSettings,
     autostart_enabled,
@@ -37,6 +38,13 @@ from .i18n import available_languages, set_language, tr
 from .logging_setup import get_logger
 
 log = get_logger("welcome")
+
+
+def _quiet(text: str) -> QLabel:
+    label = QLabel(text)
+    label.setWordWrap(True)
+    label.setEnabled(False)
+    return label
 
 
 class WelcomeDialog(QDialog):
@@ -91,6 +99,12 @@ class WelcomeDialog(QDialog):
         self.detection_box.setChecked(self._detection.enabled)
         form.addRow(self.detection_box)
 
+        self.ocr_box = QCheckBox(tr("welcome.ocr"), choices)
+        self.ocr_box.setChecked(settings.ocr_enabled)
+        self.ocr_box.setToolTip(ocr.INSTALL_HINT)
+        form.addRow(self.ocr_box)
+        form.addRow(_quiet(tr("welcome.ocr.hint")))
+
         self.autostart_box = QCheckBox(tr("settings.autostart"), choices)
         self.autostart_box.setChecked(autostart_enabled())
         form.addRow(self.autostart_box)
@@ -127,6 +141,9 @@ class WelcomeDialog(QDialog):
         settings = self._settings
         settings.language = str(self.language_combo.currentData())
         settings.selection_mode = str(self.mode_combo.currentData())
+        settings.ocr_enabled = self.ocr_box.isChecked()
+        # Answered here, so the offer never arrives as a notification later.
+        settings.ocr_asked = True
         settings.sync()
         set_language(settings.language)
 

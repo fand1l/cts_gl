@@ -610,7 +610,7 @@ def confirming(mode: str = MODE_RECTANGLE, mask_outside: bool = False) -> tuple:
     overlay.selected.connect(lambda r, p: results.__setitem__(ACTION_SEARCH, (r, p)))
     overlay.copy_requested.connect(lambda r, p: results.__setitem__(ACTION_COPY, (r, p)))
     overlay.save_requested.connect(lambda r, p: results.__setitem__(ACTION_SAVE, (r, p)))
-    overlay.text_requested.connect(lambda r, p: results.__setitem__(ACTION_TEXT, (r, p)))
+    overlay.text_selected.connect(lambda text: results.__setitem__(ACTION_TEXT, text))
     overlay.cancelled.connect(lambda: results.__setitem__("cancelled", ()))
     drag(overlay, (100, 100), (300, 250))
     return overlay, results
@@ -637,10 +637,6 @@ check("C copies", list(results) == [ACTION_COPY], str(list(results)))
 overlay, results = confirming()
 press_key(overlay, Qt.Key.Key_S)
 check("S saves", list(results) == [ACTION_SAVE], str(list(results)))
-
-overlay, results = confirming()
-press_key(overlay, Qt.Key.Key_T)
-check("T reads the text", list(results) == [ACTION_TEXT], str(list(results)))
 
 overlay, results = confirming()
 press_key(overlay, Qt.Key.Key_Escape)
@@ -774,6 +770,99 @@ clear_overlay.render(canvas)
 check("zero dimming leaves the screenshot alone",
       canvas.toImage().pixelColor(400, 400).red() > 190,
       str(canvas.toImage().pixelColor(400, 400).red()))
+
+# --- the text layer on the overlay -----------------------------------------
+from circle_to_search.ocr import Word  # noqa: E402
+
+# Two lines of a paragraph and one line of another, at 2x, so the physical
+# boxes tesseract reports have to be halved to land on screen.
+sample_words = [
+    Word("Hello", 200, 200, 100, 30, 95.0, (1, 1, 1, 1)),
+    Word("there", 320, 200, 100, 30, 94.0, (1, 1, 1, 2)),
+    Word("second", 200, 260, 140, 30, 92.0, (1, 1, 2, 1)),
+    Word("elsewhere", 200, 400, 200, 30, 90.0, (2, 1, 1, 1)),
+]
+
+text_overlay = make_overlay(MODE_RECTANGLE)
+picked: list[str] = []
+text_overlay.text_selected.connect(picked.append)
+
+check("no text layer to begin with", not text_overlay.has_words)
+text_overlay.set_words(sample_words)
+check("the words arrive", text_overlay.has_words)
+
+# Physical 200,200 100x30 at scale 2 is 100,100 50x15 on screen.
+first = text_overlay._words[0]
+check("boxes are converted to screen pixels", first.rect == QRect(100, 100, 50, 15),
+      str(first.rect))
+check("the reading order is kept",
+      [word.text for word in text_overlay._words] == ["Hello", "there", "second", "elsewhere"],
+      str([w.text for w in text_overlay._words]))
+
+# Dragging across words takes the text; dragging elsewhere still takes an area.
+drag(text_overlay, (110, 105), (180, 135))
+check("dragging over words selects text", text_overlay.has_text_selection())
+check("and not an area", not text_overlay._has_selection)
+check("the run reads in order", text_overlay.selected_text() == "Hello there\nsecond",
+      repr(text_overlay.selected_text()))
+
+press_key(text_overlay, Qt.Key.Key_C)
+check("C copies the text", picked == ["Hello there\nsecond"], str(picked))
+
+# Esc lets go of the text without throwing the capture away.
+text_overlay2 = make_overlay(MODE_RECTANGLE)
+cancels2: list[bool] = []
+text_overlay2.cancelled.connect(lambda: cancels2.append(True))
+text_overlay2.set_words(sample_words)
+drag(text_overlay2, (110, 105), (140, 105))
+check("a short drag still selects", text_overlay2.has_text_selection())
+press_key(text_overlay2, Qt.Key.Key_Escape)
+check("Esc drops the text selection", not text_overlay2.has_text_selection())
+check("and does not cancel yet", not cancels2)
+press_key(text_overlay2, Qt.Key.Key_Escape)
+check("a second Esc cancels", cancels2 == [True])
+
+# T takes everything that was recognised.
+text_overlay3 = make_overlay(MODE_RECTANGLE)
+text_overlay3.set_words(sample_words)
+press_key(text_overlay3, Qt.Key.Key_T)
+check("T selects all of it", len(text_overlay3.selected_words()) == 4,
+      str(len(text_overlay3.selected_words())))
+check("paragraphs are kept apart",
+      text_overlay3.selected_text() == "Hello there\nsecond\n\nelsewhere",
+      repr(text_overlay3.selected_text()))
+
+# A drag that starts on empty screen is an ordinary area selection, even with a
+# text layer present — otherwise the feature would take the app over.
+text_overlay4 = make_overlay(MODE_RECTANGLE)
+text_overlay4.set_words(sample_words)
+drag(text_overlay4, (500, 500), (600, 560))
+check("empty space still selects an area", text_overlay4._has_selection
+      and not text_overlay4.has_text_selection(), str(text_overlay4._selection_rect()))
+
+# The badge only animates while something is actually being read.
+scan_overlay = make_overlay(MODE_RECTANGLE)
+check("no timer before scanning", scan_overlay._scan_timer is None)
+scan_overlay.set_scanning(True)
+check("scanning starts a timer", scan_overlay._scan_timer is not None)
+scan_overlay.render(QPixmap(scan_overlay.size()))
+check("the badge paints", True)
+scan_overlay.set_words(sample_words)
+check("words stop the timer", scan_overlay._scan_timer is None and not scan_overlay._scanning)
+
+scan_overlay2 = make_overlay(MODE_RECTANGLE)
+scan_overlay2.set_scanning(True)
+scan_overlay2._cancel()
+check("finishing stops the timer too", scan_overlay2._scan_timer is None)
+
+# Painting every state has to work, since a crash here takes the capture with it.
+for state in ("hints", "selection"):
+    painted = make_overlay(MODE_RECTANGLE)
+    painted.set_words(sample_words)
+    if state == "selection":
+        painted.select_all_text()
+    painted.render(QPixmap(painted.size()))
+check("the text layer paints in every state", True)
 
 # --- selecting across more than one screen ---------------------------------
 from circle_to_search.multiscreen import (  # noqa: E402
@@ -967,6 +1056,51 @@ with tempfile.TemporaryDirectory() as tmp:
     text = ocr.recognise(Image.new("RGB", (20, 20), "white"), "ukr+eng")
     check("text comes back cleaned", text == "Hello there\n\nsecond line", repr(text))
 
+    # The word boxes, which are what make the text selectable on screen.
+    rows = [
+        "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num"
+        "\tleft\ttop\twidth\theight\tconf\ttext",
+        "5\t1\t1\t1\t1\t1\t10\t20\t40\t12\t96\tHello",
+        "5\t1\t1\t1\t1\t2\t55\t20\t40\t12\t95\tthere",
+        "5\t1\t1\t1\t2\t1\t10\t40\t60\t12\t90\tsecond",
+        "5\t1\t2\t1\t1\t1\t10\t80\t60\t12\t88\tnext",
+        "5\t1\t2\t1\t1\t2\t80\t80\t20\t12\t9\tsmudge",
+        "4\t1\t2\t1\t1\t0\t0\t0\t0\t0\t-1\t",
+        "5\t1\t3\t1\t1\t1\t10\t99\t10\t10\t80\t   ",
+        "rubbish",
+    ]
+    parsed = ocr.parse_tsv("\n".join(rows))
+    check("words are parsed",
+          [word.text for word in parsed] == ["Hello", "there", "second", "next"],
+          str([word.text for word in parsed]))
+    check("a box comes with them", (parsed[0].left, parsed[0].top, parsed[0].width) == (10, 20, 40),
+          str(parsed[0]))
+    check("an unsure word is dropped", all(word.text != "smudge" for word in parsed))
+    check("lines and paragraphs survive",
+          ocr.words_to_text(parsed) == "Hello there\nsecond\n\nnext",
+          repr(ocr.words_to_text(parsed)))
+    check("nothing at all is not a crash", ocr.parse_tsv("") == [])
+
+    # A crop takes the words whose middle is inside it, so a word cut in half by
+    # the rectangle goes to the side it mostly sits on.
+    check("words inside a box",
+          [word.text for word in ocr.words_in(parsed, 0, 0, 100, 50)]
+          == ["Hello", "there", "second"],
+          str([word.text for word in ocr.words_in(parsed, 0, 0, 100, 50)]))
+    # "there" spans 55..95, so a box ending at 60 clips it — but its middle is
+    # outside, and a word mostly out of the rectangle was not what was meant.
+    check("a clipped word goes by its middle",
+          [word.text for word in ocr.words_in(parsed, 0, 0, 60, 30)] == ["Hello"],
+          str([word.text for word in ocr.words_in(parsed, 0, 0, 60, 30)]))
+
+    fake_tesseract(
+        fake_dir,
+        'if [ "$1" = "--list-langs" ]; then echo eng; exit 0; fi\n'
+        "printf '5\\t1\\t1\\t1\\t1\\t1\\t10\\t20\\t40\\t12\\t96\\tWord\\n'\n",
+    )
+    words = ocr.recognise_words(Image.new("RGB", (20, 20), "white"))
+    check("recognise_words goes through tesseract", [w.text for w in words] == ["Word"], str(words))
+
     # Nothing on the image: an error the caller can show, not an empty success.
     fake_tesseract(fake_dir, 'if [ "$1" = "--list-langs" ]; then echo x; exit 0; fi\necho ""\n')
     try:
@@ -999,6 +1133,8 @@ class _FakeSettings:
     def __init__(self) -> None:
         self.language = "auto"
         self.selection_mode = "lasso"
+        self.ocr_enabled = False
+        self.ocr_asked = False
         self.synced = 0
 
     def sync(self) -> None:
@@ -1026,6 +1162,7 @@ welcome.apply()
 check("the choices are saved", fake_settings.language == "uk"
       and fake_settings.selection_mode == "rectangle",
       f"{fake_settings.language} {fake_settings.selection_mode}")
+check("answering here means no notification later", fake_settings.ocr_asked)
 check("and written out", fake_settings.synced == 1, str(fake_settings.synced))
 
 # Closing it a second way must not write everything again — and, more to the
@@ -1067,6 +1204,19 @@ with tempfile.TemporaryDirectory() as tmp:
           str([e.path.name for e in recent.entries()]))
     check("names are unique",
           len({e.path.name for e in recent.entries()}) == len(recent.entries()))
+
+    # The text recognised inside a crop is kept beside it, so asking for it
+    # again from the tray never runs tesseract twice.
+    with_text = recent.add(Image.new("RGB", (12, 12), "white"), text="a kept sentence")
+    check("text is kept with the capture", recent.text_of(with_text) == "a kept sentence",
+          repr(recent.text_of(with_text)))
+    check("the entry says it has text",
+          recent.entries()[0].has_text and "¶" in recent.entries()[0].label,
+          recent.entries()[0].label)
+    check("a capture without text says so", not recent.text_of(Path(tmp) / "nope.png"))
+    recent.forget(with_text)
+    check("forgetting takes the text too", not with_text.with_suffix(".txt").exists())
+
 
     current = recent.entries()
     recent.forget(current[-1].path)

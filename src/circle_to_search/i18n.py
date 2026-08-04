@@ -147,6 +147,12 @@ _EN: dict[str, str] = {
         "copy it, <b>S</b> to save it, or <b>Esc</b> to forget it.</p>"
     ),
     "welcome.choices": "Worth deciding now",
+    "welcome.ocr": "Make the text on screen selectable",
+    "welcome.ocr.hint": (
+        "Runs tesseract locally while the overlay is up, so you can drag across "
+        "a sentence and copy it. Nothing is uploaded. Needs the tesseract "
+        "package; can be turned on later in Settings."
+    ),
     "welcome.calibrate": "Calibrate the gesture…",
     "welcome.calibrate.hint": (
         "Recommended: shake a dozen times and the thresholds are fitted to how "
@@ -154,9 +160,27 @@ _EN: dict[str, str] = {
         "it later from the tray menu."
     ),
     "welcome.done": "Ready",
+    "ocr.offer.title": "Read the text on screen too?",
+    "ocr.offer.found": (
+        "The overlay can make the text on the frozen screen selectable, so you "
+        "can drag across a sentence and copy it. It runs tesseract on this "
+        "machine — nothing is uploaded. Asked once."
+    ),
+    "ocr.offer.missing": (
+        "The overlay can make the text on the frozen screen selectable. It "
+        "needs tesseract, which is not installed yet:\n{command}\n"
+        "You can say yes now and install it later. Asked once."
+    ),
+    "ocr.offer.yes": "Yes, read the text",
+    "ocr.offer.no": "No thanks",
+    "ocr.offer.on": "Text recognition is on",
+    "ocr.offer.on_body": (
+        "From the next capture the words on screen can be dragged across and "
+        "copied. Settings → General turns it off again."
+    ),
     "ocr.ask.title": "Circle to Search — Text recognition",
     "ocr.ask.text": (
-        "Read the text out of the selection and copy it, instead of searching "
+        "Read the text out of this capture and copy it, instead of searching "
         "for the image?"
     ),
     "ocr.ask.found": (
@@ -170,10 +194,11 @@ _EN: dict[str, str] = {
         "You can turn this on now and install it afterwards. You will only be "
         "asked once; the switch is in Settings → General."
     ),
-    "settings.ocr": "Read text from the selection with T (needs tesseract)",
+    "settings.ocr": "Make the text on screen selectable (needs tesseract)",
     "settings.ocr.hint": (
-        "Runs tesseract locally and copies what it finds; nothing is uploaded. "
-        "Install it with: {command}"
+        "Reading starts as soon as the overlay opens. Drag across a word to "
+        "take a sentence, T takes everything, Enter or C copies it. Runs "
+        "tesseract locally — nothing is uploaded. Install it with: {command}"
     ),
     "settings.ocr.found": "tesseract found, languages: {languages}",
     "settings.ocr.missing": "tesseract is not installed",
@@ -277,11 +302,22 @@ _EN: dict[str, str] = {
     ),
     "launcher.failed": "The browser could not start the upload.",
     "launcher.retry": "Try again",
-    "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
-    "overlay.hint.rect": "Drag to select · Esc or right-click to cancel",
+    "overlay.hint.lasso": (
+        "Circle what you want · drag across text to take the text · "
+        "Esc or right-click to cancel"
+    ),
+    "overlay.hint.rect": (
+        "Drag to select · drag across text to take the text · "
+        "Esc or right-click to cancel"
+    ),
     "overlay.confirm": (
-        "Enter — search · C — copy · S — save · T — text · Esc — cancel   |   "
+        "Enter — search · C — copy · S — save · Esc — cancel   |   "
         "drag the edges or use the arrow keys to adjust"
+    ),
+    "overlay.scanning": "Reading the text on screen",
+    "overlay.text_hint": (
+        "{count} word(s) · Enter or C — copy them · T — all of the text · "
+        "Esc — back to selecting an area"
     ),
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
@@ -428,6 +464,12 @@ _UK: dict[str, str] = {
         "<b>S</b> — зберегти, <b>Esc</b> — забути.</p>"
     ),
     "welcome.choices": "Варто вирішити одразу",
+    "welcome.ocr": "Робити текст на екрані виділюваним",
+    "welcome.ocr.hint": (
+        "Запускає tesseract локально, поки відкритий оверлей, — щоб провести "
+        "по реченню й скопіювати його. Нічого не надсилається. Потрібен пакет "
+        "tesseract; можна увімкнути й пізніше в Налаштуваннях."
+    ),
     "welcome.calibrate": "Відкалібрувати жест…",
     "welcome.calibrate.hint": (
         "Рекомендую: потрясіть десяток разів — і пороги підлаштуються під те, "
@@ -435,9 +477,27 @@ _UK: dict[str, str] = {
         "зробити й пізніше з меню в треї."
     ),
     "welcome.done": "Готово",
+    "ocr.offer.title": "Розпізнавати ще й текст на екрані?",
+    "ocr.offer.found": (
+        "Оверлей може зробити текст на застиглому екрані виділюваним — щоб "
+        "провести по реченню й скопіювати його. Працює через tesseract на "
+        "вашій машині, нічого не надсилається. Запитую один раз."
+    ),
+    "ocr.offer.missing": (
+        "Оверлей може зробити текст на застиглому екрані виділюваним. Для "
+        "цього потрібен tesseract, якого ще немає:\n{command}\n"
+        "Можна погодитись зараз, а встановити пізніше. Запитую один раз."
+    ),
+    "ocr.offer.yes": "Так, розпізнавати",
+    "ocr.offer.no": "Ні, дякую",
+    "ocr.offer.on": "Розпізнавання тексту увімкнено",
+    "ocr.offer.on_body": (
+        "Починаючи з наступного знімка по словах на екрані можна буде провести "
+        "й скопіювати їх. Вимкнути — Налаштування → Загальні."
+    ),
     "ocr.ask.title": "Circle to Search — Розпізнавання тексту",
     "ocr.ask.text": (
-        "Зчитувати текст із виділення та копіювати його замість пошуку "
+        "Зчитати текст із цього знімка та скопіювати його замість пошуку "
         "зображення?"
     ),
     "ocr.ask.found": (
@@ -451,10 +511,11 @@ _UK: dict[str, str] = {
         "Можна увімкнути зараз, а встановити потім. Запитаю лише раз; перемикач "
         "є в Налаштуваннях → Загальні."
     ),
-    "settings.ocr": "Зчитувати текст із виділення клавішею T (потрібен tesseract)",
+    "settings.ocr": "Робити текст на екрані виділюваним (потрібен tesseract)",
     "settings.ocr.hint": (
-        "Запускає tesseract локально й копіює знайдене; нічого не надсилається. "
-        "Встановити: {command}"
+        "Розпізнавання починається одразу з відкриттям оверлея. Проведіть по "
+        "слову, щоб узяти речення, T бере все, Enter або C копіює. tesseract "
+        "працює локально — нічого не надсилається. Встановити: {command}"
     ),
     "settings.ocr.found": "tesseract знайдено, мови: {languages}",
     "settings.ocr.missing": "tesseract не встановлено",
@@ -562,11 +623,22 @@ _UK: dict[str, str] = {
     ),
     "launcher.failed": "Браузер не зміг почати вивантаження.",
     "launcher.retry": "Спробувати ще раз",
-    "overlay.hint.lasso": "Обведіть потрібне · Esc або права кнопка — скасувати",
-    "overlay.hint.rect": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",
+    "overlay.hint.lasso": (
+        "Обведіть потрібне · проведіть по тексту, щоб узяти текст · "
+        "Esc або права кнопка — скасувати"
+    ),
+    "overlay.hint.rect": (
+        "Потягніть, щоб виділити · проведіть по тексту, щоб узяти текст · "
+        "Esc або права кнопка — скасувати"
+    ),
     "overlay.confirm": (
-        "Enter — пошук · C — копіювати · S — зберегти · T — текст · "
-        "Esc — скасувати   |   тягніть за краї або стрілками, щоб підправити"
+        "Enter — пошук · C — копіювати · S — зберегти · Esc — скасувати   |   "
+        "тягніть за краї або стрілками, щоб підправити"
+    ),
+    "overlay.scanning": "Читаю текст на екрані",
+    "overlay.text_hint": (
+        "слів: {count} · Enter або C — скопіювати · T — увесь текст · "
+        "Esc — назад до виділення області"
     ),
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",

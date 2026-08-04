@@ -10,6 +10,10 @@ daemon that is idle most of the time, and a restart would lose them anyway.  It
 does mean the selections are files under the user's data directory until they
 are pushed out by newer ones — which is why it can be switched off, and why
 "Forget them" is next to the list.
+
+Whatever text was recognised inside a crop is kept beside it in a plain ``.txt``
+file, so asking for it again from the tray costs nothing.  Plain text rather
+than a format: it is the kind of thing a person may well want to open.
 """
 
 from __future__ import annotations
@@ -49,10 +53,13 @@ class RecentCapture:
     taken: datetime
     width: int
     height: int
+    #: True when text was recognised inside it and kept beside it.
+    has_text: bool = False
 
     @property
     def label(self) -> str:
-        return f"{self.taken:%H:%M:%S}  ·  {self.width} × {self.height}"
+        mark = "  ·  ¶" if self.has_text else ""
+        return f"{self.taken:%H:%M:%S}  ·  {self.width} × {self.height}{mark}"
 
 
 class RecentCaptures:
@@ -66,7 +73,18 @@ class RecentCaptures:
     def directory(self) -> Path:
         return self._directory
 
-    def add(self, image: Image.Image) -> Path | None:
+    @staticmethod
+    def _text_path(path: Path) -> Path:
+        return path.with_suffix(".txt")
+
+    def text_of(self, path: Path) -> str:
+        """The text kept beside a capture, or an empty string."""
+        try:
+            return self._text_path(path).read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            return ""
+
+    def add(self, image: Image.Image, text: str = "") -> Path | None:
         """Keep a copy of ``image``.  Returns its path, or ``None`` on failure.
 
         Failing to remember a capture must never break the capture itself, so
@@ -83,6 +101,13 @@ class RecentCaptures:
         except (OSError, ValueError) as exc:
             log.warning("could not keep the capture: %s", exc)
             return None
+        if text:
+            try:
+                self._text_path(path).write_text(text, encoding="utf-8")
+            except OSError as exc:
+                # The picture is what matters; losing the text only means it has
+                # to be recognised again.
+                log.warning("could not keep the text of %s: %s", path.name, exc)
         log.debug("kept %s", path)
         self.prune()
         return path
@@ -108,7 +133,15 @@ class RecentCaptures:
             except (OSError, ValueError) as exc:
                 log.debug("ignoring %s: %s", path, exc)
                 continue
-            found.append(RecentCapture(path=path, taken=taken, width=width, height=height))
+            found.append(
+                RecentCapture(
+                    path=path,
+                    taken=taken,
+                    width=width,
+                    height=height,
+                    has_text=self._text_path(path).is_file(),
+                )
+            )
         found.sort(key=lambda entry: (entry.taken, entry.path.name), reverse=True)
         return found
 
@@ -122,10 +155,11 @@ class RecentCaptures:
             return None
 
     def forget(self, path: Path) -> None:
-        try:
-            path.unlink(missing_ok=True)
-        except OSError as exc:
-            log.warning("could not remove %s: %s", path, exc)
+        for target in (path, self._text_path(path)):
+            try:
+                target.unlink(missing_ok=True)
+            except OSError as exc:
+                log.warning("could not remove %s: %s", target, exc)
 
     def clear(self) -> int:
         """Drop all of them.  Returns how many were removed."""
