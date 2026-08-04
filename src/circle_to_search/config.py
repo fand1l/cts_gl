@@ -173,6 +173,18 @@ def write_detection(settings: DetectionSettings, *, reconfigure: bool = True) ->
     return ok
 
 
+def set_calibrating(active: bool) -> bool:
+    """Put the KWin script into (or out of) calibration mode.
+
+    While it is on the script measures every swing and reports it, and never
+    opens the overlay — including when detection is switched off, so a user
+    whose shake is currently rejected can still calibrate their way out of it.
+    """
+    ok = _write_raw("calibrating", "true" if active else "false", config_type="bool")
+    kwin_reconfigure()
+    return ok
+
+
 def set_detection_enabled(enabled: bool) -> bool:
     """Toggle just the ``enabled`` key (used by the tray checkbox)."""
     ok = _write_raw("enabled", "true" if enabled else "false", config_type="bool")

@@ -57,6 +57,8 @@ class SettingsDialog(QDialog):
 
     #: Emitted after settings were written, so the tray can refresh itself.
     applied = pyqtSignal()
+    #: The user asked for the calibration window.
+    calibrate_requested = pyqtSignal()
 
     def __init__(self, app_settings: AppSettings, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -100,6 +102,11 @@ class SettingsDialog(QDialog):
 
         self.enabled_box = QCheckBox(tr("settings.enabled"), shake)
         form.addRow(self.enabled_box)
+
+        calibrate = QPushButton(tr("settings.calibrate"), shake)
+        calibrate.clicked.connect(self.calibrate_requested)
+        form.addRow(calibrate)
+        form.addRow(_hint(tr("settings.calibrate.hint")))
 
         self.fullscreen_box = QCheckBox(tr("settings.fullscreen"), shake)
         form.addRow(self.fullscreen_box)
@@ -253,6 +260,11 @@ class SettingsDialog(QDialog):
         return spin
 
     # ------------------------------------------------------------------ data
+
+    def reload(self) -> None:
+        """Pick up settings that were changed elsewhere (by the calibration)."""
+        self._detection = read_detection()
+        self._load()
 
     def _load(self) -> None:
         detection = self._detection

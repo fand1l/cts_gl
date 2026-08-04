@@ -81,6 +81,36 @@ _EN: dict[str, str] = {
         "journalctl --user -u plasma-kwin_wayland -f | grep circle — and "
         "tools/record-trace.sh turns a real misfire into a replayable file."
     ),
+    "settings.calibrate": "Calibrate the gesture…",
+    "settings.calibrate.hint": (
+        "Rather than guessing at six thresholds: shake the way that feels "
+        "natural a few times and let the numbers follow from that."
+    ),
+    "calibrate.title": "Circle to Search — Calibration",
+    "calibrate.instructions": (
+        "Shake the pointer the way you would to open the overlay — diagonally, "
+        "back and forth — a few times in a row. Nothing will open while this "
+        "window is up; every swing is only being measured."
+    ),
+    "calibrate.progress": "%v of %m swings",
+    "calibrate.waiting": "Waiting for the first swing…",
+    "calibrate.keep_going": "{count} swings so far; keep going to about {total}.",
+    "calibrate.ready": (
+        "Measured {count} swings. These are the thresholds that fit them, with "
+        "room to spare:"
+    ),
+    "calibrate.no_change": (
+        "Measured {count} swings — the current settings already fit them, so "
+        "there is nothing to change."
+    ),
+    "calibrate.no_script": (
+        "The KWin script did not answer, so nothing can be measured. Check that "
+        "it is installed and enabled."
+    ),
+    "calibrate.setting": "Setting",
+    "calibrate.before": "Now",
+    "calibrate.after": "Suggested",
+    "calibrate.restart": "Start over",
     "settings.shortcut": "Shortcut:",
     "settings.shortcut.hint": (
         "The KWin script registers this sequence the first time it is loaded. "
@@ -216,6 +246,35 @@ _UK: dict[str, str] = {
         "tools/record-trace.sh перетворює реальне хибне спрацювання на файл для "
         "повторного відтворення."
     ),
+    "settings.calibrate": "Відкалібрувати жест…",
+    "settings.calibrate.hint": (
+        "Замість того щоб вгадувати шість порогів: потрясіть кілька разів так, "
+        "як вам зручно, і числа виведуться з цього."
+    ),
+    "calibrate.title": "Circle to Search — Калібрування",
+    "calibrate.instructions": (
+        "Потрясіть курсором так, як робили б це для відкриття оверлея — по "
+        "діагоналі, туди-сюди — кілька разів поспіль. Поки це вікно відкрите, "
+        "нічого не з’явиться: кожен мах лише вимірюється."
+    ),
+    "calibrate.progress": "%v з %m махів",
+    "calibrate.waiting": "Чекаю на перший мах…",
+    "calibrate.keep_going": "Уже {count} махів; продовжуйте приблизно до {total}.",
+    "calibrate.ready": (
+        "Виміряно {count} махів. Ось пороги, які їм відповідають, із запасом:"
+    ),
+    "calibrate.no_change": (
+        "Виміряно {count} махів — поточні налаштування вже їм відповідають, "
+        "змінювати нічого."
+    ),
+    "calibrate.no_script": (
+        "KWin-скрипт не відповів, тож вимірювати нічим. Перевірте, чи він "
+        "встановлений і увімкнений."
+    ),
+    "calibrate.setting": "Параметр",
+    "calibrate.before": "Зараз",
+    "calibrate.after": "Пропоную",
+    "calibrate.restart": "Почати спочатку",
     "settings.shortcut": "Хоткей:",
     "settings.shortcut.hint": (
         "KWin-скрипт реєструє цю комбінацію при першому завантаженні. Якщо ви вже "

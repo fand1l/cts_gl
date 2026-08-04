@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.3.1";
+var SCRIPT_VERSION = "1.4.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -43,6 +43,10 @@ var OVERLAY_WATCH_INTERVAL = 250;
 /* Re-read the configuration at least this often (ms), so a settings change
  * takes effect without logging out even if the change signal never arrives. */
 var CONFIG_RELOAD_MS = 4000;
+
+/* Swings shorter than this are twitches, not part of a gesture; must match
+ * MIN_USEFUL_LENGTH in calibration.py. */
+var CALIBRATION_MIN_LENGTH = 40;
 
 /* Slow the poll timer down after this many idle ticks (~1 s at 50 ms). */
 var IDLE_TICKS = 20;
@@ -64,6 +68,7 @@ var cfg = {
     containmentFactor: 3,
     debug: false,
     trace: false,
+    calibrating: false,
     disableInFullscreen: true,
     shortcut: "Meta+Shift+L"
 };
@@ -136,6 +141,9 @@ function loadConfig() {
     cfg.containmentFactor = Math.max(1.2, readNumber("containmentFactor", 3));
     cfg.debug = readBoolean("debug", false);
     cfg.trace = readBoolean("trace", false);
+    /* Set by the calibration dialog while it is open: measure everything,
+     * trigger nothing. */
+    cfg.calibrating = readBoolean("calibrating", false);
     cfg.disableInFullscreen = readBoolean("disableInFullscreen", true);
     cfg.shortcut = String(readConfig("shortcut", "Meta+Shift+L"));
 
@@ -152,6 +160,7 @@ function loadConfig() {
         + " minStepPx=" + cfg.minStepPx
         + " debug=" + cfg.debug
         + " trace=" + cfg.trace
+        + " calibrating=" + cfg.calibrating
         + " disableInFullscreen=" + cfg.disableInFullscreen;
 
     lastConfigAt = Date.now();
@@ -361,6 +370,7 @@ function judgeStroke(stroke, now) {
         speed: speed,
         curvature: curvature,
         diagonal: diagonal,
+        duration: duration,
         endX: stroke.x1,
         endY: stroke.y1
     };
@@ -456,9 +466,42 @@ function tryCountInProgress(now) {
     return considerReversal(swing, now);
 }
 
+/*
+ * Calibration: hand the raw measurements to the daemon and decide nothing.
+ *
+ * The thresholds are exactly what is being measured, so they must not be used
+ * to filter here — a user whose shake is currently rejected has to be able to
+ * calibrate their way out of it.
+ */
+function reportCalibration(swing) {
+    var turn = -1;
+    if (state.lastSwing !== null) {
+        turn = angleBetween(state.lastSwing.vx, state.lastSwing.vy, swing.vx, swing.vy);
+    }
+    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "CalibrationSample",
+             Math.round(swing.length) | 0,
+             Math.round(swing.speed) | 0,
+             Math.round(swing.curvature * 100) | 0,
+             Math.round(swing.diagonal) | 0,
+             Math.round(turn) | 0,
+             Math.round(swing.duration) | 0);
+    if (cfg.debug) {
+        print("circle-to-search: calibration " + describeSwing(swing)
+            + " turn=" + Math.round(turn));
+    }
+}
+
 function finishStroke(now) {
     var swing = judgeStroke(state.stroke, now);
     var counted = state.stroke.counted;
+
+    if (cfg.calibrating) {
+        if (swing.length >= CALIBRATION_MIN_LENGTH) {
+            reportCalibration(swing);
+            state.lastSwing = swing;
+        }
+        return false;
+    }
 
     if (cfg.debug) {
         print("circle-to-search: swing " + describeSwing(swing));
@@ -482,13 +525,13 @@ function poll() {
     var now = Date.now();
     maybeReloadConfig(now);
 
-    if (!cfg.enabled) {
+    if (!cfg.enabled && !cfg.calibrating) {
         if (state.stroke !== null || state.reversalTimes.length > 0) {
             resetDetector();
         }
         return;
     }
-    if (cfg.disableInFullscreen && activeIsFullScreen()) {
+    if (!cfg.calibrating && cfg.disableInFullscreen && activeIsFullScreen()) {
         /* A game has the focus: stop looking at the cursor entirely.  The
          * global shortcut still works, because pressing it is deliberate. */
         if (state.stroke !== null || state.reversalTimes.length > 0) {
@@ -586,6 +629,9 @@ function poll() {
 }
 
 function fire(x, y, now) {
+    if (cfg.calibrating) {
+        return;
+    }
     /* lastTriggerAt === 0 means "never fired yet" — without that check the
      * cooldown would swallow the first trigger whenever the clock happens to
      * read less than cooldownMs. */

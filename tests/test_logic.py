@@ -480,6 +480,80 @@ race_overlay.set_window_offset(0, 36)
 check("late report ignored", race_overlay._offset == QPoint(0, 0), str(race_overlay._offset))
 race_overlay.close()
 
+# --- calibration -----------------------------------------------------------
+from circle_to_search.calibration import (  # noqa: E402
+    MINIMUM_SAMPLES,
+    Sample,
+    describe_changes,
+    suggest,
+)
+from circle_to_search.config import DetectionSettings  # noqa: E402
+
+
+def swings(count: int, length: int, speed: int, curve: int = 105, diag: int = 8,
+           turn: int = 176, duration: int = 120) -> list[Sample]:
+    return [
+        Sample(
+            length=length,
+            speed=speed,
+            curvature_pct=curve,
+            diagonal_deg=diag,
+            turn_deg=turn,
+            duration_ms=duration,
+        )
+        for _ in range(count)
+    ]
+
+
+base = DetectionSettings.defaults()
+
+# Not enough to go on: the settings must come back untouched rather than being
+# derived from two twitches.
+check("too few samples", suggest(swings(MINIMUM_SAMPLES - 1, 300, 2000), base) == base)
+check("twitches are dropped", suggest(swings(20, 12, 2000), base) == base)
+
+# A brisk shaker: thresholds sit below what they actually do, with margin.
+brisk = suggest(swings(12, 300, 2400), base)
+check("brisk amplitude", brisk.minAmplitudePx == 180, str(brisk.minAmplitudePx))
+check("brisk speed", brisk.minSpeedPxPerSec == 1320, str(brisk.minSpeedPxPerSec))
+check("brisk speed is below the measured one", brisk.minSpeedPxPerSec < 2400)
+check("brisk amplitude is below the measured one", brisk.minAmplitudePx < 300)
+
+# A gentle shaker gets thresholds they can actually reach — this is the case
+# the defaults were failing, so it matters most.
+gentle = suggest(swings(12, 120, 420, duration=280), base)
+check("gentle speed", gentle.minSpeedPxPerSec < base.minSpeedPxPerSec,
+      f"{gentle.minSpeedPxPerSec} vs {base.minSpeedPxPerSec}")
+check("gentle amplitude", gentle.minAmplitudePx < base.minAmplitudePx,
+      f"{gentle.minAmplitudePx} vs {base.minAmplitudePx}")
+check("gentle window widens", gentle.windowMs > base.windowMs,
+      f"{gentle.windowMs} vs {base.windowMs}")
+
+# A wobbly, off-diagonal shake loosens the angle and curvature limits.
+wobbly = suggest(swings(12, 250, 1500, curve=130, diag=26, turn=150), base)
+check("wobbly angle", wobbly.angleTolerance >= 36, str(wobbly.angleTolerance))
+check("wobbly curvature", wobbly.maxCurvaturePct >= 165, str(wobbly.maxCurvaturePct))
+check("wobbly turn tolerance", wobbly.reversalTolerance >= 45, str(wobbly.reversalTolerance))
+
+# Everything stays inside the ranges the settings dialog allows.
+extreme = suggest(swings(12, 5000, 50000, curve=900, diag=80, turn=95, duration=4000), base)
+check("clamped amplitude", 20 <= extreme.minAmplitudePx <= 1000, str(extreme.minAmplitudePx))
+check("clamped speed", 100 <= extreme.minSpeedPxPerSec <= 5000, str(extreme.minSpeedPxPerSec))
+check("clamped curvature", 110 <= extreme.maxCurvaturePct <= 400, str(extreme.maxCurvaturePct))
+check("clamped angle", 10 <= extreme.angleTolerance <= 44, str(extreme.angleTolerance))
+check("clamped turn", 15 <= extreme.reversalTolerance <= 90, str(extreme.reversalTolerance))
+check("clamped window", 300 <= extreme.windowMs <= 3000, str(extreme.windowMs))
+
+# Gentle corners are not reversals, so they must not widen the turn tolerance.
+corners = swings(12, 250, 1500, turn=60)
+check("corners ignored for the turn stat",
+      suggest(corners, base).reversalTolerance == 40,
+      str(suggest(corners, base).reversalTolerance))
+
+rows = describe_changes(base, brisk)
+check("changes are listed", len(rows) >= 3, str(rows))
+check("nothing listed when identical", describe_changes(base, base) == [])
+
 print()
 if failures:
     print("FAILURES:", ", ".join(failures))

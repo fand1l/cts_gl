@@ -517,5 +517,66 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     if (!corrected) failures += 1;
 }
 
+/* ---- calibration mode ---------------------------------------------------- */
+/*
+ * While the calibration window is open the script has to measure everything and
+ * decide nothing — including when detection is switched off, because a user
+ * whose shake is currently rejected is exactly the one who needs to calibrate.
+ */
+{
+    run("calibrating never fires", { calibrating: true }, shake(4, 250, 1000, 4, 30), 0);
+    const samples = lastHarness.calls.filter((c) => c[3] === "CalibrationSample");
+    console.log(`${samples.length >= 3 ? "PASS" : "FAIL"}  swings are measured: ${samples.length}`);
+    if (samples.length < 3) failures += 1;
+
+    /* CalibrationSample(length, speed, curvature%, diagonal°, turn°, ms) */
+    const first = samples[0].slice(4);
+    const shaped = first.length === 6 && first.every((value) => Number.isInteger(value));
+    console.log(`${shaped ? "PASS" : "FAIL"}  sample shape: ${JSON.stringify(first)}`);
+    if (!shaped) failures += 1;
+
+    /* 250 px on each axis is a 354 px swing in 120 ms — a real measurement, not
+     * a rounded-off placeholder. */
+    const length = first[0];
+    const speed = first[1];
+    const plausible = length > 300 && length < 400 && speed > 2000 && speed < 4000;
+    console.log(`${plausible ? "PASS" : "FAIL"}  measurements look real: ` +
+                `${length} px at ${speed} px/s`);
+    if (!plausible) failures += 1;
+
+    /* The turn against the previous swing is what sets the turn-back
+     * tolerance; the first swing has nothing to compare against. */
+    const turns = samples.map((c) => c[8]);
+    const turnsOk = turns[0] === -1 && turns.slice(1).some((value) => value > 150);
+    console.log(`${turnsOk ? "PASS" : "FAIL"}  turns are reported: ${JSON.stringify(turns)}`);
+    if (!turnsOk) failures += 1;
+}
+
+/* Detection off plus calibrating: still measures. */
+{
+    run("calibrating works with detection off", { calibrating: true, enabled: false },
+        shake(4, 250, 1000, 4, 30), 0);
+    const samples = lastHarness.calls.filter((c) => c[3] === "CalibrationSample").length;
+    console.log(`${samples >= 3 ? "PASS" : "FAIL"}  measured with detection off: ${samples}`);
+    if (samples < 3) failures += 1;
+}
+
+/* And in a full screen window, where detection is otherwise suppressed. */
+{
+    run("calibrating works in fullscreen", { calibrating: true },
+        shake(4, 250, 1000, 4, 30), 0, { fullScreen: true });
+    const samples = lastHarness.calls.filter((c) => c[3] === "CalibrationSample").length;
+    console.log(`${samples >= 3 ? "PASS" : "FAIL"}  measured in fullscreen: ${samples}`);
+    if (samples < 3) failures += 1;
+}
+
+/* Nothing is measured when the dialog is not open. */
+{
+    run("no samples outside calibration", defaults, shake(3, 200, 1000, 4, 30), 1);
+    const samples = lastHarness.calls.filter((c) => c[3] === "CalibrationSample").length;
+    console.log(`${samples === 0 ? "PASS" : "FAIL"}  no samples normally: ${samples}`);
+    if (samples !== 0) failures += 1;
+}
+
 console.log(failures === 0 ? "\nall good" : `\n${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

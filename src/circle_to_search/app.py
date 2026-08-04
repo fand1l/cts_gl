@@ -29,6 +29,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
 from . import APP_ID, DBUS_SERVICE, __version__
+from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
     kwin_script_enabled,
@@ -178,11 +179,13 @@ class CircleToSearchApp(QObject):
         self._service.triggered.connect(self.on_trigger)
         self._service.shake_triggered.connect(self.on_shake_trigger)
         self._service.overlay_geometry.connect(self.on_overlay_geometry)
+        self._service.calibration_sample.connect(self.on_calibration_sample)
         self._service.triggered_current.connect(self.on_trigger_current)
         self._service.settings_requested.connect(self.show_settings)
 
         self._overlay: SelectionOverlay | None = None
         self._dialog: SettingsDialog | None = None
+        self._calibration: CalibrationDialog | None = None
         self._tasks: set[QRunnable] = set()
         self._busy = False
 
@@ -204,6 +207,8 @@ class CircleToSearchApp(QObject):
         QTimer.singleShot(4000, self._check_kwin_script)
 
     def stop(self) -> None:
+        if self._calibration is not None:
+            self._calibration.stop()
         unregister_service()
 
     def _load_icon(self) -> QIcon:
@@ -237,6 +242,12 @@ class CircleToSearchApp(QObject):
         capture = QAction(tr("tray.capture"), menu)
         capture.triggered.connect(self.on_trigger_current)
         menu.addAction(capture)
+
+        menu.addSeparator()
+
+        calibrate = QAction(tr("settings.calibrate"), menu)
+        calibrate.triggered.connect(self.show_calibration)
+        menu.addAction(calibrate)
 
         menu.addSeparator()
 
@@ -528,6 +539,7 @@ class CircleToSearchApp(QObject):
         if self._dialog is None:
             self._dialog = SettingsDialog(self._settings)
             self._dialog.applied.connect(self._on_settings_applied)
+            self._dialog.calibrate_requested.connect(self.show_calibration)
             self._dialog.finished.connect(self._on_dialog_closed)
         self._dialog.show()
         self._dialog.raise_()
@@ -544,6 +556,45 @@ class CircleToSearchApp(QObject):
         detection = read_detection()
         if self._detection_action is not None:
             self._detection_action.setChecked(detection.enabled)
+
+    @pyqtSlot()
+    def show_calibration(self) -> None:
+        """Open the calibration window (from the settings or the tray)."""
+        if self._calibration is None:
+            self._calibration = CalibrationDialog()
+            self._calibration.applied.connect(self._on_calibration_applied)
+            self._calibration.finished.connect(self._on_calibration_closed)
+        self._calibration.start()
+
+    @pyqtSlot(int, int, int, int, int, int)
+    def on_calibration_sample(
+        self,
+        length: int,
+        speed: int,
+        curvature_pct: int,
+        diagonal_deg: int,
+        turn_deg: int,
+        duration_ms: int,
+    ) -> None:
+        if self._calibration is not None:
+            self._calibration.on_sample(
+                length, speed, curvature_pct, diagonal_deg, turn_deg, duration_ms
+            )
+
+    def _on_calibration_applied(self) -> None:
+        if self._dialog is not None:
+            self._dialog.reload()
+        if self._detection_action is not None:
+            self._detection_action.setChecked(read_detection().enabled)
+
+    def _on_calibration_closed(self) -> None:
+        dialog = self._calibration
+        self._calibration = None
+        if dialog is not None:
+            # Belt and braces: the dialog leaves measuring mode in done(), but
+            # the script must never be left measuring if anything went wrong.
+            dialog.stop()
+            dialog.deleteLater()
 
     @pyqtSlot()
     def show_about(self) -> None:

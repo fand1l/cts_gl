@@ -200,11 +200,50 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `disableInFullscreen` | `true` | Ignore the shake while a full screen window has the focus (games, video). The global shortcut still works. |
 | `debug` | `false` | Log why each swing was accepted or rejected |
 | `trace` | `false` | Log every cursor sample, for `tools/record-trace.sh` |
+| `calibrating` | `false` | Set by the calibration window while it is open; see below |
 | `shortcut` | `Meta+Shift+L` | Fallback global shortcut |
 
 Changing any of them takes effect on the running session: the script re-reads
 its settings on `options.configChanged` and, as a safety net, at least every
 four seconds.
+
+### Calibrate the gesture instead of guessing
+
+Six thresholds are six chances to get it wrong by hand. Settings →
+**Calibrate the gesture…** (also in the tray menu) measures your own shake and
+writes the numbers for you:
+
+1. The dialog puts the KWin script into `calibrating` mode. In that mode the
+   script **never opens the overlay** — it only measures — so nothing pops up
+   while you are shaking on purpose. It measures even when detection is
+   switched off or a full screen window has the focus, so a broken threshold
+   cannot lock you out of fixing it.
+2. Shake the cursor the way that feels natural, about a dozen times. Every
+   swing is reported over D-Bus as
+   `CalibrationSample(length, speed, curvature, diagonal, turn, duration)`, and
+   swings shorter than 40 px are ignored as twitches.
+3. After six usable swings the table fills in with *setting → now → suggested*
+   and keeps refining as you continue. **Apply** writes them; **Cancel**
+   changes nothing.
+
+The margins are deliberately one-sided: the amplitude and speed suggestions sit
+**below** what you actually did (0.6× and 0.55× of the median), and the
+tolerances sit **above** your worst swing. A threshold that is slightly too
+loose costs one stray overlay; one that is slightly too tight makes the feature
+look broken.
+
+Closing the window always leaves `calibrating` mode — Apply, Cancel and the
+titlebar × all go through the same exit — so the gesture can never stay dead
+afterwards. If it ever does, the culprit is visible:
+
+```bash
+kreadconfig6 --file kwinrc --group Script-circletosearch --key calibrating
+kwriteconfig6 --file kwinrc --group Script-circletosearch --key calibrating false
+qdbus6 org.kde.KWin /KWin reconfigure
+```
+
+The arithmetic lives in `src/circle_to_search/calibration.py` as one pure
+function, so `python3 tests/test_logic.py` checks it without Qt, D-Bus or KWin.
 
 Application-only settings live in
 `~/.config/circle-to-search/circle-to-search.conf`:
@@ -273,7 +312,7 @@ package on disk changes nothing by itself — `reconfigure` only re-reads
 
 ```bash
 journalctl --user -u plasma-kwin_wayland | grep "script started"
-#  circle-to-search: KWin script started (v1.3.1)
+#  circle-to-search: KWin script started (v1.4.0)
 grep SCRIPT_VERSION kwinscript/contents/code/main.js
 ```
 

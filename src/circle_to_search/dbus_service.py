@@ -5,6 +5,8 @@ Interface ``io.github.fand1l.CircleToSearch`` on the session bus::
     Trigger(int32 x, int32 y, string screen)               -> ()
     TriggerShake(int32 x, int32 y, string screen)          -> ()
     OverlayGeometry(int32 x, int32 y, int32 w, int32 h)    -> ()
+    CalibrationSample(int32 length, int32 speed, int32 curvature,
+                      int32 diagonal, int32 turn, int32 duration) -> ()
     TriggerCurrentScreen()                                 -> ()
     ShowSettings()                                         -> ()
     Ping()                                                 -> string
@@ -63,6 +65,21 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
         log.info("TriggerShake(%d, %d, %r)", x, y, screen)
         self._service.shake_triggered.emit(x, y, screen)
 
+    @pyqtSlot(int, int, int, int, int, int)
+    def CalibrationSample(
+        self,
+        length: int,
+        speed: int,
+        curvature_pct: int,
+        diagonal_deg: int,
+        turn_deg: int,
+        duration_ms: int,
+    ) -> None:
+        """One measured swing, sent only while the calibration dialog is open."""
+        self._service.calibration_sample.emit(
+            length, speed, curvature_pct, diagonal_deg, turn_deg, duration_ms
+        )
+
     @pyqtSlot(int, int, int, int)
     def OverlayGeometry(self, x: int, y: int, width: int, height: int) -> None:
         """Where the KWin script left the overlay window, relative to its output.
@@ -92,6 +109,7 @@ class ServiceObject(QObject):
     triggered = pyqtSignal(int, int, str)
     shake_triggered = pyqtSignal(int, int, str)
     overlay_geometry = pyqtSignal(int, int, int, int)
+    calibration_sample = pyqtSignal(int, int, int, int, int, int)
     triggered_current = pyqtSignal()
     settings_requested = pyqtSignal()
 
