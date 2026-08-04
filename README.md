@@ -917,6 +917,13 @@ on X11 and are broken or silently wrong under Wayland. Screen access goes
 through KWin/Spectacle/the portal, and the pointer position comes from the
 compositor.
 
+No vision model and no API key either. The image search is Google's job; the
+only local recognition is the optional `tesseract` behind **T**, which is off
+until you turn it on, adds no Python dependency, and never touches the network.
+
+The only runtime dependencies are `PyQt6`, `Pillow` and `requests` — and
+`requests` is unused on the default path, where the browser does the uploading.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
