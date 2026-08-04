@@ -101,7 +101,7 @@ class WelcomeDialog(QDialog):
 
         self.ocr_box = QCheckBox(tr("welcome.ocr"), choices)
         self.ocr_box.setChecked(settings.ocr_enabled)
-        self.ocr_box.setToolTip(ocr.INSTALL_HINT)
+        self.ocr_box.setToolTip(ocr.install_hint())
         form.addRow(self.ocr_box)
         form.addRow(_quiet(tr("welcome.ocr.hint")))
 

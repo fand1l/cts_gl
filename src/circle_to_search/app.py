@@ -975,7 +975,7 @@ class CircleToSearchApp(QObject):
         if not ocr.is_available():
             notify_error(
                 tr("notify.ocr_missing"),
-                tr("notify.ocr_missing_body", command=ocr.INSTALL_HINT),
+                tr("notify.ocr_missing_body", command=ocr.install_hint()),
             )
             return
 
@@ -1005,7 +1005,7 @@ class CircleToSearchApp(QObject):
         body = (
             tr("ocr.offer.found")
             if ocr.is_available()
-            else tr("ocr.offer.missing", command=ocr.INSTALL_HINT)
+            else tr("ocr.offer.missing", command=ocr.install_hint())
         )
         notify(
             tr("ocr.offer.title"),
@@ -1042,7 +1042,7 @@ class CircleToSearchApp(QObject):
         box.setIcon(QMessageBox.Icon.Question)
         box.setText(tr("ocr.ask.text"))
         box.setInformativeText(
-            tr("ocr.ask.found") if found else tr("ocr.ask.missing", command=ocr.INSTALL_HINT)
+            tr("ocr.ask.found") if found else tr("ocr.ask.missing", command=ocr.install_hint())
         )
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         box.setDefaultButton(QMessageBox.StandardButton.Yes)

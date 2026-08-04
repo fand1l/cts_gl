@@ -7,8 +7,8 @@ Lens results in your browser. A Linux take on Android's "Circle to Search".
 
 No OCR, no vision model, no API keys: the program only cuts out the region and
 uploads it to Google Lens — all the intelligence is Google's. (One optional,
-off-by-default exception: **T** can read the text out of the selection with a
-local `tesseract`, which never touches the network either.)
+off-by-default exception: a local `tesseract` can make the text on the frozen
+screen selectable, and that never touches the network either.)
 
 | | |
 |---|---|
@@ -114,8 +114,8 @@ cd cts_gl
 ```
 
 `install.sh` checks the session (Wayland + Plasma 6 + KWin running), offers to
-`sudo dnf install` anything missing, and then installs **entirely into your home
-directory** — nothing else needs root:
+install anything missing through **dnf, apt, pacman or zypper**, and then
+installs **entirely into your home directory** — nothing else needs root:
 
 | What | Where |
 |---|---|
@@ -130,10 +130,40 @@ It then enables the script (`kwriteconfig6 --file kwinrc --group Plugins --key
 circletosearchEnabled true` + `reconfigure`) and starts
 `systemctl --user enable --now circle-to-search.service`.
 
-Flags: `-y` (don't ask before dnf), `--no-deps` (never call dnf), `--force`
-(install even if the session checks fail).
+Flags: `-y` (don't ask before the package manager), `--no-deps` (never call it),
+`--force` (install even if the session checks fail).
 
-Uninstall with `./uninstall.sh` (add `--purge` to drop the settings too).
+The package names are a guess on every distribution but Fedora, so the installer
+**checks again afterwards** and names anything that is still missing rather than
+assuming the guess worked. On a package manager it does not know it prints the
+requirements in words — PyQt6 with QtDBus, Pillow, requests, and the KConfig and
+KPackage command line tools — and carries on.
+
+### Reinstalling
+
+```bash
+./install.sh reinstall            # take the old installation out, then install
+./install.sh reinstall --config   # ...and erase the settings as well
+```
+
+A plain install already overwrites everything it owns, so `reinstall` is for the
+case that does not cover: a file the project used to ship and no longer does,
+left behind and still being loaded. It removes what the installer put there —
+the package, the launcher, the desktop entry, the icon, the systemd unit and the
+KWin script — and nothing else. **Settings, recent captures and saved traces all
+survive.**
+
+`--config` additionally erases `~/.config/circle-to-search/` and the
+`[Script-circletosearch]` group in `kwinrc`: every setting, the calibrated
+thresholds, the shortcut, and the answers to the questions the program only asks
+once. It lists exactly that and asks you to type `yes` — `-y` does not skip it,
+and it refuses to run at all without a terminal to ask on. Answering anything
+else stops before a single file is touched, so the working installation is left
+exactly as it was. Recent captures and saved traces are kept even then; use
+`./uninstall.sh --purge` for those.
+
+Uninstall with `./uninstall.sh` (add `--purge` to drop the settings and the data
+too).
 
 ### Verify
 
@@ -452,8 +482,13 @@ switch afterwards is Settings → General → *Make the text on screen selectabl
 which also says whether `tesseract` was found and which language packs it has.
 
 ```bash
-sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng
+sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng   # Fedora
+sudo apt install tesseract-ocr tesseract-ocr-ukr tesseract-ocr-eng         # Debian
+sudo pacman -S tesseract tesseract-data-ukr tesseract-data-eng             # Arch
 ```
+
+The program shows whichever of those matches the package manager it finds, so
+nobody is handed a `dnf` command on Arch.
 
 The language is picked from the interface language plus English, restricted to
 the packs that are actually installed — naming a missing one makes `tesseract`

@@ -1147,6 +1147,28 @@ with tempfile.TemporaryDirectory() as tmp:
     text = ocr.recognise(Image.new("RGB", (20, 20), "white"), "ukr+eng")
     check("text comes back cleaned", text == "Hello there\n\nsecond line", repr(text))
 
+    # The install hint follows the package manager: a dnf command shown to
+    # somebody on Arch looks like an answer and is not one.
+    import shutil as _shutil
+
+    real_which = _shutil.which
+    try:
+        for manager, expected in (
+            ("dnf", "dnf install tesseract"),
+            ("apt-get", "apt install tesseract-ocr"),
+            ("pacman", "pacman -S tesseract"),
+            ("zypper", "zypper install tesseract-ocr"),
+        ):
+            _shutil.which = lambda binary, wanted=manager: (
+                "/usr/bin/" + binary if binary == wanted else None
+            )
+            check(f"the {manager} hint", expected in ocr.install_hint(), ocr.install_hint())
+        _shutil.which = lambda binary: None
+        check("no package manager, no fake command",
+              "sudo" not in ocr.install_hint(), ocr.install_hint())
+    finally:
+        _shutil.which = real_which
+
     # Dark desktops are light text on a dark background, which is the one
     # polarity tesseract is not built for.  Reported from a real one: it came
     # back with fragments of noise instead of words.

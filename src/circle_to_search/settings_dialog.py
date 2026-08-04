@@ -238,7 +238,7 @@ class SettingsDialog(QDialog):
 
         self.ocr_box = QCheckBox(tr("settings.ocr"), selection)
         selection_layout.addWidget(self.ocr_box)
-        selection_layout.addWidget(_hint(tr("settings.ocr.hint", command=ocr.INSTALL_HINT)))
+        selection_layout.addWidget(_hint(tr("settings.ocr.hint", command=ocr.install_hint())))
         self.ocr_state = _hint(self._ocr_state())
         selection_layout.addWidget(self.ocr_state)
         layout.addWidget(selection)

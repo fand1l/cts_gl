@@ -35,8 +35,22 @@ log = get_logger("ocr")
 
 BINARY = "tesseract"
 
-#: What to tell the user when the binary is not there.
-INSTALL_HINT = "sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng"
+#: What to tell the user when the binary is not there, per package manager.
+#: Printing a dnf command to somebody on Arch is worse than printing nothing:
+#: it looks like an answer and is not one.
+_INSTALL_HINTS = {
+    "dnf": "sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng",
+    "apt": "sudo apt install tesseract-ocr tesseract-ocr-ukr tesseract-ocr-eng",
+    "pacman": "sudo pacman -S tesseract tesseract-data-ukr tesseract-data-eng",
+    "zypper": (
+        "sudo zypper install tesseract-ocr "
+        "tesseract-ocr-traineddata-ukrainian tesseract-ocr-traineddata-english"
+    ),
+}
+
+#: In the order they are looked for; apt-get rather than apt because the latter
+#: is a front end that is not always installed.
+_PACKAGE_MANAGERS = (("dnf", "dnf"), ("apt", "apt-get"), ("pacman", "pacman"), ("zypper", "zypper"))
 
 #: UI language → the tesseract language pack that goes with it.
 _LANGUAGE_PACKS = {
@@ -100,6 +114,14 @@ class Word:
     @property
     def bottom(self) -> int:
         return self.top + self.height
+
+
+def install_hint() -> str:
+    """The command that would install tesseract on *this* machine."""
+    for name, binary in _PACKAGE_MANAGERS:
+        if shutil.which(binary):
+            return _INSTALL_HINTS[name]
+    return "install the tesseract OCR engine and the language packs you need"
 
 
 def binary_path() -> str | None:

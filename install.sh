@@ -3,13 +3,17 @@
 # Circle to Search — installer.
 #
 # Everything lands in the user's home directory; root is only ever used to let
-# dnf install the runtime dependencies, and even that step is optional
-# (--no-deps) if you have them already.
+# the package manager install the runtime dependencies, and even that step is
+# optional (--no-deps) if you have them already.  dnf, apt and pacman are
+# recognised; on anything else the missing pieces are named and left to you.
 #
-#   ./install.sh              normal install (asks before touching dnf)
-#   ./install.sh -y           assume yes for the dnf step
-#   ./install.sh --no-deps    never call dnf
-#   ./install.sh --force      install even if the session checks fail
+#   ./install.sh                     normal install
+#   ./install.sh reinstall           remove what was installed, then install it again
+#   ./install.sh reinstall --config  ...and erase the settings as well (asks first)
+#
+#   -y, --yes     assume yes for the package-manager step
+#   --no-deps     never call the package manager
+#   --force       install even if the session checks fail
 #
 set -euo pipefail
 
@@ -32,6 +36,8 @@ KWINSCRIPTDIR="$DATA_HOME/kwin/scripts"
 ASSUME_YES=0
 SKIP_DEPS=0
 FORCE=0
+COMMAND="install"
+CLEAN_CONFIG=0
 
 RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
 info()  { printf '%s==>%s %s\n' "$GREEN$BOLD" "$RESET" "$*"; }
@@ -40,15 +46,21 @@ die()   { printf '%s[x]%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2; exit 1; }
 
 for arg in "$@"; do
     case "$arg" in
+        install|reinstall) COMMAND="$arg" ;;
+        --config)      CLEAN_CONFIG=1 ;;
         -y|--yes)      ASSUME_YES=1 ;;
         --no-deps)     SKIP_DEPS=1 ;;
         --force)       FORCE=1 ;;
         -h|--help)
-            sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
             exit 0 ;;
         *) die "unknown option: $arg (try --help)" ;;
     esac
 done
+
+if (( CLEAN_CONFIG )) && [[ "$COMMAND" != "reinstall" ]]; then
+    die "--config erases settings, so it only means anything with 'reinstall'."
+fi
 
 # --------------------------------------------------------------------------- #
 # 1. Session checks
@@ -108,48 +120,245 @@ pick_python() {
     die "No python3 interpreter found."
 }
 
-python_deps_ok() {
-    "$PYTHON" - <<'PY' >/dev/null 2>&1
-import PyQt6.QtWidgets
-import PyQt6.QtDBus
-import PIL
-import requests
-PY
+has_module() {
+    "$PYTHON" -c "import $1" >/dev/null 2>&1
+}
+
+# --------------------------------------------------------------------------- #
+# Package names differ per distribution, so the script works in terms of what it
+# *needs* and translates that at the last moment.  An unknown package manager is
+# not an error: the requirements are printed in words and the install carries
+# on, because someone on a distribution nobody thought of still knows their own
+# package names better than this script does.
+# --------------------------------------------------------------------------- #
+PACKAGE_MANAGER=""
+DISTRO_NAME=""
+
+detect_package_manager() {
+    if [[ -r /etc/os-release ]]; then
+        DISTRO_NAME="$( . /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-${NAME:-}}" )"
+    fi
+    if command -v dnf >/dev/null 2>&1; then
+        PACKAGE_MANAGER="dnf"
+    elif command -v apt-get >/dev/null 2>&1; then
+        PACKAGE_MANAGER="apt"
+    elif command -v pacman >/dev/null 2>&1; then
+        PACKAGE_MANAGER="pacman"
+    elif command -v zypper >/dev/null 2>&1; then
+        PACKAGE_MANAGER="zypper"
+    fi
+    if [[ -n "$PACKAGE_MANAGER" ]]; then
+        info "Package manager: $PACKAGE_MANAGER${DISTRO_NAME:+ ($DISTRO_NAME)}"
+    else
+        warn "No known package manager found${DISTRO_NAME:+ on $DISTRO_NAME}."
+    fi
+}
+
+# What each requirement is called, per family.  "-" means this script has no
+# name worth guessing at, and the human description is printed instead.
+package_for() {
+    case "$PACKAGE_MANAGER:$1" in
+        dnf:qt)            echo "python3-pyqt6" ;;
+        dnf:pillow)        echo "python3-pillow" ;;
+        dnf:requests)      echo "python3-requests" ;;
+        dnf:kconfig)       echo "kf6-kconfig-core" ;;
+        dnf:kpackage)      echo "kf6-kpackage" ;;
+
+        apt:qt)            echo "python3-pyqt6" ;;
+        apt:pillow)        echo "python3-pil" ;;
+        apt:requests)      echo "python3-requests" ;;
+        apt:kconfig)       echo "libkf6config-bin" ;;
+        apt:kpackage)      echo "libkf6package-bin" ;;
+
+        pacman:qt)         echo "python-pyqt6" ;;
+        pacman:pillow)     echo "python-pillow" ;;
+        pacman:requests)   echo "python-requests" ;;
+        pacman:kconfig)    echo "kconfig" ;;
+        pacman:kpackage)   echo "kpackage" ;;
+
+        zypper:qt)         echo "python3-qt6" ;;
+        zypper:pillow)     echo "python3-Pillow" ;;
+        zypper:requests)   echo "python3-requests" ;;
+        zypper:kconfig)    echo "kconfig-tools" ;;
+        zypper:kpackage)   echo "kpackage-tools" ;;
+
+        *) echo "-" ;;
+    esac
+}
+
+describe_requirement() {
+    case "$1" in
+        qt)       echo "PyQt6, including its QtDBus module" ;;
+        pillow)   echo "Pillow, the Python imaging library" ;;
+        requests) echo "python-requests" ;;
+        kconfig)  echo "the KConfig command line tools (kreadconfig6, kwriteconfig6)" ;;
+        kpackage) echo "the KPackage command line tool (kpackagetool6)" ;;
+        *)        echo "$1" ;;
+    esac
+}
+
+missing_requirements() {
+    has_module "PyQt6.QtWidgets, PyQt6.QtDBus" || echo qt
+    has_module "PIL" || echo pillow
+    has_module "requests" || echo requests
+    command -v kwriteconfig6 >/dev/null 2>&1 || echo kconfig
+    command -v kpackagetool6 >/dev/null 2>&1 || echo kpackage
+    return 0
+}
+
+install_command() {
+    case "$PACKAGE_MANAGER" in
+        dnf)    echo "sudo dnf install -y" ;;
+        apt)    echo "sudo apt-get install -y" ;;
+        pacman) echo "sudo pacman -S --needed --noconfirm" ;;
+        zypper) echo "sudo zypper install -y" ;;
+    esac
 }
 
 install_deps() {
-    local missing=()
-    python_deps_ok || missing+=(python3-pyqt6 python3-pillow python3-requests)
-    command -v kwriteconfig6 >/dev/null 2>&1 || missing+=(kf6-kconfig-core)
-    command -v kpackagetool6 >/dev/null 2>&1 || missing+=(kf6-kpackage)
+    local requirement package answer
+    local -a needed=() packages=() unnamed=() still=()
 
-    if (( ${#missing[@]} == 0 )); then
+    mapfile -t needed < <(missing_requirements)
+    if (( ${#needed[@]} == 0 )); then
         info "All dependencies are present."
         return 0
     fi
 
-    if (( SKIP_DEPS )); then
-        warn "Missing packages (--no-deps given, not installing): ${missing[*]}"
-        return 0
-    fi
-
-    if ! command -v dnf >/dev/null 2>&1; then
-        warn "dnf not found. Install these yourself: ${missing[*]}"
-        return 0
-    fi
+    detect_package_manager
+    for requirement in "${needed[@]}"; do
+        package="$(package_for "$requirement")"
+        if [[ "$package" == "-" ]]; then
+            unnamed+=("$(describe_requirement "$requirement")")
+        else
+            packages+=("$package")
+        fi
+    done
 
     echo
-    warn "The following packages are missing: ${missing[*]}"
-    echo "    sudo dnf install ${missing[*]}"
+    warn "Missing: ${needed[*]}"
+    if (( ${#unnamed[@]} )); then
+        warn "Install these however your distribution names them:"
+        printf '      %s\n' "${unnamed[@]}"
+    fi
+    if (( ${#packages[@]} == 0 )); then
+        return 0
+    fi
+
+    local -a command
+    read -r -a command <<< "$(install_command)"
+    echo "    ${command[*]} ${packages[*]}"
+
+    if (( SKIP_DEPS )); then
+        warn "--no-deps was given, so that was only a suggestion."
+        return 0
+    fi
     if (( ! ASSUME_YES )); then
         read -r -p "Run it now? [Y/n] " answer
         case "$answer" in [nN]*) warn "Skipping; install them manually."; return 0 ;; esac
     fi
-    sudo dnf install -y "${missing[@]}" || warn "dnf failed — continuing, but the daemon may not start."
+
+    if ! "${command[@]}" "${packages[@]}"; then
+        warn "$PACKAGE_MANAGER did not finish."
+        [[ "$PACKAGE_MANAGER" == "apt" ]] && \
+            warn "  Try 'sudo apt-get update' first, then run this again."
+        warn "  Continuing anyway; the daemon may not start."
+        return 0
+    fi
+
+    # The names are a guess everywhere but the distribution this was written on,
+    # so say plainly whether the guess worked rather than assuming it did.
+    mapfile -t still < <(missing_requirements)
+    if (( ${#still[@]} )); then
+        warn "Still missing: ${still[*]}"
+        for requirement in "${still[@]}"; do
+            warn "  $(describe_requirement "$requirement")"
+        done
+    else
+        info "All dependencies are present."
+    fi
 }
 
 # --------------------------------------------------------------------------- #
-# 3. Install
+# 3. Reinstalling
+#
+# A plain install already overwrites everything it owns, so "reinstall" exists
+# for the case that does not cover: a file the project used to ship and no
+# longer does, left behind and still being loaded.  Taking the old installation
+# out first is the only way to be sure of what is running afterwards.
+#
+# It removes what the installer put there and nothing else.  Settings, the kept
+# captures and the saved traces all survive unless --config is given.
+# --------------------------------------------------------------------------- #
+remove_installation() {
+    info "Removing the previous installation"
+
+    systemctl --user disable --now "$SERVICE" >/dev/null 2>&1 || true
+    rm -f "$UNITDIR/$SERVICE"
+    systemctl --user daemon-reload >/dev/null 2>&1 || true
+
+    if command -v kpackagetool6 >/dev/null 2>&1; then
+        kpackagetool6 --type=KWin/Script --remove "$SCRIPT_ID" >/dev/null 2>&1 || true
+    fi
+    rm -rf "${KWINSCRIPTDIR:?}/$SCRIPT_ID"
+
+    # The package directory only.  Its parent also holds the recent captures and
+    # the traces saved from misfire reports, which are the user's, not ours.
+    rm -rf "${APPDIR:?}/circle_to_search"
+    rm -f "$BINDIR/$APP_NAME"
+    rm -f "$DESKTOPDIR/$APP_ID.desktop"
+    rm -f "$ICONDIR/$APP_ID.svg"
+}
+
+confirm_config_wipe() {
+    local group="Script-$SCRIPT_ID"
+    local answer
+    echo
+    warn "--config will erase:"
+    echo "      $CONFIG_HOME/$APP_NAME/"
+    echo "          every application setting — language, selection mode, the"
+    echo "          Lens back end, whether text recognition is on, and the"
+    echo "          answers to the questions it only asks once"
+    echo "      [$group] in kwinrc"
+    echo "          the gesture thresholds, including anything the calibration"
+    echo "          measured, and the global shortcut"
+    echo
+    echo "  Kept:   recent captures and saved traces in $APPDIR"
+    echo
+    if [[ ! -t 0 ]]; then
+        die "--config needs a terminal to confirm on. Run it by hand."
+    fi
+    read -r -p "  Type 'yes' to erase the configuration: " answer
+    if [[ "$answer" != "yes" ]]; then
+        die "Not confirmed. Nothing was erased and nothing was installed."
+    fi
+}
+
+wipe_config() {
+    info "Erasing the configuration"
+    local group="Script-$SCRIPT_ID"
+    local key value
+
+    if command -v kwriteconfig6 >/dev/null 2>&1; then
+        while IFS='=' read -r key value; do
+            [[ -z "$key" ]] && continue
+            kwriteconfig6 --file kwinrc --group "$group" --key "$key" --delete \
+                >/dev/null 2>&1 || true
+        done < <(detection_defaults)
+        for key in "${TRANSIENT_KEYS[@]}"; do
+            kwriteconfig6 --file kwinrc --group "$group" --key "$key" --delete \
+                >/dev/null 2>&1 || true
+        done
+        kwriteconfig6 --file kwinrc --group Plugins --key "${SCRIPT_ID}Enabled" --delete \
+            >/dev/null 2>&1 || true
+    fi
+
+    rm -rf "${CONFIG_HOME:?}/$APP_NAME"
+    reconfigure_kwin
+}
+
+# --------------------------------------------------------------------------- #
+# 4. Install
 # --------------------------------------------------------------------------- #
 install_python_package() {
     info "Installing the Python package into $APPDIR"
@@ -251,17 +460,10 @@ packaged_script_version() {
         | head -1 | sed -e 's/.*"\(.*\)"/\1/'
 }
 
-seed_detection_defaults() {
-    # Only write the keys that are not set yet, so re-running the installer never
-    # clobbers tuned values.
-    local group="Script-$SCRIPT_ID"
-    local key value
-    while IFS='=' read -r key value; do
-        [[ -z "$key" ]] && continue
-        if [[ -z "$(kreadconfig6 --file kwinrc --group "$group" --key "$key" 2>/dev/null)" ]]; then
-            kwriteconfig6 --file kwinrc --group "$group" --key "$key" "$value"
-        fi
-    done <<'EOF'
+# One list, used both to seed the defaults and to erase them again, so a key
+# added to the script cannot end up seeded but never cleaned up.
+detection_defaults() {
+    cat <<'EOF'
 enabled=true
 reversals=2
 windowMs=600
@@ -277,12 +479,29 @@ disableInFullscreen=true
 restoreFocus=true
 shortcut=Meta+Shift+L
 EOF
+}
+
+#: Written by the running program rather than configured by anyone.
+TRANSIENT_KEYS=(calibrating collectTraces)
+
+seed_detection_defaults() {
+    # Only write the keys that are not set yet, so re-running the installer never
+    # clobbers tuned values.
+    local group="Script-$SCRIPT_ID"
+    local key value
+    while IFS='=' read -r key value; do
+        [[ -z "$key" ]] && continue
+        if [[ -z "$(kreadconfig6 --file kwinrc --group "$group" --key "$key" 2>/dev/null)" ]]; then
+            kwriteconfig6 --file kwinrc --group "$group" --key "$key" "$value"
+        fi
+    done < <(detection_defaults)
 
     # Not settings but transient state: the calibration window sets one and the
     # daemon the other, and a crash while either was on would otherwise leave
     # the gesture measuring instead of firing, or recording for nobody.
-    kwriteconfig6 --file kwinrc --group "$group" --key calibrating --type bool false
-    kwriteconfig6 --file kwinrc --group "$group" --key collectTraces --type bool false
+    for key in "${TRANSIENT_KEYS[@]}"; do
+        kwriteconfig6 --file kwinrc --group "$group" --key "$key" --type bool false
+    done
 }
 
 reconfigure_kwin() {
@@ -350,6 +569,19 @@ main() {
     check_session
     pick_python
     info "Using interpreter: $PYTHON"
+
+    if [[ "$COMMAND" == "reinstall" ]]; then
+        # Asked before anything is touched, so saying no leaves the working
+        # installation exactly as it was.
+        if (( CLEAN_CONFIG )); then
+            confirm_config_wipe
+        fi
+        remove_installation
+        if (( CLEAN_CONFIG )); then
+            wipe_config
+        fi
+    fi
+
     install_deps
     install_python_package
     install_data_files
