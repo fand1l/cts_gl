@@ -1,0 +1,67 @@
+{
+ "expect": "no-fire",
+ "description": "synthetic seed: flicking the pointer to the far corner and back — antiparallel and fast, but travelling instead of staying put",
+ "samples": [
+  {
+   "x": 317,
+   "y": 317,
+   "t": 0
+  },
+  {
+   "x": 533,
+   "y": 533,
+   "t": 25
+  },
+  {
+   "x": 750,
+   "y": 750,
+   "t": 50
+  },
+  {
+   "x": 967,
+   "y": 967,
+   "t": 75
+  },
+  {
+   "x": 1183,
+   "y": 1183,
+   "t": 100
+  },
+  {
+   "x": 1400,
+   "y": 1400,
+   "t": 125
+  },
+  {
+   "x": 1200,
+   "y": 1200,
+   "t": 150
+  },
+  {
+   "x": 1000,
+   "y": 1000,
+   "t": 175
+  },
+  {
+   "x": 800,
+   "y": 800,
+   "t": 200
+  },
+  {
+   "x": 600,
+   "y": 600,
+   "t": 225
+  },
+  {
+   "x": 400,
+   "y": 400,
+   "t": 250
+  },
+  {
+   "x": 200,
+   "y": 200,
+   "t": 275
+  }
+ ],
+ "notes": []
+}

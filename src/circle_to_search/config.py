@@ -185,6 +185,17 @@ def set_calibrating(active: bool) -> bool:
     return ok
 
 
+def set_collect_traces(active: bool) -> bool:
+    """Ask the KWin script to keep (or stop keeping) recent pointer movement.
+
+    Only on while the daemon still has questions to ask about misfires; once the
+    budget is spent the script records nothing and sends nothing.
+    """
+    ok = _write_raw("collectTraces", "true" if active else "false", config_type="bool")
+    kwin_reconfigure()
+    return ok
+
+
 def set_detection_enabled(enabled: bool) -> bool:
     """Toggle just the ``enabled`` key (used by the tray checkbox)."""
     ok = _write_raw("enabled", "true" if enabled else "false", config_type="bool")
@@ -369,6 +380,35 @@ class AppSettings:
     @use_layer_shell.setter
     def use_layer_shell(self, value: bool) -> None:
         self._settings.setValue("use_layer_shell", bool(value))
+
+    # -- learning from misfires (see misfires.py for the policy) -----------
+
+    @property
+    def learn_from_misfires(self) -> bool:
+        """Occasionally ask whether a trigger was wanted."""
+        return self._get_bool("learn_from_misfires", True)
+
+    @learn_from_misfires.setter
+    def learn_from_misfires(self, value: bool) -> None:
+        self._settings.setValue("learn_from_misfires", bool(value))
+
+    @property
+    def learn_asks(self) -> int:
+        """How many questions have been shown so far."""
+        return max(0, self._get_int("learn_asks", 0))
+
+    @learn_asks.setter
+    def learn_asks(self, value: int) -> None:
+        self._settings.setValue("learn_asks", int(value))
+
+    @property
+    def learn_since_ask(self) -> int:
+        """Overlay openings since the last question."""
+        return max(0, self._get_int("learn_since_ask", 5))
+
+    @learn_since_ask.setter
+    def learn_since_ask(self, value: int) -> None:
+        self._settings.setValue("learn_since_ask", int(value))
 
     def sync(self) -> None:
         self._settings.sync()

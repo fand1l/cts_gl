@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.4.0";
+var SCRIPT_VERSION = "1.5.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -47,6 +47,13 @@ var CONFIG_RELOAD_MS = 4000;
 /* Swings shorter than this are twitches, not part of a gesture; must match
  * MIN_USEFUL_LENGTH in calibration.py. */
 var CALIBRATION_MIN_LENGTH = 40;
+
+/* How much recent pointer movement to keep for the "did you mean it?" survey.
+ * Long enough to hold a whole gesture and its run-up, short enough that it is
+ * never a record of what the user was doing a minute ago.  Nothing is kept at
+ * all unless the daemon asked for it with collectTraces. */
+var TRACE_RING_MS = 4000;
+var TRACE_RING_MAX = 400;
 
 /* Slow the poll timer down after this many idle ticks (~1 s at 50 ms). */
 var IDLE_TICKS = 20;
@@ -69,6 +76,7 @@ var cfg = {
     debug: false,
     trace: false,
     calibrating: false,
+    collectTraces: false,
     disableInFullscreen: true,
     shortcut: "Meta+Shift+L"
 };
@@ -78,6 +86,7 @@ var state = {
     lastY: -1,
     idleTicks: 0,
     slow: false,
+    ring: [],              /* recent samples, for the misfire survey */
     stroke: null,          /* the movement since the last direction change */
     lastSwing: null,       /* the previous accepted swing, for the turn test */
     reversalTimes: [],
@@ -144,6 +153,10 @@ function loadConfig() {
     /* Set by the calibration dialog while it is open: measure everything,
      * trigger nothing. */
     cfg.calibrating = readBoolean("calibrating", false);
+    /* Set by the daemon while it is still learning from misfires: keep the last
+     * few seconds of movement so a trigger can be replayed offline.  Off means
+     * nothing is recorded and nothing is sent. */
+    cfg.collectTraces = readBoolean("collectTraces", false);
     cfg.disableInFullscreen = readBoolean("disableInFullscreen", true);
     cfg.shortcut = String(readConfig("shortcut", "Meta+Shift+L"));
 
@@ -161,6 +174,7 @@ function loadConfig() {
         + " debug=" + cfg.debug
         + " trace=" + cfg.trace
         + " calibrating=" + cfg.calibrating
+        + " collectTraces=" + cfg.collectTraces
         + " disableInFullscreen=" + cfg.disableInFullscreen;
 
     lastConfigAt = Date.now();
@@ -296,11 +310,74 @@ function resetDetector() {
     state.stroke = null;
     state.lastSwing = null;
     state.reversalTimes.length = 0;
+    state.ring.length = 0;
     state.boxMinX = 0;
     state.boxMinY = 0;
     state.boxMaxX = 0;
     state.boxMaxY = 0;
     state.boxValid = false;
+}
+
+/* ------------------------------------------------------- the movement ring */
+/*
+ * While the daemon is still learning (collectTraces), keep the last few seconds
+ * of pointer movement.  When the gesture fires, that movement is handed over so
+ * the user can be asked "did you mean this?" and a "no" can be turned into a
+ * regression case for tests/replay-trace.js.  Nothing is kept, and nothing is
+ * sent, when the setting is off — which is how it stays once the daemon has
+ * asked its last question.
+ */
+function recordSample(x, y, now) {
+    if (!cfg.collectTraces) {
+        if (state.ring.length > 0) {
+            state.ring.length = 0;
+        }
+        return;
+    }
+    state.ring.push({ x: x, y: y, t: now });
+    var cutoff = now - TRACE_RING_MS;
+    var stale = 0;
+    while (stale < state.ring.length && state.ring[stale].t < cutoff) {
+        stale += 1;
+    }
+    if (stale > 0) {
+        state.ring.splice(0, stale);
+    }
+    if (state.ring.length > TRACE_RING_MAX) {
+        state.ring.splice(0, state.ring.length - TRACE_RING_MAX);
+    }
+}
+
+/* "x,y,t;x,y,t;…" with t relative to the first sample: compact, and one plain
+ * string argument instead of a nested D-Bus type KWin cannot marshal. */
+function encodeRing() {
+    if (state.ring.length < 2) {
+        return "";
+    }
+    var start = state.ring[0].t;
+    var parts = [];
+    for (var i = 0; i < state.ring.length; i += 1) {
+        var sample = state.ring[i];
+        parts.push(sample.x + "," + sample.y + "," + (sample.t - start));
+    }
+    return parts.join(";");
+}
+
+function sendTrace() {
+    if (!cfg.collectTraces) {
+        return;
+    }
+    var encoded = encodeRing();
+    if (encoded === "") {
+        return;
+    }
+    /* Sent immediately before the trigger it belongs to.  D-Bus keeps messages
+     * from one connection in order, so the daemon always has the movement in
+     * hand by the time it handles the trigger. */
+    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "GestureTrace", encoded);
+    if (cfg.debug) {
+        print("circle-to-search: sent a " + state.ring.length + "-sample trace");
+    }
 }
 
 function pruneReversals(now) {
@@ -582,6 +659,7 @@ function poll() {
     if (cfg.trace) {
         print("CTS-TRACE " + x + " " + y + " " + now);
     }
+    recordSample(x, y, now);
 
     /* Sub-pixel jitter is not movement. */
     if (Math.abs(dx) < cfg.minStepPx && Math.abs(dy) < cfg.minStepPx) {
@@ -639,6 +717,7 @@ function fire(x, y, now) {
         return;
     }
     state.lastTriggerAt = now;
+    sendTrace();      /* before resetDetector(), which empties the ring */
     resetDetector();
     trigger(x, y, "TriggerShake");
 }

@@ -578,5 +578,106 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     if (samples !== 0) failures += 1;
 }
 
+/* ---- the movement trace behind a trigger --------------------------------- */
+/*
+ * After a trigger the daemon sometimes asks "did you mean this?", and a "no"
+ * is only useful if the movement that caused it can be replayed.  The script
+ * keeps a few seconds of samples for that — but only while it has been asked
+ * to, because the resting state of an idle desktop has to stay silent.
+ */
+{
+    run("trace is sent with the trigger", { collectTraces: true },
+        shake(3, 200, 1000, 4, 30), 1);
+    const traces = lastHarness.calls.filter((c) => c[3] === "GestureTrace");
+    console.log(`${traces.length === 1 ? "PASS" : "FAIL"}  one trace per trigger: ${traces.length}`);
+    if (traces.length !== 1) failures += 1;
+
+    /* It has to arrive before the trigger it belongs to, or the daemon would
+     * have nothing in hand when it decides whether to ask. */
+    const methods = lastHarness.calls.map((c) => c[3]);
+    const ordered = methods.indexOf("GestureTrace") < methods.indexOf("TriggerShake");
+    console.log(`${ordered ? "PASS" : "FAIL"}  the trace precedes the trigger: ` +
+                JSON.stringify(methods));
+    if (!ordered) failures += 1;
+
+    /* "x,y,t;x,y,t;…", timestamps relative to the first sample. */
+    const encoded = traces.length ? traces[0][4] : "";
+    const points = String(encoded).split(";").filter((p) => p.length > 0)
+        .map((p) => p.split(",").map(Number));
+    const wellFormed = points.length > 5
+        && points.every((p) => p.length === 3 && p.every((n) => Number.isInteger(n)))
+        && points[0][2] === 0;
+    console.log(`${wellFormed ? "PASS" : "FAIL"}  the trace parses: ${points.length} point(s)`);
+    if (!wellFormed) failures += 1;
+
+    /* And it really is the movement that just happened, not a stub. */
+    const rising = points.every((p, i) => i === 0 || p[2] >= points[i - 1][2]);
+    const moved = points.some((p) => p[0] !== points[0][0]);
+    console.log(`${rising && moved ? "PASS" : "FAIL"}  the trace is the real movement`);
+    if (!rising || !moved) failures += 1;
+}
+
+/* Off by default: an installation that has stopped asking costs nothing. */
+{
+    run("no trace unless asked for", defaults, shake(3, 200, 1000, 4, 30), 1);
+    const traces = lastHarness.calls.filter((c) => c[3] === "GestureTrace").length;
+    console.log(`${traces === 0 ? "PASS" : "FAIL"}  no trace when not collecting: ${traces}`);
+    if (traces !== 0) failures += 1;
+}
+
+/* Collecting must not make ordinary movement chatty either. */
+{
+    run("collecting stays silent without a trigger", { collectTraces: true },
+        drawing(1000, 40, 40), 0);
+    const chatter = lastHarness.calls.length;
+    console.log(`${chatter === 0 ? "PASS" : "FAIL"}  drawing sends nothing while collecting: ` +
+                `${chatter}`);
+    if (chatter !== 0) failures += 1;
+}
+
+/* ---- the recorded corpus ------------------------------------------------- */
+/*
+ * Every trace in tests/traces/ is replayed through the detector and has to end
+ * the way it says it should.  Files land there from tools/record-trace.sh and
+ * from the "no, that was accidental" answer, so a misfire reported once cannot
+ * come back unnoticed.
+ */
+{
+    const traceDir = path.join(__dirname, "traces");
+    let files = [];
+    try {
+        files = fs.readdirSync(traceDir).filter((name) => name.endsWith(".json")).sort();
+    } catch (error) {
+        console.log(`FAIL  the trace corpus is missing: ${error.message}`);
+        failures += 1;
+    }
+    console.log(`\n(replaying ${files.length} recorded trace(s))`);
+    for (const name of files) {
+        let trace;
+        try {
+            trace = JSON.parse(fs.readFileSync(path.join(traceDir, name), "utf8"));
+        } catch (error) {
+            console.log(`FAIL  ${name}: not valid JSON — ${error.message}`);
+            failures += 1;
+            continue;
+        }
+        const samples = trace.samples || [];
+        if (samples.length < 2) {
+            console.log(`FAIL  ${name}: no samples`);
+            failures += 1;
+            continue;
+        }
+        if (trace.expect !== "fire" && trace.expect !== "no-fire") {
+            console.log(`FAIL  ${name}: expect must be "fire" or "no-fire"`);
+            failures += 1;
+            continue;
+        }
+        const settings = Object.assign({}, trace.settings || {});
+        if (!run(`trace ${name}`, settings, samples, trace.expect === "fire" ? 1 : 0)) {
+            failures += 1;
+        }
+    }
+}
+
 console.log(failures === 0 ? "\nall good" : `\n${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

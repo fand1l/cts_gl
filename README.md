@@ -201,6 +201,7 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `debug` | `false` | Log why each swing was accepted or rejected |
 | `trace` | `false` | Log every cursor sample, for `tools/record-trace.sh` |
 | `calibrating` | `false` | Set by the calibration window while it is open; see below |
+| `collectTraces` | `false` | Set by the daemon while it is still learning from misfires; see below |
 | `shortcut` | `Meta+Shift+L` | Fallback global shortcut |
 
 Changing any of them takes effect on the running session: the script re-reads
@@ -256,6 +257,7 @@ Application-only settings live in
 | `max_side` | `1000` | Longest side of the uploaded JPEG |
 | `jpeg_quality` | `85` | |
 | `copy_to_clipboard` | `false` | Also put the selection on the clipboard |
+| `learn_from_misfires` | `true` | Occasionally ask whether a trigger was wanted (see below) |
 | `dim_percent` | `40` | Overlay dimming |
 | `language` | `auto` | `auto`, `uk` or `en` |
 | `use_layer_shell` | `false` | See above |
@@ -270,6 +272,43 @@ the setting, so the bright area is always what gets sent.
 The UI is available in Ukrainian and English; it follows the system locale
 unless you pick one in Settings.
 
+### Learning from the times it was wrong
+
+Calibration fits the thresholds to how you shake. This fits them to what
+actually happens on your desktop: after a trigger the daemon sometimes asks
+**"Did you mean to open Circle to Search?"**, with a *Yes* and a *No, that was
+accidental* button.
+
+* At most **10 questions in the lifetime of the installation**, with at least
+  **5 openings in between**. After the tenth it never asks again.
+* Only after the *gesture*. Pressing the shortcut is deliberate and is never
+  questioned.
+* Switchable off in Settings → Detection, which also stops the recording.
+
+While it still has questions left, the daemon sets `collectTraces` and the KWin
+script keeps the **last four seconds of pointer movement** in a ring buffer.
+When the gesture fires, that movement is handed over as
+`GestureTrace("x,y,t;x,y,t;…")` immediately before the trigger. Answering saves
+it to `~/.local/share/circle-to-search/traces/` — `misfire-*.json` for a *no*,
+`shake-*.json` for a *yes* — in exactly the format `tools/record-trace.sh`
+writes, so it goes straight into a test:
+
+```bash
+node tests/replay-trace.js ~/.local/share/circle-to-search/traces/misfire-20250107-114530.json
+cp ~/.local/share/circle-to-search/traces/misfire-*.json tests/traces/
+node tests/test_detection.js          # replays the whole corpus
+```
+
+`tests/traces/` is that corpus, and every file in it is replayed on each test
+run: `expect: "no-fire"` files must not open the overlay, `expect: "fire"` files
+must. Both directions are checked on purpose — tightening a threshold until
+nothing misfires is easy and useless if real shakes stop working. See
+`tests/traces/README.md`.
+
+Nothing is uploaded. A trace is pointer coordinates and timestamps, it is
+written under your own home directory, and once the budget is spent the script
+stops recording altogether.
+
 ---
 
 ## Development
@@ -280,6 +319,7 @@ python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, raw decode, 
 node    tests/test_detection.js    # the real main.js against a fake KWin API
 node    tests/replay-trace.js FILE # replay a recorded cursor trace
 python3 tests/test_browser_upload.py   # the launcher page, in a real Chromium
+python3 tests/test_dbus_surface.py     # the exported D-Bus methods, on a private bus
 ```
 
 `tests/test_detection.js` loads `kwinscript/contents/code/main.js` unchanged
@@ -291,7 +331,12 @@ display. `tests/test_browser_upload.py` loads the generated launcher in
 Chromium through Playwright, intercepts the request it makes and checks that the
 multipart body carries the exact JPEG bytes — the one part that cannot be
 verified by reading the code. It skips itself when Playwright or Chromium is
-missing.
+missing. `tests/test_dbus_surface.py` re-executes itself under
+`dbus-run-session`, exports the real service on that private bus, calls every
+method with `busctl` using the exact signature the KWin script uses, and drives
+a stub notification server in a second process to check that an action button
+comes back to the callback that showed it. It skips itself when `busctl` or
+`dbus-run-session` is missing.
 
 Run the daemon in the foreground while hacking:
 
@@ -648,6 +693,28 @@ at `consent.google.com` confirms the first cause above.
   overlay or the desktop.
 * Want to see exactly what was sent? Turn on *Also copy the selection to the
   clipboard* and paste it somewhere — that is the image, lasso mask and all.
+
+### No notifications appear, but the log says they were sent
+
+`notify()` writes the journal line before it touches D-Bus, so "Sending the
+selection to Google Lens…" in the log proves nothing about what reached the
+screen. The usual cause is an argument-type mismatch: `Notify` is declared
+`susssasa{sv}i`, and a call built from plain Python values goes out as
+`sisssava{sv}i` — `i` instead of `u` for the id, `av` instead of `as` for the
+actions — which a strict server answers with `UnknownMethod`. That is why the
+id and the action list are wrapped in `QDBusArgument` with explicit metatypes,
+and why `tests/test_dbus_surface.py` drives a real server in another process.
+
+To see what the server actually got:
+
+```bash
+busctl --user monitor org.freedesktop.Notifications
+busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications \
+    org.freedesktop.Notifications GetCapabilities      # "actions" must be there
+```
+
+Without `actions` in the capabilities the misfire question is never shown at
+all — deliberately, because a question with no buttons cannot be answered.
 
 ### Everything else
 

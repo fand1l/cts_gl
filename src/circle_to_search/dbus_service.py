@@ -7,6 +7,7 @@ Interface ``io.github.fand1l.CircleToSearch`` on the session bus::
     OverlayGeometry(int32 x, int32 y, int32 w, int32 h)    -> ()
     CalibrationSample(int32 length, int32 speed, int32 curvature,
                       int32 diagonal, int32 turn, int32 duration) -> ()
+    GestureTrace(string points)                            -> ()
     TriggerCurrentScreen()                                 -> ()
     ShowSettings()                                         -> ()
     Ping()                                                 -> string
@@ -80,6 +81,17 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
             length, speed, curvature_pct, diagonal_deg, turn_deg, duration_ms
         )
 
+    @pyqtSlot(str)
+    def GestureTrace(self, points: str) -> None:
+        """The pointer movement that is about to trigger, as ``"x,y,t;…"``.
+
+        Sent immediately before the trigger it belongs to, and only while the
+        daemon has asked the script to collect it.  It exists so a misfire the
+        user disowns can be replayed offline instead of being described.
+        """
+        log.debug("GestureTrace(%d bytes)", len(points))
+        self._service.gesture_trace.emit(points)
+
     @pyqtSlot(int, int, int, int)
     def OverlayGeometry(self, x: int, y: int, width: int, height: int) -> None:
         """Where the KWin script left the overlay window, relative to its output.
@@ -110,6 +122,7 @@ class ServiceObject(QObject):
     shake_triggered = pyqtSignal(int, int, str)
     overlay_geometry = pyqtSignal(int, int, int, int)
     calibration_sample = pyqtSignal(int, int, int, int, int, int)
+    gesture_trace = pyqtSignal(str)
     triggered_current = pyqtSignal()
     settings_requested = pyqtSignal()
 

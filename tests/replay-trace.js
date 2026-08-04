@@ -115,7 +115,9 @@ function main() {
         tick();
     }
 
-    const triggers = calls.filter((call) => call.method === "Trigger");
+    /* A gesture arrives as TriggerShake; the plain Trigger is the shortcut. */
+    const triggers = calls.filter((call) => call.method === "TriggerShake"
+                                         || call.method === "Trigger");
     console.log("");
     if (triggers.length === 0) {
         console.log("RESULT: the overlay would NOT have opened.");

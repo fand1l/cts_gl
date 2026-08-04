@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import subprocess
+import time
 from pathlib import Path
 
 from PIL import Image
@@ -35,6 +36,7 @@ from .config import (
     kwin_script_enabled,
     kwin_script_installed,
     read_detection,
+    set_collect_traces,
     set_detection_enabled,
 )
 from .dbus_service import ServiceObject, register_service, unregister_service
@@ -49,7 +51,16 @@ from .lens import (
     write_browser_launcher,
 )
 from .logging_setup import get_logger
-from .notify import notify, notify_error
+from .misfires import (
+    SURVEY_LIMIT,
+    SurveyState,
+    after_opening,
+    parse_trace,
+    save_trace,
+    should_ask,
+    still_learning,
+)
+from .notify import notify, notify_error, supports_actions
 from .overlay import SelectionOverlay
 from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
@@ -61,6 +72,13 @@ _ICON_NAMES = (APP_ID, "circle-to-search", "edit-select", "search")
 #: How long the launcher page stays on disk.  It has to outlive a cold browser
 #: start and leave room for one manual reload after a hiccup.
 LAUNCHER_LIFETIME_MS = 10 * 60 * 1000
+
+#: A trace older than this belongs to some earlier trigger, not to this one.
+TRACE_MAX_AGE_S = 5.0
+
+#: The misfire question stays up this long.  Long enough to notice after the
+#: browser tab opened, short enough not to pile up.
+SURVEY_TIMEOUT_MS = 25000
 
 
 class _UploadSignals(QObject):
@@ -180,6 +198,7 @@ class CircleToSearchApp(QObject):
         self._service.shake_triggered.connect(self.on_shake_trigger)
         self._service.overlay_geometry.connect(self.on_overlay_geometry)
         self._service.calibration_sample.connect(self.on_calibration_sample)
+        self._service.gesture_trace.connect(self.on_gesture_trace)
         self._service.triggered_current.connect(self.on_trigger_current)
         self._service.settings_requested.connect(self.show_settings)
 
@@ -188,6 +207,12 @@ class CircleToSearchApp(QObject):
         self._calibration: CalibrationDialog | None = None
         self._tasks: set[QRunnable] = set()
         self._busy = False
+
+        # Learning from misfires: the movement the KWin script last sent, and
+        # the movement that opened the overlay currently on screen.
+        self._survey = self._load_survey()
+        self._pending_trace: tuple[str, float] | None = None
+        self._opening_trace = ""
 
         self._icon = self._load_icon()
         self._tray = QSystemTrayIcon(self._icon, self)
@@ -205,6 +230,7 @@ class CircleToSearchApp(QObject):
         else:
             log.warning("no system tray available — running headless")
         QTimer.singleShot(4000, self._check_kwin_script)
+        self._arm_trace_collection()
 
     def stop(self) -> None:
         if self._calibration is not None:
@@ -294,11 +320,7 @@ class CircleToSearchApp(QObject):
     @pyqtSlot(int, int, str)
     def on_trigger(self, x: int, y: int, screen_name: str) -> None:
         """Handle ``Trigger`` from the KWin script."""
-        screen = self._resolve_screen(screen_name, x, y)
-        if screen is None:
-            notify_error(tr("notify.no_screen"), tr("notify.no_screen_body", name=screen_name))
-            return
-        self._begin_selection(screen, screen_name or screen.name())
+        self._open_for(x, y, screen_name, gesture=False)
 
     @pyqtSlot(int, int, str)
     def on_shake_trigger(self, x: int, y: int, screen_name: str) -> None:
@@ -311,7 +333,17 @@ class CircleToSearchApp(QObject):
         if not read_detection().enabled:
             log.info("ignoring a shake: detection is switched off")
             return
-        self.on_trigger(x, y, screen_name)
+        self._open_for(x, y, screen_name, gesture=True)
+
+    def _open_for(self, x: int, y: int, screen_name: str, *, gesture: bool) -> None:
+        screen = self._resolve_screen(screen_name, x, y)
+        if screen is None:
+            notify_error(tr("notify.no_screen"), tr("notify.no_screen_body", name=screen_name))
+            return
+        # Only a gesture can be a misfire; pressing the shortcut is deliberate,
+        # so it is never questioned and its trace is not kept.
+        trace = self._take_trace() if gesture else ""
+        self._begin_selection(screen, screen_name or screen.name(), trace=trace)
 
     @pyqtSlot()
     def on_trigger_current(self) -> None:
@@ -346,7 +378,7 @@ class CircleToSearchApp(QObject):
 
     # -------------------------------------------------------------- overlay
 
-    def _begin_selection(self, screen: QScreen, screen_name: str) -> None:
+    def _begin_selection(self, screen: QScreen, screen_name: str, trace: str = "") -> None:
         if self._overlay is not None:
             log.info("ignoring trigger, a selection is already in progress")
             return
@@ -392,6 +424,9 @@ class CircleToSearchApp(QObject):
         )
         overlay.cancelled.connect(self._on_cancelled)
         self._overlay = overlay
+        # Set only here: this is the one point where an opening really happened,
+        # so a capture that failed cannot leave a trace behind for the next one.
+        self._opening_trace = trace
         QTimer.singleShot(500, lambda: self._check_overlay_geometry(screen))
         try:
             overlay.show_on_screen()
@@ -443,6 +478,7 @@ class CircleToSearchApp(QObject):
     def _on_cancelled(self) -> None:
         log.info("selection cancelled")
         self._release_overlay()
+        self._finish_opening()
 
     def _on_selected(
         self,
@@ -452,6 +488,7 @@ class CircleToSearchApp(QObject):
         metrics: ScreenMetrics,
     ) -> None:
         self._release_overlay()
+        self._finish_opening()
         box = (rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height())
         log.info("cropping %s out of %dx%d", box, metrics.physical_width, metrics.physical_height)
         cropped = image.crop(box)
@@ -532,6 +569,105 @@ class CircleToSearchApp(QObject):
         log.error("could not open the result: %s", error)
         notify_error(tr("notify.open_failed"), tr("notify.open_failed_body", error=error))
 
+    # ------------------------------------------- learning from misfires
+
+    def _load_survey(self) -> SurveyState:
+        return SurveyState(
+            enabled=self._settings.learn_from_misfires,
+            asks=self._settings.learn_asks,
+            since_ask=self._settings.learn_since_ask,
+        )
+
+    def _store_survey(self) -> None:
+        self._settings.learn_asks = self._survey.asks
+        self._settings.learn_since_ask = self._survey.since_ask
+        self._settings.sync()
+
+    def _arm_trace_collection(self) -> None:
+        """Tell the KWin script whether recent movement is worth keeping.
+
+        Off is the resting state: once the last question has been asked, or the
+        user switched the whole thing off, the script stops recording and the
+        gesture costs exactly one D-Bus call again.
+        """
+        wanted = still_learning(self._survey)
+        set_collect_traces(wanted)
+        log.info(
+            "misfire learning: %s (%d question(s) left)",
+            "on" if wanted else "off",
+            self._survey.remaining,
+        )
+
+    @pyqtSlot(str)
+    def on_gesture_trace(self, points: str) -> None:
+        """The movement that is about to trigger, from the KWin script."""
+        self._pending_trace = (points, time.monotonic())
+
+    def _take_trace(self) -> str:
+        """Consume the pending trace, if it is recent enough to belong here."""
+        pending = self._pending_trace
+        self._pending_trace = None
+        if pending is None:
+            return ""
+        points, at = pending
+        if time.monotonic() - at > TRACE_MAX_AGE_S:
+            log.debug("dropping a stale trace")
+            return ""
+        return points
+
+    def _finish_opening(self) -> None:
+        """One overlay opening is over: ask about it, or count it and move on."""
+        trace = self._opening_trace
+        self._opening_trace = ""
+        if not trace:
+            return
+        self._survey = SurveyState(
+            enabled=self._settings.learn_from_misfires,
+            asks=self._survey.asks,
+            since_ask=self._survey.since_ask,
+        )
+        asked = should_ask(self._survey) and self._ask_about_trigger(trace)
+        self._survey = after_opening(self._survey, asked=asked)
+        self._store_survey()
+        if asked and not still_learning(self._survey):
+            # That was the last one; stop the script from recording movement.
+            self._arm_trace_collection()
+
+    def _ask_about_trigger(self, trace: str) -> bool:
+        """Show the question.  False when it could not be shown at all."""
+        if not supports_actions():
+            log.debug("the notification server has no action buttons; not asking")
+            return False
+        left = self._survey.remaining
+        notification = notify(
+            tr("survey.title"),
+            tr("survey.body", left=left, total=SURVEY_LIMIT),
+            timeout_ms=SURVEY_TIMEOUT_MS,
+            actions=(("yes", tr("survey.yes")), ("no", tr("survey.no"))),
+            on_action=lambda key: self._on_survey_answer(key, trace),
+        )
+        return notification != 0
+
+    def _on_survey_answer(self, key: str, trace: str) -> None:
+        meant_it = key != "no"
+        samples = parse_trace(trace)
+        path = save_trace(
+            samples,
+            expect="fire" if meant_it else "no-fire",
+            description="confirmed by the user" if meant_it else "reported as a misfire",
+        )
+        if meant_it:
+            log.info("the user confirmed the trigger (%d samples kept)", len(samples))
+            return
+        log.info("the user reported a misfire (%d samples kept)", len(samples))
+        if path is None:
+            return
+        notify(
+            tr("survey.saved"),
+            tr("survey.saved_body", path=str(path)),
+            timeout_ms=12000,
+        )
+
     # ------------------------------------------------------------------- GUI
 
     @pyqtSlot()
@@ -556,6 +692,8 @@ class CircleToSearchApp(QObject):
         detection = read_detection()
         if self._detection_action is not None:
             self._detection_action.setChecked(detection.enabled)
+        self._survey = self._load_survey()
+        self._arm_trace_collection()
 
     @pyqtSlot()
     def show_calibration(self) -> None:

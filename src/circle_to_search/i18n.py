@@ -111,6 +111,26 @@ _EN: dict[str, str] = {
     "calibrate.before": "Now",
     "calibrate.after": "Suggested",
     "calibrate.restart": "Start over",
+    "settings.learn": "Occasionally ask whether a trigger was wanted",
+    "settings.learn.hint": (
+        "At most {total} questions in total, with at least {interval} openings "
+        "in between. Answering “no” saves the pointer movement to {directory} "
+        "so the detection can be tested against it offline — nothing is sent "
+        "anywhere."
+    ),
+    "survey.title": "Did you mean to open Circle to Search?",
+    "survey.body": (
+        "Answering keeps this pointer movement on your own machine so the shake "
+        "detection can be tested against it. {left} of {total} questions left; "
+        "this can be switched off in the settings."
+    ),
+    "survey.yes": "Yes",
+    "survey.no": "No, that was accidental",
+    "survey.saved": "The misfire was saved",
+    "survey.saved_body": (
+        "{path}\n\nReplay it with: node tests/replay-trace.js FILE — or run the "
+        "gesture calibration to fit the thresholds to how you actually move."
+    ),
     "settings.shortcut": "Shortcut:",
     "settings.shortcut.hint": (
         "The KWin script registers this sequence the first time it is loaded. "
@@ -275,6 +295,26 @@ _UK: dict[str, str] = {
     "calibrate.before": "Зараз",
     "calibrate.after": "Пропоную",
     "calibrate.restart": "Почати спочатку",
+    "settings.learn": "Іноді запитувати, чи спрацювання було потрібним",
+    "settings.learn.hint": (
+        "Щонайбільше {total} запитань загалом, і між ними щонайменше "
+        "{interval} відкриттів оверлея. Відповідь «ні» зберігає рух курсора "
+        "в {directory}, щоб розпізнавання можна було на ньому перевірити — "
+        "нікуди нічого не надсилається."
+    ),
+    "survey.title": "Ви справді хотіли відкрити Circle to Search?",
+    "survey.body": (
+        "Відповідь збереже цей рух курсора на вашій машині, щоб на ньому можна "
+        "було перевірити розпізнавання трясіння. Залишилось запитань: {left} з "
+        "{total}; це можна вимкнути в налаштуваннях."
+    ),
+    "survey.yes": "Так",
+    "survey.no": "Ні, випадково",
+    "survey.saved": "Хибне спрацювання збережено",
+    "survey.saved_body": (
+        "{path}\n\nВідтворити: node tests/replay-trace.js ФАЙЛ — або запустіть "
+        "калібрування жесту, щоб підігнати пороги під те, як ви рухаєтесь."
+    ),
     "settings.shortcut": "Хоткей:",
     "settings.shortcut.hint": (
         "KWin-скрипт реєструє цю комбінацію при першому завантаженні. Якщо ви вже "

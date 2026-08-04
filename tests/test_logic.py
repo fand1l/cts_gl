@@ -554,6 +554,91 @@ rows = describe_changes(base, brisk)
 check("changes are listed", len(rows) >= 3, str(rows))
 check("nothing listed when identical", describe_changes(base, base) == [])
 
+# --- learning from misfires ------------------------------------------------
+import itertools  # noqa: E402
+import json  # noqa: E402
+import tempfile  # noqa: E402
+
+from circle_to_search.misfires import (  # noqa: E402
+    SURVEY_INTERVAL,
+    SURVEY_LIMIT,
+    SurveyState,
+    after_opening,
+    parse_trace,
+    save_trace,
+    should_ask,
+    still_learning,
+)
+
+# The very first gesture is asked about; the next few are not.
+state = SurveyState()
+check("asks about the first opening", should_ask(state))
+state = after_opening(state, asked=True)
+check("does not ask again straight away", not should_ask(state))
+
+asked_at = []
+for opening in range(1, 60):
+    if should_ask(state):
+        asked_at.append(opening)
+        state = after_opening(state, asked=True)
+    else:
+        state = after_opening(state, asked=False)
+
+# Ten questions in the lifetime of the installation (one was already asked
+# before the loop), with SURVEY_INTERVAL quiet openings between them, and then
+# silence forever.
+check("the budget is spent exactly once", len(asked_at) == SURVEY_LIMIT - 1, str(asked_at))
+gaps = {b - a for a, b in itertools.pairwise(asked_at)}
+check("questions are spaced out", gaps == {SURVEY_INTERVAL + 1}, str(gaps))
+check("it stops asking for good", not should_ask(state))
+check("and stops collecting traces", not still_learning(state))
+
+# Switched off: no questions, and nothing recorded either.
+off = SurveyState(enabled=False)
+check("nothing when switched off", not should_ask(off) and not still_learning(off))
+
+# An ignored question still costs budget — someone who does not answer is
+# telling us something too, and counting only answers would ask forever.
+ignored = SurveyState(asks=SURVEY_LIMIT - 1, since_ask=SURVEY_INTERVAL)
+check("the last question is still allowed", should_ask(ignored))
+check("after it, none", not should_ask(after_opening(ignored, asked=True)))
+
+# The wire format from the KWin script.
+samples = parse_trace("100,200,0;110,205,30;120,210,60")
+check("trace parses", len(samples) == 3, str(samples))
+check("trace values", samples[1] == {"x": 110, "y": 205, "t": 30}, str(samples[1]))
+check("negative coordinates survive", parse_trace("-5,-9,0;1,2,10")[0]["x"] == -5)
+check("junk is skipped, not fatal",
+      len(parse_trace("1,2,3;bad;4,5;6,7,8;;9,10,11,12")) == 2,
+      str(parse_trace("1,2,3;bad;4,5;6,7,8;;9,10,11,12")))
+check("an empty trace is empty", parse_trace("") == [])
+
+# A saved trace must be exactly what tests/replay-trace.js and the corpus
+# runner expect, or the whole loop is decorative.
+with tempfile.TemporaryDirectory() as tmp:
+    path = save_trace(samples, expect="no-fire", description="unit test", directory=Path(tmp))
+    check("a trace is written", path is not None and path.is_file(), str(path))
+    saved = json.loads(path.read_text())
+    check("expect is recorded", saved["expect"] == "no-fire")
+    check("samples round-trip", saved["samples"] == samples)
+    check("the name says what it is", path.name.startswith("misfire-"), path.name)
+
+    confirmed = save_trace(samples, expect="fire", directory=Path(tmp))
+    check("a confirmed shake is named differently",
+          confirmed is not None and confirmed.name.startswith("shake-"), str(confirmed))
+
+    check("nothing is written for an empty trace",
+          save_trace([], expect="no-fire", directory=Path(tmp)) is None)
+
+# The shipped corpus has to be loadable by the same rules the runner applies.
+corpus = sorted((Path(__file__).resolve().parent / "traces").glob("*.json"))
+check("the corpus is not empty", len(corpus) >= 5, str(len(corpus)))
+for entry in corpus:
+    data = json.loads(entry.read_text())
+    check(f"corpus {entry.name}",
+          data.get("expect") in {"fire", "no-fire"} and len(data.get("samples", [])) > 1,
+          entry.name)
+
 print()
 if failures:
     print("FAILURES:", ", ".join(failures))

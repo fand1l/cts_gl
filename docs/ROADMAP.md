@@ -8,7 +8,7 @@ an alternative search back end is ever added it will not be one of those.
 
 ---
 
-## 1. Gesture calibration wizard  ← in progress
+## 1. Gesture calibration wizard  ✅
 
 Tuning six thresholds by hand is the wrong job for a user.  Instead: "shake the
 way that feels natural, a few times", measure it, and write thresholds with a
@@ -21,7 +21,7 @@ margin.
   function, so the arithmetic is unit-testable without Qt or KWin.
 * A dialog collects the samples live, shows what it will change, and applies.
 
-## 2. Learning from real misfires
+## 2. Learning from real misfires  ✅
 
 * After a trigger, occasionally ask "did you mean to open this?" — at most
   **10 times in total**, and no more often than **every 5th opening**, so it
@@ -31,7 +31,13 @@ margin.
 * Ship a corpus of recorded traces in `tests/traces/` and replay them all in
   the harness.
 
-## 3. Confirm and adjust before uploading
+Done, plus one thing found on the way: `Notify` was being called with plain
+Python values, which marshal as `sisssava{sv}i` instead of the declared
+`susssasa{sv}i`, so a strict notification server rejected every notification the
+application has ever sent.  `tests/test_dbus_surface.py` now drives the real
+D-Bus surface on a private bus so that class of failure cannot be silent again.
+
+## 3. Confirm and adjust before uploading  ← next
 
 * The selection is not sent the instant the button is released.  `Enter`
   searches, `C` copies, `S` saves to a file, `Esc` cancels, and the rectangle

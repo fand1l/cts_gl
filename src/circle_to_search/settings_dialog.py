@@ -41,6 +41,7 @@ from .config import (
 from .i18n import available_languages, tr
 from .lens import VARIANTS
 from .logging_setup import get_logger
+from .misfires import SURVEY_INTERVAL, SURVEY_LIMIT, TRACE_DIR
 
 log = get_logger("settings")
 
@@ -144,6 +145,19 @@ class SettingsDialog(QDialog):
         self.reversal_spin = self._spin(shake, 5, 90, 5, suffix=" °")
         form.addRow(tr("settings.reversal"), self.reversal_spin)
         form.addRow(_hint(tr("settings.reversal.hint")))
+
+        self.learn_box = QCheckBox(tr("settings.learn"), shake)
+        form.addRow(self.learn_box)
+        form.addRow(
+            _hint(
+                tr(
+                    "settings.learn.hint",
+                    total=SURVEY_LIMIT,
+                    interval=SURVEY_INTERVAL,
+                    directory=str(TRACE_DIR),
+                )
+            )
+        )
 
         self.debug_box = QCheckBox(tr("settings.debug"), shake)
         form.addRow(self.debug_box)
@@ -287,6 +301,7 @@ class SettingsDialog(QDialog):
         self.quality_spin.setValue(settings.jpeg_quality)
         self.max_side_spin.setValue(settings.max_side)
         self.clipboard_box.setChecked(settings.copy_to_clipboard)
+        self.learn_box.setChecked(settings.learn_from_misfires)
         self.dim_slider.setValue(settings.dim_percent)
         self.dim_value.setText(f"{settings.dim_percent} %")
         self.layer_shell_box.setChecked(settings.use_layer_shell)
@@ -332,6 +347,7 @@ class SettingsDialog(QDialog):
         settings.jpeg_quality = self.quality_spin.value()
         settings.max_side = self.max_side_spin.value()
         settings.copy_to_clipboard = self.clipboard_box.isChecked()
+        settings.learn_from_misfires = self.learn_box.isChecked()
         settings.dim_percent = self.dim_slider.value()
         settings.use_layer_shell = self.layer_shell_box.isChecked()
         settings.selection_mode = str(self.mode_combo.currentData())
