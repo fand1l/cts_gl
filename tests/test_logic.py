@@ -558,7 +558,12 @@ check("nothing listed when identical", describe_changes(base, base) == [])
 from PyQt6.QtCore import QEvent, QPointF  # noqa: E402
 from PyQt6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
 
-from circle_to_search.overlay import ACTION_COPY, ACTION_SAVE, ACTION_SEARCH  # noqa: E402
+from circle_to_search.overlay import (  # noqa: E402
+    ACTION_COPY,
+    ACTION_SAVE,
+    ACTION_SEARCH,
+    ACTION_TEXT,
+)
 
 
 def drag(overlay: SelectionOverlay, start: tuple[int, int], end: tuple[int, int]) -> None:
@@ -605,6 +610,7 @@ def confirming(mode: str = MODE_RECTANGLE, mask_outside: bool = False) -> tuple:
     overlay.selected.connect(lambda r, p: results.__setitem__(ACTION_SEARCH, (r, p)))
     overlay.copy_requested.connect(lambda r, p: results.__setitem__(ACTION_COPY, (r, p)))
     overlay.save_requested.connect(lambda r, p: results.__setitem__(ACTION_SAVE, (r, p)))
+    overlay.text_requested.connect(lambda r, p: results.__setitem__(ACTION_TEXT, (r, p)))
     overlay.cancelled.connect(lambda: results.__setitem__("cancelled", ()))
     drag(overlay, (100, 100), (300, 250))
     return overlay, results
@@ -631,6 +637,10 @@ check("C copies", list(results) == [ACTION_COPY], str(list(results)))
 overlay, results = confirming()
 press_key(overlay, Qt.Key.Key_S)
 check("S saves", list(results) == [ACTION_SAVE], str(list(results)))
+
+overlay, results = confirming()
+press_key(overlay, Qt.Key.Key_T)
+check("T reads the text", list(results) == [ACTION_TEXT], str(list(results)))
 
 overlay, results = confirming()
 press_key(overlay, Qt.Key.Key_Escape)
@@ -715,10 +725,89 @@ drag(overlay, (500, 500), (503, 502))
 check("a stray click selects nothing",
       not overlay._confirming and results == {}, str(results))
 
+# --- optional text recognition ---------------------------------------------
+import tempfile  # noqa: E402
+
+from circle_to_search import ocr  # noqa: E402
+
+check("output is tidied",
+      ocr.clean("\n\n  hello  \n\n\n\nworld   \n\n") == "hello\n\nworld",
+      repr(ocr.clean("\n\n  hello  \n\n\n\nworld   \n\n")))
+check("empty output stays empty", ocr.clean("   \n\n  ") == "")
+check("a summary is one line", ocr.summarise("a\nb  c\n") == "a b c")
+check("a long summary is cut", ocr.summarise("x" * 400).endswith("…")
+      and len(ocr.summarise("x" * 400)) == 160)
+
+
+def fake_tesseract(directory: Path, body: str) -> Path:
+    """A stand-in on PATH, so the subprocess plumbing is really exercised."""
+    binary = directory / "tesseract"
+    binary.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+    binary.chmod(0o755)
+    return binary
+
+
+original_path = os.environ.get("PATH", "")
+with tempfile.TemporaryDirectory() as tmp:
+    fake_dir = Path(tmp)
+    os.environ["PATH"] = str(fake_dir)
+
+    # Nothing installed at all: everything must degrade, not explode.
+    check("missing binary is detected", not ocr.is_available())
+    check("no languages without a binary", ocr.installed_languages() == [])
+    check("languages still guessed", ocr.pick_languages("uk") == "ukr+eng",
+          ocr.pick_languages("uk"))
+    check("english falls back to eng", ocr.pick_languages("en") == "eng")
+    try:
+        ocr.recognise(Image.new("RGB", (10, 10), "white"))
+    except ocr.OcrError as exc:
+        check("recognising without tesseract raises", "not installed" in str(exc), str(exc))
+    else:
+        check("recognising without tesseract raises", False)
+
+    fake_tesseract(
+        fake_dir,
+        'if [ "$1" = "--list-langs" ]; then\n'
+        '  echo "List of available languages (3):"; echo eng; echo ukr; echo deu; exit 0\n'
+        "fi\n"
+        'echo "  Hello there  "; echo; echo; echo "second line"\n',
+    )
+    check("the binary is found", ocr.is_available())
+    check("languages are listed", ocr.installed_languages() == ["eng", "ukr", "deu"],
+          str(ocr.installed_languages()))
+    check("the ui language leads", ocr.pick_languages("uk") == "ukr+eng",
+          ocr.pick_languages("uk"))
+    check("a configured language wins", ocr.pick_languages("uk", "deu") == "deu",
+          ocr.pick_languages("uk", "deu"))
+    check("an uninstalled language is ignored", ocr.pick_languages("uk", "fra") == "ukr+eng",
+          ocr.pick_languages("uk", "fra"))
+
+    text = ocr.recognise(Image.new("RGB", (20, 20), "white"), "ukr+eng")
+    check("text comes back cleaned", text == "Hello there\n\nsecond line", repr(text))
+
+    # Nothing on the image: an error the caller can show, not an empty success.
+    fake_tesseract(fake_dir, 'if [ "$1" = "--list-langs" ]; then echo x; exit 0; fi\necho ""\n')
+    try:
+        ocr.recognise(Image.new("RGB", (20, 20), "white"))
+    except ocr.OcrError as exc:
+        check("empty recognition raises", "no text" in str(exc), str(exc))
+    else:
+        check("empty recognition raises", False)
+
+    # And a crash is reported with what tesseract actually said.
+    fake_tesseract(fake_dir, 'echo "Error opening data file" >&2\nexit 1\n')
+    try:
+        ocr.recognise(Image.new("RGB", (20, 20), "white"), "xxx")
+    except ocr.OcrError as exc:
+        check("a failure carries the reason", "Error opening data file" in str(exc), str(exc))
+    else:
+        check("a failure carries the reason", False)
+
+os.environ["PATH"] = original_path
+
 # --- learning from misfires ------------------------------------------------
 import itertools  # noqa: E402
 import json  # noqa: E402
-import tempfile  # noqa: E402
 
 from circle_to_search.misfires import (  # noqa: E402
     SURVEY_INTERVAL,

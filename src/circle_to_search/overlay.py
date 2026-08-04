@@ -110,6 +110,7 @@ _CURSORS = {
 ACTION_SEARCH = "search"
 ACTION_COPY = "copy"
 ACTION_SAVE = "save"
+ACTION_TEXT = "text"
 
 
 class SelectionOverlay(QWidget):
@@ -124,6 +125,7 @@ class SelectionOverlay(QWidget):
     selected = pyqtSignal(QRect, QPolygon)
     copy_requested = pyqtSignal(QRect, QPolygon)
     save_requested = pyqtSignal(QRect, QPolygon)
+    text_requested = pyqtSignal(QRect, QPolygon)
     cancelled = pyqtSignal()
 
     def __init__(
@@ -635,6 +637,9 @@ class SelectionOverlay(QWidget):
         if key == Qt.Key.Key_S:
             self._commit(ACTION_SAVE)
             return
+        if key == Qt.Key.Key_T:
+            self._commit(ACTION_TEXT)
+            return
 
         arrows = {
             Qt.Key.Key_Left: (-1, 0),
@@ -814,6 +819,7 @@ class SelectionOverlay(QWidget):
         signals = {
             ACTION_COPY: self.copy_requested,
             ACTION_SAVE: self.save_requested,
+            ACTION_TEXT: self.text_requested,
         }
         signal = signals.get(action, self.selected)
         self._finish(lambda: signal.emit(physical, polygon))

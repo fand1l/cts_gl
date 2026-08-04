@@ -374,6 +374,35 @@ class AppSettings:
     def save_directory(self, value: str) -> None:
         self._settings.setValue("save_directory", value)
 
+    # -- optional text recognition (see ocr.py) ----------------------------
+
+    @property
+    def ocr_enabled(self) -> bool:
+        """Off until the user says yes: it needs a package they may not have."""
+        return self._get_bool("ocr_enabled", False)
+
+    @ocr_enabled.setter
+    def ocr_enabled(self, value: bool) -> None:
+        self._settings.setValue("ocr_enabled", bool(value))
+
+    @property
+    def ocr_asked(self) -> bool:
+        """Whether the one-time "shall I turn this on?" question was shown."""
+        return self._get_bool("ocr_asked", False)
+
+    @ocr_asked.setter
+    def ocr_asked(self, value: bool) -> None:
+        self._settings.setValue("ocr_asked", bool(value))
+
+    @property
+    def ocr_languages(self) -> str:
+        """``ukr+eng`` and the like; empty means "follow the interface language"."""
+        return str(self._settings.value("ocr_languages", "") or "")
+
+    @ocr_languages.setter
+    def ocr_languages(self, value: str) -> None:
+        self._settings.setValue("ocr_languages", value)
+
     @property
     def lens_backend(self) -> str:
         """``browser`` (default), ``auto``, ``lens``, ``searchbyimage`` or a variant.

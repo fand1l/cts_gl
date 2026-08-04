@@ -48,13 +48,17 @@ and a press outside the box to start again.  Adjusting the box of a lasso drops
 the loop outline rather than masking against a shape that no longer fits.  On by
 default; `confirm_selection` turns it off.
 
-## 4. OCR (optional, off by default)  ← next
+## 4. OCR (optional, off by default)  ✅
 
 * Copy the text out of the selection instead of searching for it.  Asked about
   on first use, never enabled behind the user's back, and the dependency is
   optional — the application must work exactly as now without it.
 
-## 5. Overlay on every screen at once
+Done with the `tesseract` binary rather than a Python OCR package: no new
+dependency, nothing uploaded, no key.  `T` in the overlay; `Suggests:` in the
+spec file, so it is never pulled in by default.
+
+## 5. Overlay on every screen at once  ← next
 
 * A selection that spans two monitors.  A setting, off by default.
 

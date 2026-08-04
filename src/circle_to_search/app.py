@@ -31,7 +31,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import APP_ID, DBUS_SERVICE, __version__
+from . import APP_ID, DBUS_SERVICE, __version__, ocr
 from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
@@ -63,7 +63,13 @@ from .misfires import (
     still_learning,
 )
 from .notify import notify, notify_error, supports_actions
-from .overlay import ACTION_COPY, ACTION_SAVE, ACTION_SEARCH, SelectionOverlay
+from .overlay import (
+    ACTION_COPY,
+    ACTION_SAVE,
+    ACTION_SEARCH,
+    ACTION_TEXT,
+    SelectionOverlay,
+)
 from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
 
@@ -139,6 +145,34 @@ class _UploadTask(QRunnable):
             self.signals.failed.emit(str(exc))
         else:
             self.signals.finished.emit(target)
+
+
+class _OcrSignals(QObject):
+    finished = pyqtSignal(str)
+    failed = pyqtSignal(str)
+
+
+class _OcrTask(QRunnable):
+    """Runs tesseract off the GUI thread; it takes long enough to be felt."""
+
+    def __init__(self, image: Image.Image, languages: str) -> None:
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = _OcrSignals()
+        self._image = image
+        self._languages = languages
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            text = ocr.recognise(self._image, self._languages)
+        except ocr.OcrError as exc:
+            self.signals.failed.emit(str(exc))
+        except Exception as exc:
+            log.exception("unexpected error during text recognition")
+            self.signals.failed.emit(str(exc))
+        else:
+            self.signals.finished.emit(text)
 
 
 class _OpenSignals(QObject):
@@ -426,6 +460,7 @@ class CircleToSearchApp(QObject):
             (overlay.selected, ACTION_SEARCH),
             (overlay.copy_requested, ACTION_COPY),
             (overlay.save_requested, ACTION_SAVE),
+            (overlay.text_requested, ACTION_TEXT),
         ):
             signal.connect(
                 lambda rect, polygon, chosen=action: self._on_selected(
@@ -519,6 +554,9 @@ class CircleToSearchApp(QObject):
         if action == ACTION_SAVE:
             self._save_to_file(cropped)
             return
+        if action == ACTION_TEXT:
+            self._extract_text(cropped)
+            return
 
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
@@ -568,6 +606,73 @@ class CircleToSearchApp(QObject):
             log.debug("removed %s", path)
         except OSError as exc:
             log.debug("could not remove %s: %s", path, exc)
+
+    # ------------------------------------------------ optional text (OCR)
+
+    def _extract_text(self, image: Image.Image) -> None:
+        """Read the text out of the selection instead of searching for it."""
+        if not self._settings.ocr_enabled and not self._ask_about_ocr():
+            return
+        if not ocr.is_available():
+            notify_error(
+                tr("notify.ocr_missing"),
+                tr("notify.ocr_missing_body", command=ocr.INSTALL_HINT),
+            )
+            return
+
+        languages = ocr.pick_languages(current_language(), self._settings.ocr_languages)
+        log.info("recognising text with %s", languages)
+        notify(tr("notify.ocr_running"), transient=True, timeout_ms=3000)
+
+        task = _OcrTask(image, languages)
+        task.signals.finished.connect(lambda text, ref=task: self._finish_ocr(ref, text=text))
+        task.signals.failed.connect(lambda error, ref=task: self._finish_ocr(ref, error=error))
+        self._tasks.add(task)
+        QThreadPool.globalInstance().start(task)
+
+    def _ask_about_ocr(self) -> bool:
+        """The one-time question.  True when recognition may go ahead now.
+
+        Off by default and asked exactly once: it needs a package the user may
+        not have, and turning something on behind their back is not a favour.
+        """
+        if self._settings.ocr_asked:
+            notify(tr("notify.ocr_off"), tr("notify.ocr_off_body"), timeout_ms=8000)
+            return False
+
+        self._settings.ocr_asked = True
+        found = ocr.is_available()
+        box = QMessageBox()
+        box.setWindowTitle(tr("ocr.ask.title"))
+        box.setIcon(QMessageBox.Icon.Question)
+        box.setText(tr("ocr.ask.text"))
+        box.setInformativeText(
+            tr("ocr.ask.found") if found else tr("ocr.ask.missing", command=ocr.INSTALL_HINT)
+        )
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+        box.setDefaultButton(QMessageBox.StandardButton.Yes)
+        enable = box.exec() == QMessageBox.StandardButton.Yes
+        self._settings.ocr_enabled = enable
+        self._settings.sync()
+        log.info("text recognition %s by the user", "enabled" if enable else "declined")
+        if enable and self._dialog is not None:
+            self._dialog.reload()
+        return enable
+
+    def _finish_ocr(
+        self, task: QRunnable, text: str | None = None, error: str | None = None
+    ) -> None:
+        self._tasks.discard(task)
+        if error is not None:
+            notify_error(tr("notify.ocr_failed"), tr("notify.ocr_failed_body", error=error))
+            return
+        if not text:
+            return
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(text)
+        log.info("recognised %d characters", len(text))
+        notify(tr("notify.ocr_done"), ocr.summarise(text), timeout_ms=10000)
 
     def _save_to_file(self, image: Image.Image) -> None:
         """Write the selection next to the user's other screenshots."""

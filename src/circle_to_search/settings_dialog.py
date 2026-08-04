@@ -30,6 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from . import ocr
 from .config import (
     AppSettings,
     DetectionSettings,
@@ -212,6 +213,12 @@ class SettingsDialog(QDialog):
         self.confirm_box = QCheckBox(tr("settings.confirm"), selection)
         selection_layout.addWidget(self.confirm_box)
         selection_layout.addWidget(_hint(tr("settings.confirm.hint")))
+
+        self.ocr_box = QCheckBox(tr("settings.ocr"), selection)
+        selection_layout.addWidget(self.ocr_box)
+        selection_layout.addWidget(_hint(tr("settings.ocr.hint", command=ocr.INSTALL_HINT)))
+        self.ocr_state = _hint(self._ocr_state())
+        selection_layout.addWidget(self.ocr_state)
         layout.addWidget(selection)
 
         backend_row = QHBoxLayout()
@@ -266,6 +273,14 @@ class SettingsDialog(QDialog):
         return page
 
     @staticmethod
+    def _ocr_state() -> str:
+        """Say plainly whether the optional dependency is actually there."""
+        if not ocr.is_available():
+            return tr("settings.ocr.missing")
+        languages = ocr.installed_languages()
+        return tr("settings.ocr.found", languages=", ".join(languages) or "?")
+
+    @staticmethod
     def _spin(
         parent: QWidget, minimum: int, maximum: int, step: int, suffix: str = ""
     ) -> QSpinBox:
@@ -312,6 +327,8 @@ class SettingsDialog(QDialog):
         self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(settings.selection_mode)))
         self.lasso_mask_box.setChecked(settings.lasso_mask)
         self.confirm_box.setChecked(settings.confirm_selection)
+        self.ocr_box.setChecked(settings.ocr_enabled)
+        self.ocr_state.setText(self._ocr_state())
         self.backend_combo.setCurrentIndex(
             max(0, self.backend_combo.findData(settings.lens_backend))
         )
@@ -357,6 +374,11 @@ class SettingsDialog(QDialog):
         settings.selection_mode = str(self.mode_combo.currentData())
         settings.lasso_mask = self.lasso_mask_box.isChecked()
         settings.confirm_selection = self.confirm_box.isChecked()
+        settings.ocr_enabled = self.ocr_box.isChecked()
+        if self.ocr_box.isChecked():
+            # Ticking it here counts as the answer, so the overlay does not ask
+            # the same question again the first time T is pressed.
+            settings.ocr_asked = True
         settings.lens_backend = str(self.backend_combo.currentData())
         settings.language = str(self.language_combo.currentData())
         settings.sync()

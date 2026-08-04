@@ -4,7 +4,9 @@ Shake the pointer, circle anything on screen with a freehand lasso, get Google
 Lens results in your browser. A Linux take on Android's "Circle to Search".
 
 No OCR, no vision model, no API keys: the program only cuts out the region and
-uploads it to Google Lens — all the intelligence is Google's.
+uploads it to Google Lens — all the intelligence is Google's. (One optional,
+off-by-default exception: **T** can read the text out of the selection with a
+local `tesseract`, which never touches the network either.)
 
 | | |
 |---|---|
@@ -257,6 +259,9 @@ Application-only settings live in
 | `lasso_mask` | `false` | Keep only the inside of the loop and whiten the rest — off, because the loop is there to set the bounds |
 | `confirm_selection` | `true` | Wait for a key instead of sending the moment the button is released |
 | `save_directory` | *(Pictures)* | Where **S** writes |
+| `ocr_enabled` | `false` | Let **T** read text (see below) |
+| `ocr_asked` | `false` | Whether the one-time question was shown |
+| `ocr_languages` | *(auto)* | e.g. `ukr+eng`; empty follows the interface language |
 | `lens_backend` | `browser` | `browser` (the browser uploads), `auto`, `lens`, `searchbyimage`, or one variant name |
 | `max_side` | `1000` | Longest side of the uploaded JPEG |
 | `jpeg_quality` | `85` | |
@@ -287,6 +292,7 @@ back. So the drag now only *marks the area out*, and the overlay waits:
 | **Enter** (or Space) | search it with Lens |
 | **C** | copy it to the clipboard |
 | **S** | save it as a PNG (Pictures, or `save_directory`) |
+| **T** | read the text out of it and copy that (optional, see below) |
 | **Esc** / right-click | cancel |
 
 Before pressing anything the box can be adjusted: drag any of the eight
@@ -300,6 +306,31 @@ on. The selection simply becomes the rectangle you adjusted.
 
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
+
+### Reading the text instead of searching for the picture
+
+Sometimes the answer is not "what is this" but "let me copy that". **T** runs
+`tesseract` on the selection and puts the text on the clipboard.
+
+It is **off until you say so**, and the first time you press **T** you are asked
+once — with what it needs and what it does — and never again either way. The
+switch afterwards is Settings → General → *Read text from the selection with T*,
+which also says whether `tesseract` was found and which language packs it has.
+
+```bash
+sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng
+```
+
+The language is picked from the interface language plus English, restricted to
+the packs that are actually installed — naming a missing one makes `tesseract`
+fail outright instead of doing its best. Set `ocr_languages=deu+eng` in
+`circle-to-search.conf` to override that.
+
+This is the only part of the program that may be absent: there is no Python
+dependency for it, nothing is uploaded, no key is needed, and if `tesseract` is
+missing you get one notification with the install command and everything else
+carries on as before. The "no OCR" rule the rest of the README describes still
+holds for the default path — the image search is still entirely Google's job.
 
 ### Learning from the times it was wrong
 

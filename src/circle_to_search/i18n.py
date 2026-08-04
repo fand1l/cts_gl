@@ -37,6 +37,14 @@ _EN: dict[str, str] = {
     "notify.save_failed": "Could not save the selection",
     "notify.save_failed_body": "{error}",
     "notify.open_folder": "Open the folder",
+    "notify.ocr_running": "Reading the text…",
+    "notify.ocr_done": "The text was copied to the clipboard",
+    "notify.ocr_failed": "Could not read the text",
+    "notify.ocr_failed_body": "{error}",
+    "notify.ocr_missing": "Text recognition is not installed",
+    "notify.ocr_missing_body": "It needs tesseract:\n{command}",
+    "notify.ocr_off": "Text recognition is switched off",
+    "notify.ocr_off_body": "Turn it on in Settings → General if you want it.",
     "about.text": (
         "<h3>Circle to Search {version}</h3>"
         "<p>Select any region of the screen and search it with Google Lens.</p>"
@@ -115,6 +123,29 @@ _EN: dict[str, str] = {
     "calibrate.before": "Now",
     "calibrate.after": "Suggested",
     "calibrate.restart": "Start over",
+    "ocr.ask.title": "Circle to Search — Text recognition",
+    "ocr.ask.text": (
+        "Read the text out of the selection and copy it, instead of searching "
+        "for the image?"
+    ),
+    "ocr.ask.found": (
+        "It runs tesseract on this machine — nothing is uploaded and no key is "
+        "needed. tesseract is installed. You will only be asked this once; the "
+        "switch is in Settings → General."
+    ),
+    "ocr.ask.missing": (
+        "It runs tesseract on this machine — nothing is uploaded and no key is "
+        "needed, but tesseract is not installed yet:\n\n{command}\n\n"
+        "You can turn this on now and install it afterwards. You will only be "
+        "asked once; the switch is in Settings → General."
+    ),
+    "settings.ocr": "Read text from the selection with T (needs tesseract)",
+    "settings.ocr.hint": (
+        "Runs tesseract locally and copies what it finds; nothing is uploaded. "
+        "Install it with: {command}"
+    ),
+    "settings.ocr.found": "tesseract found, languages: {languages}",
+    "settings.ocr.missing": "tesseract is not installed",
     "settings.confirm": "Check the selection before sending it",
     "settings.confirm.hint": (
         "The drag only marks the area out. Enter searches, C copies, S saves to "
@@ -199,7 +230,7 @@ _EN: dict[str, str] = {
     "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
     "overlay.hint.rect": "Drag to select · Esc or right-click to cancel",
     "overlay.confirm": (
-        "Enter — search · C — copy · S — save · Esc — cancel   |   "
+        "Enter — search · C — copy · S — save · T — text · Esc — cancel   |   "
         "drag the edges or use the arrow keys to adjust"
     ),
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
@@ -236,6 +267,14 @@ _UK: dict[str, str] = {
     "notify.save_failed": "Не вдалося зберегти виділення",
     "notify.save_failed_body": "{error}",
     "notify.open_folder": "Відкрити теку",
+    "notify.ocr_running": "Розпізнаю текст…",
+    "notify.ocr_done": "Текст скопійовано в буфер обміну",
+    "notify.ocr_failed": "Не вдалося розпізнати текст",
+    "notify.ocr_failed_body": "{error}",
+    "notify.ocr_missing": "Розпізнавання тексту не встановлено",
+    "notify.ocr_missing_body": "Потрібен tesseract:\n{command}",
+    "notify.ocr_off": "Розпізнавання тексту вимкнене",
+    "notify.ocr_off_body": "Увімкніть його в Налаштуваннях → Загальні, якщо потрібно.",
     "about.text": (
         "<h3>Circle to Search {version}</h3>"
         "<p>Виділіть будь-яку ділянку екрана й знайдіть її через Google Lens.</p>"
@@ -314,6 +353,29 @@ _UK: dict[str, str] = {
     "calibrate.before": "Зараз",
     "calibrate.after": "Пропоную",
     "calibrate.restart": "Почати спочатку",
+    "ocr.ask.title": "Circle to Search — Розпізнавання тексту",
+    "ocr.ask.text": (
+        "Зчитувати текст із виділення та копіювати його замість пошуку "
+        "зображення?"
+    ),
+    "ocr.ask.found": (
+        "Працює через tesseract на вашій машині — нічого не надсилається і "
+        "ключі не потрібні. tesseract встановлено. Запитаю лише раз; перемикач "
+        "є в Налаштуваннях → Загальні."
+    ),
+    "ocr.ask.missing": (
+        "Працює через tesseract на вашій машині — нічого не надсилається і "
+        "ключі не потрібні, але tesseract ще не встановлений:\n\n{command}\n\n"
+        "Можна увімкнути зараз, а встановити потім. Запитаю лише раз; перемикач "
+        "є в Налаштуваннях → Загальні."
+    ),
+    "settings.ocr": "Зчитувати текст із виділення клавішею T (потрібен tesseract)",
+    "settings.ocr.hint": (
+        "Запускає tesseract локально й копіює знайдене; нічого не надсилається. "
+        "Встановити: {command}"
+    ),
+    "settings.ocr.found": "tesseract знайдено, мови: {languages}",
+    "settings.ocr.missing": "tesseract не встановлено",
     "settings.confirm": "Перевіряти виділення перед надсиланням",
     "settings.confirm.hint": (
         "Перетягування лише окреслює область. Enter — пошук, C — копіювати, "
@@ -402,8 +464,8 @@ _UK: dict[str, str] = {
     "overlay.hint.lasso": "Обведіть потрібне · Esc або права кнопка — скасувати",
     "overlay.hint.rect": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",
     "overlay.confirm": (
-        "Enter — пошук · C — копіювати · S — зберегти · Esc — скасувати   |   "
-        "тягніть за краї або стрілками, щоб підправити"
+        "Enter — пошук · C — копіювати · S — зберегти · T — текст · "
+        "Esc — скасувати   |   тягніть за краї або стрілками, щоб підправити"
     ),
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",

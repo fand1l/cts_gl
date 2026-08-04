@@ -43,6 +43,10 @@ Requires:       xdg-utils
 # Only needed when the ScreenShot2 permission check refuses us; it is part of
 # every Plasma install anyway.
 Recommends:     spectacle
+# Optional, off by default: the T key in the overlay reads the text out of the
+# selection locally instead of searching for the image.  Everything works
+# without it.
+Suggests:       tesseract
 
 %description
 Circle to Search freezes the screen when you shake the pointer diagonally, lets
