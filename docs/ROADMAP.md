@@ -69,11 +69,16 @@ Crossing an edge depends on the compositor continuing to send motion to the
 surface that holds the implicit grab; where it does not, the drag stops at the
 edge and the rest still works.
 
-## 6. Recent captures in the tray  ← next
+## 6. Recent captures in the tray  ✅
 
 * The last five crops: search again, copy, or save without redoing the gesture.
 
-## 7. "Capture now" through kglobalaccel
+Kept as PNGs under the data directory rather than in memory, with thumbnails in
+the menu, "forget this one"/"forget all of them" beside them and a switch to
+stop keeping them at all.  Reading the text of a kept crop is there too, since
+the four actions share one code path.
+
+## 7. "Capture now" through kglobalaccel  ← next
 
 * `invokeShortcut` on the KWin script's own shortcut, so the pointer position
   comes from the compositor instead of Qt's guess (which Wayland does not

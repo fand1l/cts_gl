@@ -258,6 +258,7 @@ Application-only settings live in
 | `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
 | `lasso_mask` | `false` | Keep only the inside of the loop and whiten the rest — off, because the loop is there to set the bounds |
 | `all_screens` | `false` | Open an overlay on every monitor at once (see below) |
+| `keep_recent` | `true` | Keep the last five selections for the tray menu (see below) |
 | `confirm_selection` | `true` | Wait for a key instead of sending the moment the button is released |
 | `save_directory` | *(Pictures)* | Where **S** writes |
 | `ocr_enabled` | `false` | Let **T** read text (see below) |
@@ -307,6 +308,19 @@ on. The selection simply becomes the rectangle you adjusted.
 
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
+
+### The last five, in the tray
+
+Tray icon → **Recent captures** lists the last five selections with a thumbnail
+and their size. Each one can be searched again, copied, saved, or read as text,
+without redoing the gesture — useful when the answer was "that was the wrong
+result, try the same crop again" or when the screen has already changed.
+
+They are PNGs in `~/.local/share/circle-to-search/recent/`, pruned to five as
+new ones arrive. That is a real thing on disk, so: **Forget this one** and
+**Forget all of them** are in the same menu, and unticking Settings → General →
+*Keep the last few selections* stops it entirely (the list then says so instead
+of pretending to be empty).
 
 ### Every screen at once
 

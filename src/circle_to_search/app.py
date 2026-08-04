@@ -43,6 +43,7 @@ from .config import (
 )
 from .dbus_service import ServiceObject, register_service, unregister_service
 from .hidpi import ScreenMetrics, measure_screen
+from .history import RecentCaptures
 from .i18n import current_language, set_language, tr
 from .imageops import mask_outside_polygon, pil_to_qimage, polygon_to_crop_space
 from .lens import (
@@ -253,9 +254,12 @@ class CircleToSearchApp(QObject):
         self._pending_trace: tuple[str, float] | None = None
         self._opening_trace = ""
 
+        self._recent = RecentCaptures()
+
         self._icon = self._load_icon()
         self._tray = QSystemTrayIcon(self._icon, self)
         self._detection_action: QAction | None = None
+        self._recent_menu: QMenu | None = None
         self._build_tray()
 
     # -------------------------------------------------------------- start-up
@@ -308,6 +312,12 @@ class CircleToSearchApp(QObject):
         capture.triggered.connect(self.on_trigger_current)
         menu.addAction(capture)
 
+        self._recent_menu = QMenu(tr("tray.recent"), menu)
+        # Rebuilt every time it is opened: it is a directory, not a cache, and
+        # another instance or the user may have changed it in between.
+        self._recent_menu.aboutToShow.connect(self._fill_recent_menu)
+        menu.addMenu(self._recent_menu)
+
         menu.addSeparator()
 
         calibrate = QAction(tr("settings.calibrate"), menu)
@@ -333,6 +343,71 @@ class CircleToSearchApp(QObject):
         self._tray.setContextMenu(menu)
         self._tray.setToolTip(tr("app.tooltip"))
         self._tray.activated.connect(self._on_tray_activated)
+
+    # ------------------------------------------------------ recent captures
+
+    def _fill_recent_menu(self) -> None:
+        """(Re)build the list of kept selections."""
+        menu = self._recent_menu
+        if menu is None:
+            return
+        menu.clear()
+
+        entries = self._recent.entries() if self._settings.keep_recent else []
+        if not entries:
+            empty = menu.addAction(
+                tr("tray.recent.empty") if self._settings.keep_recent else tr("tray.recent.off")
+            )
+            empty.setEnabled(False)
+            return
+
+        for entry in entries:
+            submenu = menu.addMenu(entry.label)
+            icon = QIcon(
+                QPixmap(str(entry.path)).scaled(
+                    48,
+                    48,
+                    Qt.AspectRatioMode.KeepAspectRatio,
+                    Qt.TransformationMode.SmoothTransformation,
+                )
+            )
+            if not icon.isNull():
+                submenu.setIcon(icon)
+            for label, action in (
+                (tr("tray.recent.search"), ACTION_SEARCH),
+                (tr("tray.recent.copy"), ACTION_COPY),
+                (tr("tray.recent.save"), ACTION_SAVE),
+                (tr("tray.recent.text"), ACTION_TEXT),
+            ):
+                item = submenu.addAction(label)
+                item.triggered.connect(
+                    lambda _checked=False, path=entry.path, chosen=action: self._reuse(
+                        path, chosen
+                    )
+                )
+            submenu.addSeparator()
+            forget = submenu.addAction(tr("tray.recent.forget"))
+            forget.triggered.connect(
+                lambda _checked=False, path=entry.path: self._recent.forget(path)
+            )
+
+        menu.addSeparator()
+        clear = menu.addAction(tr("tray.recent.clear"))
+        clear.triggered.connect(self._clear_recent)
+
+    def _reuse(self, path: Path, action: str) -> None:
+        """Do something with a kept selection instead of making a new one."""
+        image = self._recent.load(path)
+        if image is None:
+            notify_error(tr("notify.recent_gone"), str(path))
+            return
+        log.info("reusing %s (%s)", path.name, action)
+        self._deliver(image, action, remember=False)
+
+    def _clear_recent(self) -> None:
+        removed = self._recent.clear()
+        if removed:
+            notify(tr("notify.recent_cleared", count=removed), transient=True, timeout_ms=4000)
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
         if reason == QSystemTrayIcon.ActivationReason.Trigger:
@@ -649,12 +724,14 @@ class CircleToSearchApp(QObject):
 
         self._deliver(cropped, action)
 
-    def _deliver(self, cropped: Image.Image, action: str) -> None:
+    def _deliver(self, cropped: Image.Image, action: str, *, remember: bool = True) -> None:
         """Do whatever the user asked with a finished crop.
 
-        Shared by the single-screen path and the composed multi-screen one, so
-        the two cannot drift apart.
+        Shared by the single-screen path, the composed multi-screen one and the
+        tray's recent list, so the four actions cannot drift apart between them.
         """
+        if remember and self._settings.keep_recent:
+            self._recent.add(cropped)
         if action == ACTION_COPY:
             self._copy_to_clipboard(cropped)
             notify(tr("notify.copied"), transient=True, timeout_ms=3000)

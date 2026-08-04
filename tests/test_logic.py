@@ -937,6 +937,58 @@ with tempfile.TemporaryDirectory() as tmp:
 
 os.environ["PATH"] = original_path
 
+# --- recent captures -------------------------------------------------------
+from circle_to_search.history import RecentCaptures  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    recent = RecentCaptures(Path(tmp), limit=3)
+    check("nothing kept yet", recent.entries() == [])
+
+    kept = []
+    for index in range(5):
+        image = Image.new("RGB", (10 + index, 20 + index), (index * 10, 0, 0))
+        kept.append(recent.add(image))
+    check("every add returns a path", all(path is not None for path in kept), str(kept))
+
+    entries = recent.entries()
+    check("only the limit is kept", len(entries) == 3, str(len(entries)))
+    check("the newest is first", entries[0].width == 14, str([e.width for e in entries]))
+    check("the oldest were dropped", not kept[0].exists() and not kept[1].exists())
+    check("a label reads sensibly", "14 × 24" in entries[0].label, entries[0].label)
+
+    loaded = recent.load(entries[0].path)
+    check("a kept capture loads", loaded is not None and loaded.size == (14, 24),
+          str(loaded.size if loaded else None))
+    check("a missing one does not explode", recent.load(Path(tmp) / "gone.png") is None)
+
+    # Two captures in the same second must not overwrite each other; the names
+    # only have second resolution.
+    before = len(recent.entries())
+    recent.add(Image.new("RGB", (30, 30), "white"))
+    check("a same-second capture gets its own name", len(recent.entries()) == before,
+          str([e.path.name for e in recent.entries()]))
+    check("names are unique",
+          len({e.path.name for e in recent.entries()}) == len(recent.entries()))
+
+    current = recent.entries()
+    recent.forget(current[-1].path)
+    check("forgetting one works", not current[-1].path.exists())
+    check("and it leaves the list", len(recent.entries()) == len(current) - 1,
+          str(len(recent.entries())))
+
+    remaining = len(recent.entries())
+    check("clearing reports what it removed", recent.clear() == remaining, str(remaining))
+    check("and leaves nothing", recent.entries() == [])
+
+    # Files that are not ours, and unreadable ones, are ignored rather than
+    # crashing the tray menu.
+    (Path(tmp) / "notes.txt").write_text("not a capture")
+    (Path(tmp) / "capture-20250101-000000.png").write_bytes(b"not a png")
+    check("junk in the directory is ignored", recent.entries() == [],
+          str(recent.entries()))
+
+check("a missing directory is not an error", RecentCaptures(Path("/nonexistent/x")).entries() == [])
+
 # --- learning from misfires ------------------------------------------------
 import itertools  # noqa: E402
 import json  # noqa: E402

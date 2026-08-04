@@ -13,6 +13,15 @@ _EN: dict[str, str] = {
     "app.tooltip": "Circle to Search — shake the cursor to select a region",
     "tray.detection": "Enable detection",
     "tray.capture": "Capture now",
+    "tray.recent": "Recent captures",
+    "tray.recent.empty": "(nothing yet)",
+    "tray.recent.off": "(switched off in the settings)",
+    "tray.recent.search": "Search it again",
+    "tray.recent.copy": "Copy it",
+    "tray.recent.save": "Save a copy…",
+    "tray.recent.text": "Read the text",
+    "tray.recent.forget": "Forget this one",
+    "tray.recent.clear": "Forget all of them",
     "tray.settings": "Settings…",
     "tray.about": "About",
     "tray.quit": "Quit",
@@ -33,6 +42,8 @@ _EN: dict[str, str] = {
         "KWin Scripts. The tray menu and the global shortcut still work."
     ),
     "notify.copied": "The selection was copied to the clipboard",
+    "notify.recent_gone": "That capture is no longer there",
+    "notify.recent_cleared": "Forgot {count} kept capture(s)",
     "notify.saved": "The selection was saved",
     "notify.save_failed": "Could not save the selection",
     "notify.save_failed_body": "{error}",
@@ -146,6 +157,13 @@ _EN: dict[str, str] = {
     ),
     "settings.ocr.found": "tesseract found, languages: {languages}",
     "settings.ocr.missing": "tesseract is not installed",
+    "settings.keep_recent": "Keep the last few selections for the tray menu",
+    "settings.keep_recent.hint": (
+        "The {limit} most recent crops stay in {directory} so they can be "
+        "searched, copied or saved again without redoing the gesture. Older "
+        "ones are deleted as new ones arrive; “Forget all of them” in the tray "
+        "empties it now."
+    ),
     "settings.all_screens": "Show the overlay on every screen",
     "settings.all_screens.hint": (
         "Off by default. With it on, all monitors are captured and dimmed at "
@@ -249,6 +267,15 @@ _UK: dict[str, str] = {
     "app.tooltip": "Circle to Search — потрясіть курсором, щоб виділити ділянку",
     "tray.detection": "Увімкнути детекцію",
     "tray.capture": "Зняти зараз",
+    "tray.recent": "Останні знімки",
+    "tray.recent.empty": "(поки порожньо)",
+    "tray.recent.off": "(вимкнено в налаштуваннях)",
+    "tray.recent.search": "Шукати знову",
+    "tray.recent.copy": "Скопіювати",
+    "tray.recent.save": "Зберегти копію…",
+    "tray.recent.text": "Розпізнати текст",
+    "tray.recent.forget": "Забути цей",
+    "tray.recent.clear": "Забути всі",
     "tray.settings": "Налаштування…",
     "tray.about": "Про програму",
     "tray.quit": "Вихід",
@@ -270,6 +297,8 @@ _UK: dict[str, str] = {
         "працюють і без нього."
     ),
     "notify.copied": "Виділення скопійовано в буфер обміну",
+    "notify.recent_gone": "Цього знімка вже немає",
+    "notify.recent_cleared": "Забуто знімків: {count}",
     "notify.saved": "Виділення збережено",
     "notify.save_failed": "Не вдалося зберегти виділення",
     "notify.save_failed_body": "{error}",
@@ -383,6 +412,13 @@ _UK: dict[str, str] = {
     ),
     "settings.ocr.found": "tesseract знайдено, мови: {languages}",
     "settings.ocr.missing": "tesseract не встановлено",
+    "settings.keep_recent": "Зберігати кілька останніх виділень для меню в треї",
+    "settings.keep_recent.hint": (
+        "Останні {limit} знімків лежать у {directory}, щоб їх можна було "
+        "повторно знайти, скопіювати чи зберегти без повторення жесту. Старіші "
+        "видаляються, коли з’являються нові; «Забути всі» в треї очищає теку "
+        "одразу."
+    ),
     "settings.all_screens": "Показувати оверлей на всіх екранах",
     "settings.all_screens.hint": (
         "Вимкнено за замовчуванням. Якщо увімкнути, знімок робиться з усіх "

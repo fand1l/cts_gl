@@ -353,6 +353,20 @@ class AppSettings:
         self._settings.setValue("lasso_mask", bool(value))
 
     @property
+    def keep_recent(self) -> bool:
+        """Keep the last few selections so they can be used again.
+
+        On: it is the whole point of the tray list.  It does mean the crops sit
+        in ``~/.local/share/circle-to-search/recent`` until newer ones push them
+        out, so it is a switch and not a hidden behaviour.
+        """
+        return self._get_bool("keep_recent", True)
+
+    @keep_recent.setter
+    def keep_recent(self, value: bool) -> None:
+        self._settings.setValue("keep_recent", bool(value))
+
+    @property
     def all_screens(self) -> bool:
         """Open an overlay on every monitor instead of only the pointer's.
 

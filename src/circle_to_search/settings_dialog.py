@@ -39,6 +39,8 @@ from .config import (
     set_autostart,
     write_detection,
 )
+from .history import LIMIT as RECENT_LIMIT
+from .history import RECENT_DIR
 from .i18n import available_languages, tr
 from .lens import VARIANTS
 from .logging_setup import get_logger
@@ -210,6 +212,18 @@ class SettingsDialog(QDialog):
         self.lasso_mask_box = QCheckBox(tr("settings.lasso_mask"), selection)
         selection_layout.addWidget(self.lasso_mask_box)
         selection_layout.addWidget(_hint(tr("settings.lasso_mask.hint")))
+        self.keep_recent_box = QCheckBox(tr("settings.keep_recent"), selection)
+        selection_layout.addWidget(self.keep_recent_box)
+        selection_layout.addWidget(
+            _hint(
+                tr(
+                    "settings.keep_recent.hint",
+                    limit=RECENT_LIMIT,
+                    directory=str(RECENT_DIR),
+                )
+            )
+        )
+
         self.all_screens_box = QCheckBox(tr("settings.all_screens"), selection)
         selection_layout.addWidget(self.all_screens_box)
         selection_layout.addWidget(_hint(tr("settings.all_screens.hint")))
@@ -330,6 +344,7 @@ class SettingsDialog(QDialog):
         self.autostart_box.setChecked(autostart_enabled())
         self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(settings.selection_mode)))
         self.lasso_mask_box.setChecked(settings.lasso_mask)
+        self.keep_recent_box.setChecked(settings.keep_recent)
         self.all_screens_box.setChecked(settings.all_screens)
         self.confirm_box.setChecked(settings.confirm_selection)
         self.ocr_box.setChecked(settings.ocr_enabled)
@@ -378,6 +393,7 @@ class SettingsDialog(QDialog):
         settings.use_layer_shell = self.layer_shell_box.isChecked()
         settings.selection_mode = str(self.mode_combo.currentData())
         settings.lasso_mask = self.lasso_mask_box.isChecked()
+        settings.keep_recent = self.keep_recent_box.isChecked()
         settings.all_screens = self.all_screens_box.isChecked()
         settings.confirm_selection = self.confirm_box.isChecked()
         settings.ocr_enabled = self.ocr_box.isChecked()
