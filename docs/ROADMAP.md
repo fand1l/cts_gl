@@ -123,3 +123,22 @@ Four suites by now, each its own job, plus a parse of the KWin script, the shell
 scripts and the shipped JSON.  The two suites that skip themselves when their
 tools are absent are made to fail when they do that in CI: a green tick for a
 test that never ran is worse than no test at all.
+
+---
+
+## All eleven are done
+
+One commit per item, each with its tests, on
+`claude/circle-to-search-kde-oehp0k`.  What is left is the part no container can
+do: running it on the real 4K panel and saying what is wrong.
+
+The things most worth checking on hardware, because they are the ones this
+machine cannot prove:
+
+* the misfire question actually appearing — notifications were being rejected by
+  any strict server until the argument types were fixed, so it is quite possible
+  none of them have ever reached the screen;
+* a selection dragged from one monitor onto the next, which depends on KWin
+  continuing to send motion to the surface holding the pointer grab;
+* the keyboard coming back to the right window after Esc;
+* "Capture now" landing on the monitor the pointer is really on.
