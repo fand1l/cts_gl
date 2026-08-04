@@ -78,13 +78,17 @@ the menu, "forget this one"/"forget all of them" beside them and a switch to
 stop keeping them at all.  Reading the text of a kept crop is there too, since
 the four actions share one code path.
 
-## 7. "Capture now" through kglobalaccel  ← next
+## 7. "Capture now" through kglobalaccel  ✅
 
 * `invokeShortcut` on the KWin script's own shortcut, so the pointer position
   comes from the compositor instead of Qt's guess (which Wayland does not
   answer honestly).
 
-## 8. Restore focus after cancelling
+With a 600 ms fallback to the old behaviour, because kglobalaccel answers an
+unknown action without complaining.  The D-Bus suite pins the component and
+action names against a stub, since getting either wrong fails silently.
+
+## 8. Restore focus after cancelling  ← next
 
 * Give the keyboard back to the window that had it.  With a switch.
 

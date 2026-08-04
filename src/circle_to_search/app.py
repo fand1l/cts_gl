@@ -35,6 +35,7 @@ from . import APP_ID, DBUS_SERVICE, __version__, ocr
 from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
+    invoke_global_shortcut,
     kwin_script_enabled,
     kwin_script_installed,
     read_detection,
@@ -85,6 +86,11 @@ LAUNCHER_LIFETIME_MS = 10 * 60 * 1000
 
 #: A trace older than this belongs to some earlier trigger, not to this one.
 TRACE_MAX_AGE_S = 5.0
+
+#: How long to give the compositor to answer "capture now" before falling back
+#: to Qt's idea of where the pointer is.  One round trip through kglobalaccel,
+#: KWin and back is a few milliseconds; this is generous.
+SHORTCUT_GRACE_MS = 600
 
 #: The misfire question stays up this long.  Long enough to notice after the
 #: browser tab opened, short enough not to pile up.
@@ -253,6 +259,7 @@ class CircleToSearchApp(QObject):
         self._survey = self._load_survey()
         self._pending_trace: tuple[str, float] | None = None
         self._opening_trace = ""
+        self._awaiting_shortcut = False
 
         self._recent = RecentCaptures()
 
@@ -463,10 +470,40 @@ class CircleToSearchApp(QObject):
     def on_trigger_current(self) -> None:
         """Handle the tray action / ``TriggerCurrentScreen``.
 
-        Wayland does not let a client ask for the global pointer position, so
-        this path uses the last position Qt saw (accurate while the tray menu is
-        open) and falls back to the primary screen.  The KWin script's
-        ``Trigger`` always carries an exact position.
+        Wayland does not let a client ask for the global pointer position, and
+        Qt only knows where it last saw the pointer inside one of our own
+        windows.  So the first choice is to have *the compositor* do it: press
+        the KWin script's shortcut through kglobalaccel and let its handler call
+        back with ``workspace.cursorPos``, which is the real thing.
+
+        kglobalaccel does not complain about an action it has never heard of, so
+        success is not proof that anything happened — if no trigger arrives
+        shortly, this falls back to Qt's guess.
+        """
+        if self._overlay is not None or self._group is not None:
+            log.info("ignoring trigger, a selection is already in progress")
+            return
+        if not self._awaiting_shortcut and invoke_global_shortcut():
+            self._awaiting_shortcut = True
+            QTimer.singleShot(SHORTCUT_GRACE_MS, self._shortcut_timed_out)
+            return
+        self._capture_where_qt_thinks()
+
+    def _shortcut_timed_out(self) -> None:
+        if not self._awaiting_shortcut:
+            return
+        self._awaiting_shortcut = False
+        log.info(
+            "the compositor did not act on the shortcut; falling back to Qt's "
+            "idea of the pointer position"
+        )
+        self._capture_where_qt_thinks()
+
+    def _capture_where_qt_thinks(self) -> None:
+        """Last resort: the position Qt last saw, then the primary screen.
+
+        Accurate while the tray menu is open, because the pointer is then over a
+        window of ours; a guess otherwise.
         """
         screen = QGuiApplication.screenAt(QCursor.pos()) or QGuiApplication.primaryScreen()
         if screen is None:
@@ -493,6 +530,10 @@ class CircleToSearchApp(QObject):
     # -------------------------------------------------------------- overlay
 
     def _begin_selection(self, screen: QScreen, screen_name: str, trace: str = "") -> None:
+        # Whatever got us here, the shortcut we may have pressed has been
+        # answered — by it or by something else, and either way the fallback
+        # must not fire on top of it.
+        self._awaiting_shortcut = False
         if self._overlay is not None or self._group is not None:
             log.info("ignoring trigger, a selection is already in progress")
             return

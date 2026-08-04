@@ -223,6 +223,53 @@ def kwin_reconfigure() -> bool:
     return True
 
 
+#: The KWin script registers its fallback shortcut under this name, with the
+#: compositor's own component id (KWin registers on behalf of its scripts).
+KGLOBALACCEL_SERVICE = "org.kde.kglobalaccel"
+KGLOBALACCEL_PATH = "/kglobalaccel"
+KGLOBALACCEL_INTERFACE = "org.kde.KGlobalAccel"
+KWIN_COMPONENT = "kwin"
+SHORTCUT_ACTION = "CircleToSearch"
+
+
+def invoke_global_shortcut(
+    action: str = SHORTCUT_ACTION, component: str = KWIN_COMPONENT
+) -> bool:
+    """Press the KWin script's shortcut without touching the keyboard.
+
+    Worth the detour: a Wayland client cannot ask where the pointer is, and Qt
+    only knows where it last saw it inside one of our own windows.  Going
+    through kglobalaccel makes the *compositor* run the handler, which reads
+    ``workspace.cursorPos`` and calls back with the real position.
+
+    ``False`` means the call could not be made at all.  A call that succeeds is
+    not proof that anything happened — an unknown action is not an error to
+    kglobalaccel — so the caller still needs a fallback.
+    """
+    bus = QDBusConnection.sessionBus()
+    if not bus.isConnected():
+        return False
+    interface = QDBusInterface(
+        KGLOBALACCEL_SERVICE, KGLOBALACCEL_PATH, KGLOBALACCEL_INTERFACE, bus
+    )
+    if not interface.isValid():
+        log.debug("kglobalaccel is not on the bus")
+        return False
+    interface.setTimeout(3000)
+    reply = interface.call("invokeShortcut", component, action)
+    if reply.errorName():
+        log.debug(
+            "invokeShortcut(%s, %s) failed: %s %s",
+            component,
+            action,
+            reply.errorName(),
+            reply.errorMessage(),
+        )
+        return False
+    log.debug("asked kglobalaccel to invoke %s/%s", component, action)
+    return True
+
+
 def kwin_script_installed() -> Path | None:
     """Return the path of the installed KWin script package, if any."""
     candidates = [

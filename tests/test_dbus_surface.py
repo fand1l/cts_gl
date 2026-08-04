@@ -52,6 +52,7 @@ except ImportError as exc:  # pragma: no cover - depends on the machine
     raise SystemExit(0) from None
 
 from circle_to_search import DBUS_INTERFACE, DBUS_PATH, DBUS_SERVICE
+from circle_to_search.config import invoke_global_shortcut
 from circle_to_search.dbus_service import ServiceObject, register_service
 from circle_to_search.notify import notify
 
@@ -254,6 +255,62 @@ finally:
 # The callback fires once and only for its own notification: the server also
 # emitted a repeat and an id belonging to nobody, and neither may be delivered.
 check("the callback is one-shot and id-checked", answers == ["no"], str(answers))
+
+# ----------------------------------------------- "capture now" via kglobalaccel
+#
+# A Wayland client cannot ask where the pointer is, so the tray action asks the
+# compositor to press the KWin script's shortcut instead.  What matters here is
+# the exact component and action names: get either wrong and kglobalaccel
+# answers cheerfully while nothing happens at all.
+
+check("no kglobalaccel, no pretending", not invoke_global_shortcut())
+
+KGLOBALACCEL_STUB = r"""
+import sys
+from PyQt6.QtCore import QCoreApplication, QObject, QTimer, pyqtClassInfo, pyqtSlot
+from PyQt6.QtDBus import QDBusAbstractAdaptor, QDBusConnection
+
+app = QCoreApplication(sys.argv[:1])
+
+
+@pyqtClassInfo("D-Bus Interface", "org.kde.KGlobalAccel")
+class Stub(QDBusAbstractAdaptor):
+    @pyqtSlot(str, str)
+    def invokeShortcut(self, component, action):
+        print("INVOKE", component, action, flush=True)
+
+
+holder = QObject()
+stub = Stub(holder)
+bus = QDBusConnection.sessionBus()
+if not bus.registerService("org.kde.kglobalaccel"):
+    print("CANNOT CLAIM THE NAME", flush=True)
+    sys.exit(1)
+bus.registerObject("/kglobalaccel", holder, QDBusConnection.RegisterOption.ExportAdaptors)
+print("READY", flush=True)
+QTimer.singleShot(30000, app.quit)
+sys.exit(app.exec())
+"""
+
+accel_path = Path(tempfile.mkdtemp()) / "stub_kglobalaccel.py"
+accel_path.write_text(KGLOBALACCEL_STUB, encoding="utf-8")
+accel = subprocess.Popen(
+    [sys.executable, str(accel_path)],
+    stdout=subprocess.PIPE,
+    stderr=subprocess.STDOUT,
+    text=True,
+    env=dict(os.environ, QT_QPA_PLATFORM="offscreen"),
+)
+try:
+    ready = accel.stdout is not None and accel.stdout.readline().strip() == "READY"
+    check("the stub kglobalaccel is up", ready)
+    check("the shortcut is invoked", invoke_global_shortcut())
+    line = accel.stdout.readline().strip() if accel.stdout is not None else ""
+    check("with KWin's component and the script's action name",
+          line == "INVOKE kwin CircleToSearch", line)
+finally:
+    accel.terminate()
+    accel.wait(timeout=5)
 
 print()
 if failures:

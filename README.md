@@ -309,6 +309,34 @@ on. The selection simply becomes the rectangle you adjusted.
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
 
+### Why "Capture now" goes the long way round
+
+The tray's **Capture now** does not open the overlay itself. It asks
+kglobalaccel to press the KWin script's own shortcut:
+
+```bash
+busctl --user call org.kde.kglobalaccel /kglobalaccel \
+    org.kde.KGlobalAccel invokeShortcut ss kwin CircleToSearch
+```
+
+The script's handler then reads `workspace.cursorPos` and calls `Trigger` with
+the *real* pointer position. Doing it locally would mean asking Qt, and a
+Wayland client only knows where it last saw the pointer inside one of its own
+windows — which is right while the tray menu is open and a guess at every other
+moment.
+
+kglobalaccel does not complain about an action it has never heard of, so a
+successful call is not proof that anything happened. If no trigger arrives
+within 600 ms the old behaviour takes over and the journal says so:
+
+```
+INFO  the compositor did not act on the shortcut; falling back to Qt's idea of
+      the pointer position
+```
+
+That line means the KWin script is not loaded, or its shortcut is registered
+under a different name — check System Settings → Shortcuts → KWin.
+
 ### The last five, in the tray
 
 Tray icon → **Recent captures** lists the last five selections with a thumbnail
