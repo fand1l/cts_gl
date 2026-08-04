@@ -52,8 +52,10 @@ Four components, each in its own place:
    for the global pointer position, but the compositor knows it. The script
    polls `workspace.cursorPos` on one QTimer (50 ms while moving, 250 ms when
    idle), recognises the gesture, and does exactly one D-Bus call when it fires.
-   No D-Bus traffic in the polling path — that is what made
-   `plasma-cursor-eyes` infamous for eating CPU.
+   No D-Bus traffic while the pointer is used normally — that is what made
+   `plasma-cursor-eyes` infamous for eating CPU. It also refuses to look at the
+   cursor at all while a full screen window has the focus, so a shake in a game
+   is just a shake.
 2. **Python daemon** (`src/circle_to_search/`) — a resident `systemd --user`
    service exporting `Trigger(int32 x, int32 y, string screen)` over
    `PyQt6.QtDBus` (one Qt event loop for D-Bus and GUI alike).
@@ -71,6 +73,21 @@ Four components, each in its own place:
    here produces a URL your browser cannot resolve (see below). As a side
    effect the daemon never makes a network connection at all. Direct uploading
    is still implemented and selectable.
+
+### The cursor glow
+
+The gesture is invisible until it fires, which makes it hard to learn. Once the
+script has accepted the first swing it starts sending the pointer position
+(`GestureProgress`) and `glow.py` lights the cursor up: a halo whose ring closes
+as the remaining swings are made. It is click-through
+(`Qt.WindowTransparentForInput` → an empty `wl_surface.set_input_region`) and
+never takes focus, so it cannot get in the way of what is underneath.
+
+This is the one place that spends D-Bus calls on cursor movement, so it is
+bounded on purpose: nothing is sent until a swing has been accepted, updates are
+throttled to 3 px / 40 ms, and a shake is over in well under a second. Turning
+the glow off in the settings removes the traffic entirely — the script then
+never calls out at all until the gesture fires.
 
 The HiDPI arithmetic lives in `hidpi.py`: KWin's coordinates and Qt's widget
 coordinates are **logical** pixels, the screenshot is **physical** pixels, and
@@ -192,6 +209,8 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `pollMs` | `50` | Cursor polling interval while moving |
 | `cooldownMs` | `1500` | Ignore further shakes for this long |
 | `minStepPx` | `6` | Movement below this is noise |
+| `glow` | `true` | Light the cursor up once the gesture is being recognised |
+| `disableInFullscreen` | `true` | Ignore the shake while a full screen window has the focus (games, video). The global shortcut still works. |
 | `shortcut` | `Meta+Shift+L` | Fallback global shortcut |
 
 Application-only settings live in

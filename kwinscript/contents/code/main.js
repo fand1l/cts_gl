@@ -26,8 +26,9 @@ var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
 var DBUS_INTERFACE = "io.github.fand1l.CircleToSearch";
 
-/* Must match OVERLAY_WINDOW_TITLE in the Python package. */
+/* Must match OVERLAY_WINDOW_TITLE / GLOW_WINDOW_TITLE in the Python package. */
 var OVERLAY_CAPTION = "Circle to Search Overlay";
+var GLOW_CAPTION = "Circle to Search Glow";
 
 /* How long to keep looking for the overlay window after a trigger, in ms. */
 var OVERLAY_WATCH_MS = 5000;
@@ -46,6 +47,8 @@ var cfg = {
     pollMs: 50,
     cooldownMs: 1500,
     minStepPx: 6,
+    glow: true,
+    disableInFullscreen: true,
     shortcut: "Meta+Shift+L"
 };
 
@@ -59,6 +62,28 @@ var state = {
     reversalTimes: [],
     lastTriggerAt: 0,
     watchUntil: 0
+};
+
+/*
+ * Cursor glow.  The daemon cannot know where the pointer is, so once a swing
+ * has been recognised the script starts feeding it the position — but only
+ * then: while nothing is happening there is still not a single D-Bus call per
+ * tick, which is the whole point of the polling design.  A shake lasts well
+ * under a second, so this costs a couple of dozen calls per gesture.
+ */
+var glow = {
+    active: false,
+    lastX: -1,
+    lastY: -1,
+    lastCount: 0,
+    lastSentAt: 0
+};
+
+/* Re-reading the active window on every tick is wasteful; half a second of
+ * staleness is invisible for "did the user just alt-tab into a game". */
+var fullScreenCache = {
+    value: false,
+    at: 0
 };
 
 var pollTimer = null;      /* kept in a global on purpose: a QTimer that goes  */
@@ -89,6 +114,8 @@ function loadConfig() {
     cfg.pollMs = Math.max(20, Math.min(200, Math.round(readNumber("pollMs", 50))));
     cfg.cooldownMs = Math.max(0, Math.round(readNumber("cooldownMs", 1500)));
     cfg.minStepPx = Math.max(1, Math.round(readNumber("minStepPx", 6)));
+    cfg.glow = readBoolean("glow", true);
+    cfg.disableInFullscreen = readBoolean("disableInFullscreen", true);
     cfg.shortcut = String(readConfig("shortcut", "Meta+Shift+L"));
 
     print("circle-to-search: config enabled=" + cfg.enabled
@@ -98,7 +125,73 @@ function loadConfig() {
         + " angleTolerance=" + cfg.angleTolerance
         + " pollMs=" + cfg.pollMs
         + " cooldownMs=" + cfg.cooldownMs
-        + " minStepPx=" + cfg.minStepPx);
+        + " minStepPx=" + cfg.minStepPx
+        + " glow=" + cfg.glow
+        + " disableInFullscreen=" + cfg.disableInFullscreen);
+}
+
+/* --------------------------------------------------- fullscreen and glow */
+
+function activeWindow() {
+    try {
+        if (typeof workspace.activeWindow !== "undefined") {
+            return workspace.activeWindow;
+        }
+        if (typeof workspace.activeClient !== "undefined") {
+            return workspace.activeClient;
+        }
+    } catch (error) {
+        /* not available in this KWin version */
+    }
+    return null;
+}
+
+/*
+ * True when the focused window is full screen — a game, a video, a
+ * presentation.  Shaking the mouse in a shooter is normal, and having the
+ * overlay jump in front of it is the worst possible moment for it.
+ */
+function activeIsFullScreen() {
+    var now = Date.now();
+    if (now - fullScreenCache.at < 500) {
+        return fullScreenCache.value;
+    }
+    fullScreenCache.at = now;
+    var window = activeWindow();
+    fullScreenCache.value = !!(window && window.fullScreen);
+    return fullScreenCache.value;
+}
+
+function reportGlow(x, y, count) {
+    if (!cfg.glow) {
+        return;
+    }
+    var now = Date.now();
+    if (count === glow.lastCount
+        && now - glow.lastSentAt < 40
+        && Math.abs(x - glow.lastX) < 3
+        && Math.abs(y - glow.lastY) < 3) {
+        return;
+    }
+    glow.active = true;
+    glow.lastCount = count;
+    glow.lastX = x;
+    glow.lastY = y;
+    glow.lastSentAt = now;
+    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "GestureProgress",
+             Math.round(x) | 0, Math.round(y) | 0, count | 0, cfg.reversals | 0,
+             screenNameAt(x, y));
+}
+
+function endGlow() {
+    if (!glow.active) {
+        return;
+    }
+    glow.active = false;
+    glow.lastCount = 0;
+    if (cfg.glow) {
+        callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "GestureEnded");
+    }
 }
 
 /* --------------------------------------------------------------- detection */
@@ -130,6 +223,7 @@ function resetDetector() {
     state.stroke = null;
     state.offDiagonal = 0;
     state.reversalTimes.length = 0;
+    endGlow();
 }
 
 function pruneReversals(now) {
@@ -150,6 +244,15 @@ function distance(x0, y0, x1, y1) {
 
 function poll() {
     if (!cfg.enabled) {
+        return;
+    }
+    if (cfg.disableInFullscreen && activeIsFullScreen()) {
+        /* A game has the focus: stop looking at the cursor entirely.  The
+         * global shortcut still works, because pressing it is deliberate. */
+        if (state.stroke !== null || state.reversalTimes.length > 0) {
+            resetDetector();
+        }
+        endGlow();
         return;
     }
 
@@ -203,6 +306,7 @@ function poll() {
 
     if (state.stroke === null) {
         beginStroke(previousX, previousY, sx, sy);
+        refreshGlow(x, y, now);
         return;
     }
 
@@ -211,6 +315,7 @@ function poll() {
         if (travelled > state.stroke.amp) {
             state.stroke.amp = travelled;
         }
+        refreshGlow(x, y, now);
         return;
     }
 
@@ -229,11 +334,26 @@ function poll() {
             }
         }
         beginStroke(previousX, previousY, sx, sy);
+        refreshGlow(x, y, now);
         return;
     }
 
     /* Only one axis changed sign — treat it as a new swing, not a reversal. */
     beginStroke(previousX, previousY, sx, sy);
+    refreshGlow(x, y, now);
+}
+
+/*
+ * Light the cursor up once at least one swing has been recognised, so the
+ * gesture is discoverable: keep moving and the ring closes.
+ */
+function refreshGlow(x, y, now) {
+    pruneReversals(now);
+    if (state.reversalTimes.length > 0) {
+        reportGlow(x, y, state.reversalTimes.length);
+    } else {
+        endGlow();
+    }
 }
 
 function fire(x, y, now) {
@@ -245,10 +365,38 @@ function fire(x, y, now) {
     }
     state.lastTriggerAt = now;
     resetDetector();
+    endGlow();
     trigger(x, y);
 }
 
 /* ----------------------------------------------------------------- outputs */
+
+function screenAt(x, y) {
+    try {
+        if (typeof workspace.screenAt === "function") {
+            var output = workspace.screenAt({ x: x, y: y });
+            if (output) {
+                return output;
+            }
+        }
+    } catch (error) {
+        /* fall through to the manual search */
+    }
+    var screens = workspace.screens;
+    if (screens) {
+        for (var i = 0; i < screens.length; i += 1) {
+            var geometry = screens[i].geometry;
+            if (x >= geometry.x && x < geometry.x + geometry.width
+                && y >= geometry.y && y < geometry.y + geometry.height) {
+                return screens[i];
+            }
+        }
+        if (screens.length > 0) {
+            return screens[0];
+        }
+    }
+    return null;
+}
 
 function screenNameAt(x, y) {
     /* KWin 6 exposes screenAt(); older versions only have the screens list. */
@@ -349,6 +497,9 @@ function promote(window) {
 function checkForOverlay() {
     var windows = allWindows();
     for (var i = 0; i < windows.length; i += 1) {
+        if (isGlow(windows[i])) {
+            placeGlow(windows[i]);
+        }
         if (isOverlay(windows[i])) {
             promote(windows[i]);
             stopOverlayWatch();
@@ -373,9 +524,45 @@ function stopOverlayWatch() {
     }
 }
 
+function isGlow(window) {
+    try {
+        return !!window && window.caption === GLOW_CAPTION;
+    } catch (error) {
+        return false;
+    }
+}
+
+/*
+ * The glow is click-through and must not steal focus, so it is only placed and
+ * raised — never full-screened, which would make KWin hide the panels for it.
+ */
+function placeGlow(window) {
+    try {
+        window.keepAbove = true;
+        window.noBorder = true;
+        window.skipTaskbar = true;
+        window.skipPager = true;
+        window.skipSwitcher = true;
+        var output = screenAt(window.frameGeometry.x, window.frameGeometry.y);
+        var geometry = output ? output.geometry : null;
+        if (geometry) {
+            window.frameGeometry = {
+                x: geometry.x,
+                y: geometry.y,
+                width: geometry.width,
+                height: geometry.height
+            };
+        }
+    } catch (error) {
+        print("circle-to-search: cannot place the glow: " + error);
+    }
+}
+
 function onWindowAdded(window) {
     if (isOverlay(window)) {
         promote(window);
+    } else if (isGlow(window)) {
+        placeGlow(window);
     }
 }
 

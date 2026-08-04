@@ -50,6 +50,18 @@ _EN: dict[str, str] = {
     "settings.group.image": "Image sent to Lens",
     "settings.group.behaviour": "Behaviour",
     "settings.enabled": "Detect cursor shake",
+    "settings.glow": "Light the cursor up while the gesture is recognised",
+    "settings.glow.hint": (
+        "A halo appears after the first swing and its ring closes as the rest are "
+        "made, so you can see the gesture being picked up. The cursor position is "
+        "only sent to the daemon while a shake is under way."
+    ),
+    "settings.fullscreen": "Do not detect the shake in full screen windows",
+    "settings.fullscreen.hint": (
+        "Games, video players and presentations: shaking the mouse there is normal "
+        "and the overlay would be in the way. The global shortcut keeps working, "
+        "because pressing it is deliberate."
+    ),
     "settings.reversals": "Direction reversals required:",
     "settings.window": "Time window (ms):",
     "settings.amplitude": "Minimum swing length (px):",
@@ -160,6 +172,18 @@ _UK: dict[str, str] = {
     "settings.group.image": "Зображення для Lens",
     "settings.group.behaviour": "Поведінка",
     "settings.enabled": "Розпізнавати трясіння курсора",
+    "settings.glow": "Підсвічувати курсор під час розпізнавання жесту",
+    "settings.glow.hint": (
+        "Після першого маху навколо курсора з’являється сяйво, а його кільце "
+        "замикається з кожним наступним — видно, що жест зчитується. Позиція "
+        "курсора надсилається демону лише поки триває трясіння."
+    ),
+    "settings.fullscreen": "Не розпізнавати трясіння в повноекранних вікнах",
+    "settings.fullscreen.hint": (
+        "Ігри, відеоплеєри, презентації: там трясти мишею — звична річ, і оверлей "
+        "тільки заважав би. Глобальний хоткей продовжує працювати, бо це свідома "
+        "дія."
+    ),
     "settings.reversals": "Потрібно розворотів:",
     "settings.window": "Часове вікно (мс):",
     "settings.amplitude": "Мінімальна довжина маху (px):",

@@ -19,7 +19,7 @@ from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from PyQt6.QtCore import QPoint, QRect
+from PyQt6.QtCore import QPoint, QRect, Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
 
@@ -29,6 +29,7 @@ import requests  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from circle_to_search import hidpi, i18n, lens  # noqa: E402
+from circle_to_search.glow import GestureGlow  # noqa: E402
 from circle_to_search.imageops import (  # noqa: E402
     mask_outside_polygon,
     pil_to_qimage,
@@ -392,6 +393,52 @@ check("mask corner white", masked.getpixel((1, 1)) == (255, 255, 255),
       str(masked.getpixel((1, 1))))
 degenerate = mask_outside_polygon(source, [(0, 0), (5, 0)])
 check("mask degenerate", degenerate.getpixel((1, 1)) == (10, 200, 30))
+
+# --- cursor glow -----------------------------------------------------------
+glow = GestureGlow(screen)
+check("glow starts hidden", not glow.isVisible())
+check("glow is click-through",
+      bool(glow.windowFlags() & Qt.WindowType.WindowTransparentForInput))
+check("glow refuses focus",
+      bool(glow.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus))
+check("glow does not activate",
+      glow.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
+check("glow is translucent", glow.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+
+glow.update_gesture(QPoint(400, 300), 1, 2)
+check("glow covers the screen", glow.size() == screen.geometry().size(), str(glow.size()))
+check("glow shows itself", glow.isVisible())
+check("progress from count", abs(glow._progress - 0.5) < 1e-9, str(glow._progress))
+glow.update_gesture(QPoint(410, 300), 2, 2)
+check("progress caps at 1", glow._progress == 1.0)
+
+# Painting must work at every stage, including a full fade cycle.
+for _ in range(20):
+    glow._tick()
+glow.render(QPixmap(glow.size()))
+check("glow paints", True)
+check("faded in", glow._opacity > 0.9, str(glow._opacity))
+
+glow.end()
+for _ in range(40):
+    glow._tick()
+check("faded out", glow._opacity == 0.0, str(glow._opacity))
+check("glow hides itself", not glow.isVisible())
+
+# The daemon dismisses it the moment the selection overlay takes over.
+glow.update_gesture(QPoint(100, 100), 1, 2)
+check("glow back for a new gesture", glow.isVisible())
+glow.dismiss()
+check("dismiss hides at once", not glow.isVisible() and glow._opacity == 0.0)
+
+# Only the area around the cursor is repainted, not the whole screen.
+damage = glow._damage(QPoint(500, 500))
+check("damage is local", damage.width() < 200 and damage.height() < 200, str(damage))
+# It must cover the whole halo around the cursor (QRect.center() is off by
+# Qt's integer-centre convention, so check coverage instead).
+check("damage covers the halo",
+      damage.contains(QPoint(500 - 52, 500 - 52)) and damage.contains(QPoint(500 + 52, 500 + 52)),
+      str(damage))
 
 print()
 if failures:

@@ -2,10 +2,13 @@
 
 Interface ``io.github.fand1l.CircleToSearch`` on the session bus::
 
-    Trigger(int32 x, int32 y, string screen) -> ()
-    TriggerCurrentScreen()                   -> ()
-    ShowSettings()                           -> ()
-    Ping()                                   -> string
+    Trigger(int32 x, int32 y, string screen)               -> ()
+    TriggerCurrentScreen()                                 -> ()
+    GestureProgress(int32 x, int32 y, int32 count,
+                    int32 needed, string screen)           -> ()
+    GestureEnded()                                         -> ()
+    ShowSettings()                                         -> ()
+    Ping()                                                 -> string
 
 Manual test::
 
@@ -48,6 +51,20 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
         log.info("TriggerCurrentScreen()")
         self._service.triggered_current.emit()
 
+    @pyqtSlot(int, int, int, int, str)
+    def GestureProgress(self, x: int, y: int, count: int, needed: int, screen: str) -> None:
+        """A shake is under way: light the cursor up at ``x``/``y``.
+
+        Sent by the KWin script only once at least one swing has been accepted,
+        so the pointer being used normally still costs no D-Bus traffic at all.
+        """
+        self._service.gesture_progress.emit(x, y, count, needed, screen)
+
+    @pyqtSlot()
+    def GestureEnded(self) -> None:
+        """The shake was abandoned or has fired: put the glow away."""
+        self._service.gesture_ended.emit()
+
     @pyqtSlot()
     def ShowSettings(self) -> None:
         """Raise the settings dialog (used when a second instance is started)."""
@@ -66,6 +83,8 @@ class ServiceObject(QObject):
     triggered = pyqtSignal(int, int, str)
     triggered_current = pyqtSignal()
     settings_requested = pyqtSignal()
+    gesture_progress = pyqtSignal(int, int, int, int, str)
+    gesture_ended = pyqtSignal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)

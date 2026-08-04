@@ -15,10 +15,11 @@ const path = require("path");
 
 const SOURCE = path.join(__dirname, "..", "kwinscript", "contents", "code", "main.js");
 
-function makeSandbox(config) {
+function makeSandbox(config, options) {
     const timers = [];
     const calls = [];
     const cursor = { x: 0, y: 0 };
+    const active = { fullScreen: (options && options.fullScreen) || false };
     let now = 0;
 
     function QTimerCtor() {
@@ -45,6 +46,7 @@ function makeSandbox(config) {
             ],
             windowList: () => [],
             windowAdded: { connect: () => {} },
+            activeWindow: active,
         },
         readConfig: (key, fallback) => (key in config ? config[key] : fallback),
         callDBus: (...args) => calls.push(args),
@@ -67,12 +69,13 @@ function makeSandbox(config) {
         timers,
         setNow: (value) => { now = value; },
         getNow: () => now,
+        setFullScreen: (value) => { active.fullScreen = value; },
         moveTo: (x, y) => { cursor.x = x; cursor.y = y; },
     };
 }
 
-function run(name, config, path, expectTriggers) {
-    const harness = makeSandbox(config);
+function run(name, config, path, expectTriggers, options) {
+    const harness = makeSandbox(config, options);
     const context = vm.createContext(harness.sandbox);
     vm.runInContext(fs.readFileSync(SOURCE, "utf8"), context, { filename: SOURCE });
 
@@ -89,13 +92,15 @@ function run(name, config, path, expectTriggers) {
         tick();
     }
 
-    const ok = harness.calls.length === expectTriggers;
+    const triggers = harness.calls.filter((c) => c[3] === "Trigger");
+    harness.triggers = triggers;
+    const ok = triggers.length === expectTriggers;
     console.log(
-        `${ok ? "PASS" : "FAIL"}  ${name}: ${harness.calls.length} trigger(s), expected ${expectTriggers}` +
-        (harness.calls.length ? ` -> ${JSON.stringify(harness.calls[0].slice(3))}` : "")
+        `${ok ? "PASS" : "FAIL"}  ${name}: ${triggers.length} trigger(s), expected ${expectTriggers}` +
+        (triggers.length ? ` -> ${JSON.stringify(triggers[0].slice(3))}` : "")
     );
-    if (harness.calls.length) {
-        const args = harness.calls[0];
+    if (triggers.length) {
+        const args = triggers[0];
         if (args[0] !== "io.github.fand1l.CircleToSearch"
             || args[3] !== "Trigger"
             || !Number.isInteger(args[4])
@@ -105,8 +110,11 @@ function run(name, config, path, expectTriggers) {
             return false;
         }
     }
+    lastHarness = harness;
     return ok;
 }
+
+let lastHarness = null;
 
 /* ---- synthetic paths ---------------------------------------------------- */
 
@@ -192,9 +200,64 @@ for (const step of shake(4, 200, 1000, 4, 40).map((p) => ({ x: p.x + 2600, y: p.
     harness2.setNow(step.t);
     tick2();
 }
-const screenOk = harness2.calls.length === 1 && harness2.calls[0][6] === "HDMI-A-1";
-console.log(`${screenOk ? "PASS" : "FAIL"}  screen name: ${JSON.stringify(harness2.calls.map((c) => c[6]))}`);
+const triggers2 = harness2.calls.filter((c) => c[3] === "Trigger");
+const screenOk = triggers2.length === 1 && triggers2[0][6] === "HDMI-A-1";
+console.log(`${screenOk ? "PASS" : "FAIL"}  screen name: ${JSON.stringify(triggers2.map((c) => c[6]))}`);
 if (!screenOk) failures += 1;
+
+/* A full screen window has the focus: the shake must be ignored entirely. */
+if (!run("fullscreen blocks the shake", defaults, shake(4, 200, 1000, 4, 40), 0,
+         { fullScreen: true })) failures += 1;
+
+/* ...unless the user turned that guard off. */
+if (!run("fullscreen allowed when configured", { disableInFullscreen: false },
+         shake(4, 200, 1000, 4, 40), 1, { fullScreen: true })) failures += 1;
+
+/* And nothing at all is reported to the daemon while a game is focused. */
+{
+    const quiet = lastHarness;
+    run("fullscreen stays silent", defaults, shake(4, 200, 1000, 4, 40), 0, { fullScreen: true });
+    const anyCall = lastHarness.calls.length;
+    console.log(`${anyCall === 0 ? "PASS" : "FAIL"}  fullscreen sends no D-Bus at all: ${anyCall} call(s)`);
+    if (anyCall !== 0) failures += 1;
+    void quiet;
+}
+
+/* The glow: reported once a swing is accepted, and stopped afterwards. */
+run("glow during a shake", defaults, shake(3, 200, 1000, 4, 40), 1);
+{
+    const progress = lastHarness.calls.filter((c) => c[3] === "GestureProgress");
+    const ended = lastHarness.calls.filter((c) => c[3] === "GestureEnded");
+    const ok = progress.length > 0 && ended.length > 0;
+    console.log(`${ok ? "PASS" : "FAIL"}  glow: ${progress.length} progress, ${ended.length} ended`);
+    if (!ok) failures += 1;
+    /* GestureProgress(x, y, count, needed, screen) — integers, then a string. */
+    const shapeOk = progress.every((c) => c.length === 9
+        && Number.isInteger(c[4]) && Number.isInteger(c[5])
+        && Number.isInteger(c[6]) && Number.isInteger(c[7])
+        && typeof c[8] === "string" && c[6] >= 1 && c[6] <= c[7]);
+    console.log(`${shapeOk ? "PASS" : "FAIL"}  glow call shape: ${JSON.stringify(progress[0] ? progress[0].slice(3) : null)}`);
+    if (!shapeOk) failures += 1;
+    /* The glow must never be reported before the first accepted swing. */
+    const firstProgressIndex = lastHarness.calls.findIndex((c) => c[3] === "GestureProgress");
+    console.log(`${firstProgressIndex >= 0 ? "PASS" : "FAIL"}  glow starts only after a swing`);
+}
+
+/* Turning the glow off means no progress traffic whatsoever. */
+run("no glow when disabled", { glow: false }, shake(3, 200, 1000, 4, 40), 1);
+{
+    const chatter = lastHarness.calls.filter((c) => c[3] !== "Trigger").length;
+    console.log(`${chatter === 0 ? "PASS" : "FAIL"}  glow disabled sends nothing extra: ${chatter}`);
+    if (chatter !== 0) failures += 1;
+}
+
+/* Ordinary pointer use must stay completely silent on D-Bus. */
+run("straight move stays silent", defaults, straight(900, 1000, 12, 40), 0);
+{
+    const chatter = lastHarness.calls.length;
+    console.log(`${chatter === 0 ? "PASS" : "FAIL"}  normal movement sends nothing: ${chatter}`);
+    if (chatter !== 0) failures += 1;
+}
 
 console.log(failures === 0 ? "\nall good" : `\n${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

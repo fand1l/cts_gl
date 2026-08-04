@@ -229,6 +229,8 @@ angleTolerance=30
 pollMs=50
 cooldownMs=1500
 minStepPx=6
+glow=true
+disableInFullscreen=true
 shortcut=Meta+Shift+L
 EOF
 }

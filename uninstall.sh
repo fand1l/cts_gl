@@ -62,7 +62,7 @@ if (( PURGE )); then
     kwriteconfig6 --file kwinrc --group "Script-$SCRIPT_ID" --key enabled --delete \
         >/dev/null 2>&1 || true
     for key in reversals windowMs minAmplitudePx angleTolerance pollMs cooldownMs \
-               minStepPx shortcut; do
+               minStepPx glow disableInFullscreen shortcut; do
         kwriteconfig6 --file kwinrc --group "Script-$SCRIPT_ID" --key "$key" --delete \
             >/dev/null 2>&1 || true
     done
