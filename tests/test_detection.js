@@ -578,6 +578,109 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     if (samples !== 0) failures += 1;
 }
 
+/* ---- giving the keyboard back -------------------------------------------- */
+/*
+ * A Wayland client cannot hand the focus to another client's window, so the
+ * compositor has to remember who had it and give it back once the overlay is
+ * gone.  Only when the keyboard ended up nowhere: a browser tab opened by a
+ * search is entitled to the focus it took.
+ */
+function focusHarness(config) {
+    const harness = makeSandbox(config || {});
+    const editor = { caption: "Kate", resourceName: "kate", fullScreen: false };
+    const overlay = {
+        caption: "Circle to Search Overlay",
+        resourceName: "circle-to-search",
+        fullScreen: false,
+        keepAbove: false,
+        skipTaskbar: false,
+        skipPager: false,
+        skipSwitcher: false,
+        noBorder: false,
+        onAllDesktops: false,
+        frameGeometry: { x: 0, y: 0, width: 2560, height: 1440 },
+    };
+    let windows = [editor];
+    harness.sandbox.workspace.windowList = () => windows;
+    harness.sandbox.workspace.activeWindow = editor;
+
+    const context = vm.createContext(harness.sandbox);
+    vm.runInContext(fs.readFileSync(SOURCE, "utf8"), context, { filename: SOURCE });
+    const tick = harness.timers[0].handlers[0];
+    const watch = harness.timers[1].handlers[0];
+
+    for (const step of shake(3, 200, 1000, 4, 30)) {
+        harness.moveTo(step.x, step.y);
+        harness.setNow(step.t);
+        tick();
+    }
+    return {
+        harness,
+        editor,
+        overlay,
+        watch,
+        open: () => { windows = [editor, overlay]; },
+        close: () => { windows = [editor]; },
+        active: () => harness.sandbox.workspace.activeWindow,
+        setActive: (w) => { harness.sandbox.workspace.activeWindow = w; },
+    };
+}
+
+{
+    const scene = focusHarness();
+    scene.open();
+    scene.harness.setNow(2000); scene.watch();
+    console.log(`${scene.active() === scene.overlay ? "PASS" : "FAIL"}  the overlay takes the focus`);
+    if (scene.active() !== scene.overlay) failures += 1;
+
+    /* The overlay is gone and the keyboard went nowhere. */
+    scene.close();
+    scene.setActive(null);
+    scene.harness.setNow(2300); scene.watch();
+    const back = scene.active() === scene.editor;
+    console.log(`${back ? "PASS" : "FAIL"}  the keyboard goes back to the previous window`);
+    if (!back) failures += 1;
+}
+
+{
+    /* Something else already has the focus: leave it alone. */
+    const scene = focusHarness();
+    scene.open();
+    scene.harness.setNow(2000); scene.watch();
+    const browser = { caption: "Firefox", resourceName: "firefox" };
+    scene.close();
+    scene.setActive(browser);
+    scene.harness.setNow(2300); scene.watch();
+    const kept = scene.active() === browser;
+    console.log(`${kept ? "PASS" : "FAIL"}  focus taken by something else is not stolen back`);
+    if (!kept) failures += 1;
+}
+
+{
+    /* Switched off: the script must not touch the focus at all. */
+    const scene = focusHarness({ restoreFocus: false });
+    scene.open();
+    scene.harness.setNow(2000); scene.watch();
+    scene.close();
+    scene.setActive(null);
+    scene.harness.setNow(2300); scene.watch();
+    const untouched = scene.active() === null;
+    console.log(`${untouched ? "PASS" : "FAIL"}  restoreFocus=false leaves the focus alone`);
+    if (!untouched) failures += 1;
+}
+
+{
+    /* The previous window closed while the overlay was up. */
+    const scene = focusHarness();
+    scene.open();
+    scene.harness.setNow(2000); scene.watch();
+    scene.harness.sandbox.workspace.windowList = () => [];
+    scene.setActive(null);
+    scene.harness.setNow(2300); scene.watch();
+    console.log(`${scene.active() === null ? "PASS" : "FAIL"}  a window that closed is not resurrected`);
+    if (scene.active() !== null) failures += 1;
+}
+
 /* ---- the movement trace behind a trigger --------------------------------- */
 /*
  * After a trigger the daemon sometimes asks "did you mean this?", and a "no"

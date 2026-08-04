@@ -88,11 +88,15 @@ With a 600 ms fallback to the old behaviour, because kglobalaccel answers an
 unknown action without complaining.  The D-Bus suite pins the component and
 action names against a stub, since getting either wrong fails silently.
 
-## 8. Restore focus after cancelling  ← next
+## 8. Restore focus after cancelling  ✅
 
 * Give the keyboard back to the window that had it.  With a switch.
 
-## 9. Halve the overlay's memory
+Done in the KWin script, because a Wayland client cannot focus another client's
+window.  It acts only when the keyboard ended up nowhere, so it never fights the
+browser tab a search just opened.
+
+## 9. Halve the overlay's memory  ← next
 
 * Two full-resolution pixmaps (plain and dimmed) are ~66 MB on a 4K screen.
   Paint the dimming instead of keeping a second copy.

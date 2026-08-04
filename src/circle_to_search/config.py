@@ -51,6 +51,7 @@ class DetectionSettings:
     reversalTolerance: int = 40
     debug: bool = False
     disableInFullscreen: bool = True
+    restoreFocus: bool = True
     shortcut: str = DEFAULT_SHORTCUT
 
     @classmethod

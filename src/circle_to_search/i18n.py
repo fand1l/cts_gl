@@ -157,6 +157,11 @@ _EN: dict[str, str] = {
     ),
     "settings.ocr.found": "tesseract found, languages: {languages}",
     "settings.ocr.missing": "tesseract is not installed",
+    "settings.restore_focus": "Give the keyboard back to the window that had it",
+    "settings.restore_focus.hint": (
+        "After the overlay closes. Only when the keyboard ended up nowhere — a "
+        "browser tab opened by a search keeps the focus it took."
+    ),
     "settings.keep_recent": "Keep the last few selections for the tray menu",
     "settings.keep_recent.hint": (
         "The {limit} most recent crops stay in {directory} so they can be "
@@ -412,6 +417,11 @@ _UK: dict[str, str] = {
     ),
     "settings.ocr.found": "tesseract знайдено, мови: {languages}",
     "settings.ocr.missing": "tesseract не встановлено",
+    "settings.restore_focus": "Повертати клавіатуру вікну, яке її мало",
+    "settings.restore_focus.hint": (
+        "Після закриття оверлея. Лише якщо фокус нікуди не потрапив — вкладка "
+        "браузера, відкрита пошуком, свій фокус залишає собі."
+    ),
     "settings.keep_recent": "Зберігати кілька останніх виділень для меню в треї",
     "settings.keep_recent.hint": (
         "Останні {limit} знімків лежать у {directory}, щоб їх можна було "

@@ -202,6 +202,7 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `cooldownMs` | `1500` | Ignore further shakes for this long |
 | `minStepPx` | `6` | Movement below this is noise |
 | `disableInFullscreen` | `true` | Ignore the shake while a full screen window has the focus (games, video). The global shortcut still works. |
+| `restoreFocus` | `true` | Give the keyboard back to the window that had it once the overlay closes |
 | `debug` | `false` | Log why each swing was accepted or rejected |
 | `trace` | `false` | Log every cursor sample, for `tools/record-trace.sh` |
 | `calibrating` | `false` | Set by the calibration window while it is open; see below |
@@ -308,6 +309,19 @@ on. The selection simply becomes the rectangle you adjusted.
 
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
+
+### Getting the keyboard back
+
+The overlay takes the focus while it is up — it has to, or *Enter* and *Esc*
+would go somewhere else. `restoreFocus` (on) makes the KWin script remember
+which window had the keyboard beforehand and give it back once the overlay is
+gone. It has to be the script's job: a Wayland client cannot hand the focus to
+another client's window, but the compositor can.
+
+It only acts when the keyboard ended up **nowhere**. KWin usually refocuses the
+previous window by itself, and a browser tab opened by a search is entitled to
+the focus it took — stealing it back a moment later would be worse than doing
+nothing.
 
 ### Why "Capture now" goes the long way round
 

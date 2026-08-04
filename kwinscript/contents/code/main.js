@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.6.0";
+var SCRIPT_VERSION = "1.7.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -77,6 +77,7 @@ var cfg = {
     trace: false,
     calibrating: false,
     collectTraces: false,
+    restoreFocus: true,
     disableInFullscreen: true,
     shortcut: "Meta+Shift+L"
 };
@@ -98,6 +99,7 @@ var state = {
     lastTriggerAt: 0,
     watchUntil: 0,
     overlayPromoted: false,
+    previousWindow: null,  /* who had the keyboard before the overlay */
     reportedX: -1,
     reportedY: -1,
     reportedW: -1,
@@ -157,6 +159,8 @@ function loadConfig() {
      * few seconds of movement so a trigger can be replayed offline.  Off means
      * nothing is recorded and nothing is sent. */
     cfg.collectTraces = readBoolean("collectTraces", false);
+    /* Give the keyboard back to whatever had it before the overlay appeared. */
+    cfg.restoreFocus = readBoolean("restoreFocus", true);
     cfg.disableInFullscreen = readBoolean("disableInFullscreen", true);
     cfg.shortcut = String(readConfig("shortcut", "Meta+Shift+L"));
 
@@ -175,6 +179,7 @@ function loadConfig() {
         + " trace=" + cfg.trace
         + " calibrating=" + cfg.calibrating
         + " collectTraces=" + cfg.collectTraces
+        + " restoreFocus=" + cfg.restoreFocus
         + " disableInFullscreen=" + cfg.disableInFullscreen;
 
     lastConfigAt = Date.now();
@@ -788,12 +793,61 @@ function screenNameAt(x, y) {
  */
 function trigger(x, y, method) {
     var screenName = screenNameAt(x, y);
+    rememberFocus();
     print("circle-to-search: " + (method || "Trigger") + " at " + x + "," + y
         + " on '" + screenName + "'");
     /* `| 0` forces a 32-bit integer so the call matches the "iis" signature. */
     callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, method || "Trigger",
              Math.round(x) | 0, Math.round(y) | 0, screenName);
     startOverlayWatch();
+}
+
+/* ------------------------------------------------------------------- focus */
+/*
+ * A Wayland client cannot hand the keyboard to another client's window, but the
+ * compositor can, so the remembering and the giving back both live here.
+ */
+function rememberFocus() {
+    state.previousWindow = null;
+    if (!cfg.restoreFocus) {
+        return;
+    }
+    var current = activeWindow();
+    if (current && !isOverlay(current)) {
+        state.previousWindow = current;
+    }
+}
+
+function restoreFocus() {
+    var target = state.previousWindow;
+    state.previousWindow = null;
+    if (!cfg.restoreFocus || !target) {
+        return;
+    }
+
+    /*
+     * Only when the keyboard ended up nowhere.  KWin usually refocuses the
+     * previous window by itself when the overlay unmaps, and the browser tab
+     * that a search opens is entitled to the focus it takes — stealing it back
+     * a moment later would be worse than doing nothing.
+     */
+    var current = activeWindow();
+    if (current && !isOverlay(current)) {
+        return;
+    }
+
+    var windows = allWindows();
+    for (var i = 0; i < windows.length; i += 1) {
+        if (windows[i] === target) {
+            setProperty(workspace, "activeWindow", target);
+            if (cfg.debug) {
+                print("circle-to-search: gave the keyboard back to "
+                    + (target.caption || "the previous window"));
+            }
+            return;
+        }
+    }
+    /* It closed while the overlay was up; nothing to give back to. */
 }
 
 /* ------------------------------------------------------- overlay promotion */
@@ -991,6 +1045,7 @@ function checkForOverlay() {
     }
     if (found === 0 && state.overlayPromoted) {
         /* The overlay closed. */
+        restoreFocus();
         stopOverlayWatch();
         return;
     }

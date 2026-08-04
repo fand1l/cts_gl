@@ -212,6 +212,10 @@ class SettingsDialog(QDialog):
         self.lasso_mask_box = QCheckBox(tr("settings.lasso_mask"), selection)
         selection_layout.addWidget(self.lasso_mask_box)
         selection_layout.addWidget(_hint(tr("settings.lasso_mask.hint")))
+        self.restore_focus_box = QCheckBox(tr("settings.restore_focus"), selection)
+        selection_layout.addWidget(self.restore_focus_box)
+        selection_layout.addWidget(_hint(tr("settings.restore_focus.hint")))
+
         self.keep_recent_box = QCheckBox(tr("settings.keep_recent"), selection)
         selection_layout.addWidget(self.keep_recent_box)
         selection_layout.addWidget(
@@ -331,6 +335,7 @@ class SettingsDialog(QDialog):
         self.curvature_spin.setValue(detection.maxCurvaturePct)
         self.reversal_spin.setValue(detection.reversalTolerance)
         self.debug_box.setChecked(detection.debug)
+        self.restore_focus_box.setChecked(detection.restoreFocus)
         self.shortcut_edit.setKeySequence(QKeySequence(detection.shortcut))
 
         settings = self._app_settings
@@ -375,6 +380,7 @@ class SettingsDialog(QDialog):
             maxCurvaturePct=self.curvature_spin.value(),
             reversalTolerance=self.reversal_spin.value(),
             debug=self.debug_box.isChecked(),
+            restoreFocus=self.restore_focus_box.isChecked(),
             shortcut=sequence or self._detection.shortcut,
         )
 
