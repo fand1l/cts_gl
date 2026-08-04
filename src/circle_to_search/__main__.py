@@ -45,6 +45,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="open the selection overlay immediately instead of waiting for a trigger",
     )
     parser.add_argument(
+        "--welcome",
+        action="store_true",
+        help="show the first-run window again",
+    )
+    parser.add_argument(
         "--test-lens",
         metavar="IMAGE",
         help="upload one image file to Google and print the result URL, then exit",
@@ -304,6 +309,8 @@ def main(argv: list[str] | None = None) -> int:
         log.error("%s", tr("error.dbus_name"))
         return 1
 
+    if args.welcome:
+        controller.show_welcome()
     if args.settings:
         controller.show_settings()
     if args.capture:

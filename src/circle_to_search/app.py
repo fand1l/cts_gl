@@ -75,6 +75,7 @@ from .overlay import (
 )
 from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
+from .welcome import WelcomeDialog
 
 log = get_logger("app")
 
@@ -251,6 +252,7 @@ class CircleToSearchApp(QObject):
         self._desktop: VirtualDesktop | None = None
         self._dialog: SettingsDialog | None = None
         self._calibration: CalibrationDialog | None = None
+        self._welcome: WelcomeDialog | None = None
         self._tasks: set[QRunnable] = set()
         self._busy = False
 
@@ -281,6 +283,9 @@ class CircleToSearchApp(QObject):
             log.warning("no system tray available — running headless")
         QTimer.singleShot(4000, self._check_kwin_script)
         self._arm_trace_collection()
+        if not self._settings.first_run_done:
+            # After the tray icon, so the window has something to point at.
+            QTimer.singleShot(1200, self.show_welcome)
 
     def stop(self) -> None:
         if self._calibration is not None:
@@ -1068,6 +1073,28 @@ class CircleToSearchApp(QObject):
             self._detection_action.setChecked(detection.enabled)
         self._survey = self._load_survey()
         self._arm_trace_collection()
+
+    @pyqtSlot()
+    def show_welcome(self) -> None:
+        """The first-run window: what the gesture is, and a few choices."""
+        if self._welcome is None:
+            self._welcome = WelcomeDialog(self._settings)
+            self._welcome.calibrate_requested.connect(self.show_calibration)
+            self._welcome.finished.connect(self._on_welcome_closed)
+        self._welcome.show()
+        self._welcome.raise_()
+        self._welcome.activateWindow()
+
+    def _on_welcome_closed(self) -> None:
+        dialog = self._welcome
+        self._welcome = None
+        # Whatever the user did with it — answered it, or closed it unread — it
+        # has been seen and must not come back at every login.
+        self._settings.first_run_done = True
+        self._settings.sync()
+        self._on_settings_applied()
+        if dialog is not None:
+            dialog.deleteLater()
 
     @pyqtSlot()
     def show_calibration(self) -> None:

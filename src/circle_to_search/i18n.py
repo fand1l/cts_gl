@@ -134,6 +134,26 @@ _EN: dict[str, str] = {
     "calibrate.before": "Now",
     "calibrate.after": "Suggested",
     "calibrate.restart": "Start over",
+    "welcome.title": "Circle to Search",
+    "welcome.heading": (
+        "<h3>Circle to Search is running</h3>"
+        "<p>It lives in the system tray and waits for you to ask for it.</p>"
+    ),
+    "welcome.gesture": (
+        "<p><b>Shake the pointer diagonally</b> — down-right, up-left, "
+        "down-right, briskly, in one place — or press <b>{shortcut}</b>.</p>"
+        "<p>The screen freezes and dims. Circle what you are interested in, "
+        "then press <b>Enter</b> to search it with Google Lens, <b>C</b> to "
+        "copy it, <b>S</b> to save it, or <b>Esc</b> to forget it.</p>"
+    ),
+    "welcome.choices": "Worth deciding now",
+    "welcome.calibrate": "Calibrate the gesture…",
+    "welcome.calibrate.hint": (
+        "Recommended: shake a dozen times and the thresholds are fitted to how "
+        "you actually move, instead of to an average nobody is. You can also do "
+        "it later from the tray menu."
+    ),
+    "welcome.done": "Ready",
     "ocr.ask.title": "Circle to Search — Text recognition",
     "ocr.ask.text": (
         "Read the text out of the selection and copy it, instead of searching "
@@ -394,6 +414,27 @@ _UK: dict[str, str] = {
     "calibrate.before": "Зараз",
     "calibrate.after": "Пропоную",
     "calibrate.restart": "Почати спочатку",
+    "welcome.title": "Circle to Search",
+    "welcome.heading": (
+        "<h3>Circle to Search працює</h3>"
+        "<p>Живе в системному лотку й чекає, доки ви його покличете.</p>"
+    ),
+    "welcome.gesture": (
+        "<p><b>Потрясіть курсором по діагоналі</b> — вниз-праворуч, "
+        "вгору-ліворуч, вниз-праворуч, різко, на одному місці — або натисніть "
+        "<b>{shortcut}</b>.</p>"
+        "<p>Екран застигне й потемніє. Обведіть те, що цікавить, і натисніть "
+        "<b>Enter</b>, щоб пошукати через Google Lens, <b>C</b> — скопіювати, "
+        "<b>S</b> — зберегти, <b>Esc</b> — забути.</p>"
+    ),
+    "welcome.choices": "Варто вирішити одразу",
+    "welcome.calibrate": "Відкалібрувати жест…",
+    "welcome.calibrate.hint": (
+        "Рекомендую: потрясіть десяток разів — і пороги підлаштуються під те, "
+        "як ви справді рухаєтесь, а не під середнього користувача. Це можна "
+        "зробити й пізніше з меню в треї."
+    ),
+    "welcome.done": "Готово",
     "ocr.ask.title": "Circle to Search — Розпізнавання тексту",
     "ocr.ask.text": (
         "Зчитувати текст із виділення та копіювати його замість пошуку "

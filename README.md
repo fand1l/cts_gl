@@ -265,6 +265,7 @@ Application-only settings live in
 | `lasso_mask` | `false` | Keep only the inside of the loop and whiten the rest — off, because the loop is there to set the bounds |
 | `all_screens` | `false` | Open an overlay on every monitor at once (see below) |
 | `keep_recent` | `true` | Keep the last five selections for the tray menu (see below) |
+| `first_run_done` | `false` | Set once the welcome window has been through |
 | `confirm_selection` | `true` | Wait for a key instead of sending the moment the button is released |
 | `save_directory` | *(Pictures)* | Where **S** writes |
 | `ocr_enabled` | `false` | Let **T** read text (see below) |
@@ -314,6 +315,21 @@ on. The selection simply becomes the rectangle you adjusted.
 
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
+
+### The first start
+
+A tray icon appearing after an install tells nobody what to do with it, and
+"shake the pointer" is not something anyone guesses. So the first start opens
+one window that says it, offers the few decisions worth making up front
+(language, lasso or rectangle, detection on or off, start at login) and points
+at the calibration.
+
+It appears once. Whatever you do with it — answer it or close it unread —
+`first_run_done` is set and it does not come back. To see it again:
+
+```bash
+circle-to-search --welcome
+```
 
 ### Getting the keyboard back
 

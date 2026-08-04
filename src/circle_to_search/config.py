@@ -401,6 +401,15 @@ class AppSettings:
         self._settings.setValue("lasso_mask", bool(value))
 
     @property
+    def first_run_done(self) -> bool:
+        """Whether the welcome window has been through once."""
+        return self._get_bool("first_run_done", False)
+
+    @first_run_done.setter
+    def first_run_done(self, value: bool) -> None:
+        self._settings.setValue("first_run_done", bool(value))
+
+    @property
     def keep_recent(self) -> bool:
         """Keep the last few selections so they can be used again.
 

@@ -987,6 +987,54 @@ with tempfile.TemporaryDirectory() as tmp:
 
 os.environ["PATH"] = original_path
 
+# --- the first-run window --------------------------------------------------
+from PyQt6.QtWidgets import QLabel, QPushButton  # noqa: E402
+
+from circle_to_search.welcome import WelcomeDialog  # noqa: E402
+
+
+class _FakeSettings:
+    """Just the properties the welcome window touches."""
+
+    def __init__(self) -> None:
+        self.language = "auto"
+        self.selection_mode = "lasso"
+        self.synced = 0
+
+    def sync(self) -> None:
+        self.synced += 1
+
+
+fake_settings = _FakeSettings()
+welcome = WelcomeDialog(fake_settings)  # type: ignore[arg-type]
+
+# The one thing a tray icon cannot tell anybody: what the gesture is.
+told = " ".join(label.text() for label in welcome.findChildren(QLabel))
+check("the shake is explained", "Shake" in told or "Потрясіть" in told, told[:60])
+check("so is what to press afterwards", "Enter" in told, told[:60])
+check("a language can be chosen", welcome.language_combo.count() >= 2,
+      str(welcome.language_combo.count()))
+check("a selection mode can be chosen", welcome.mode_combo.count() == 2)
+check("the calibration is offered",
+      any("alibr" in button.text() or "алібр" in button.text()
+          for button in welcome.findChildren(QPushButton)),
+      str([b.text() for b in welcome.findChildren(QPushButton)]))
+
+welcome.language_combo.setCurrentIndex(welcome.language_combo.findData("uk"))
+welcome.mode_combo.setCurrentIndex(welcome.mode_combo.findData("rectangle"))
+welcome.apply()
+check("the choices are saved", fake_settings.language == "uk"
+      and fake_settings.selection_mode == "rectangle",
+      f"{fake_settings.language} {fake_settings.selection_mode}")
+check("and written out", fake_settings.synced == 1, str(fake_settings.synced))
+
+# Closing it a second way must not write everything again — and, more to the
+# point, must not undo what the calibration did in between.
+welcome.language_combo.setCurrentIndex(welcome.language_combo.findData("en"))
+welcome.apply()
+check("saving happens once", fake_settings.language == "uk", fake_settings.language)
+i18n.set_language("auto")
+
 # --- recent captures -------------------------------------------------------
 from circle_to_search.history import RecentCaptures  # noqa: E402
 
