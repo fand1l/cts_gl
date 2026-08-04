@@ -16,6 +16,13 @@ Two selection modes:
 * **rectangle** — the classic drag.  Hold *Shift* while starting a lasso drag to
   get a rectangle for that one selection (and vice versa).
 
+Releasing the button does not send anything.  The selection stays on screen with
+handles on its edges, and the keyboard decides what happens to it: *Enter*
+searches, *C* copies, *S* saves to a file, *Esc* cancels.  A selection is easy to
+get slightly wrong and impossible to take back once it has been uploaded, which
+is the whole reason for the pause; :class:`AppSettings.confirm_selection` turns
+it off for anyone who prefers the older send-on-release behaviour.
+
 Why not layer-shell?  There are no Python bindings for ``layer-shell-qt`` (it is
 a C++ library without GObject introspection), so the only thing reachable from
 Python is its Qt *shell integration plugin* via
@@ -68,17 +75,55 @@ MODE_RECTANGLE = "rectangle"
 _LABEL_MARGIN = 8
 _LABEL_PADDING = 6
 
+#: Side of a resize handle, and how far from an edge a press still grabs it.
+_HANDLE = 14
+
+#: Arrow-key step, and the bigger one with Ctrl held.
+_NUDGE = 1
+_NUDGE_FAST = 10
+
+#: The eight handles, as (name, x factor, y factor) of the box.
+_HANDLES = (
+    ("nw", 0.0, 0.0),
+    ("n", 0.5, 0.0),
+    ("ne", 1.0, 0.0),
+    ("e", 1.0, 0.5),
+    ("se", 1.0, 1.0),
+    ("s", 0.5, 1.0),
+    ("sw", 0.0, 1.0),
+    ("w", 0.0, 0.5),
+)
+
+_CURSORS = {
+    "nw": Qt.CursorShape.SizeFDiagCursor,
+    "se": Qt.CursorShape.SizeFDiagCursor,
+    "ne": Qt.CursorShape.SizeBDiagCursor,
+    "sw": Qt.CursorShape.SizeBDiagCursor,
+    "n": Qt.CursorShape.SizeVerCursor,
+    "s": Qt.CursorShape.SizeVerCursor,
+    "e": Qt.CursorShape.SizeHorCursor,
+    "w": Qt.CursorShape.SizeHorCursor,
+    "move": Qt.CursorShape.SizeAllCursor,
+}
+
+#: What the user asked to do with the selection.
+ACTION_SEARCH = "search"
+ACTION_COPY = "copy"
+ACTION_SAVE = "save"
+
 
 class SelectionOverlay(QWidget):
     """Full-screen selection surface.
 
-    Emits :attr:`selected` with the crop box in *physical* pixels of the
-    screenshot plus the lasso outline in widget-logical pixels (empty for a
-    rectangle selection), or :attr:`cancelled`.  Exactly one of the two is
-    emitted.
+    Emits exactly one of :attr:`selected`, :attr:`copy_requested`,
+    :attr:`save_requested` or :attr:`cancelled`.  The first three carry the crop
+    box in *physical* pixels of the screenshot plus the lasso outline in
+    screen-logical pixels (empty for a rectangle selection).
     """
 
     selected = pyqtSignal(QRect, QPolygon)
+    copy_requested = pyqtSignal(QRect, QPolygon)
+    save_requested = pyqtSignal(QRect, QPolygon)
     cancelled = pyqtSignal()
 
     def __init__(
@@ -89,6 +134,7 @@ class SelectionOverlay(QWidget):
         dim_percent: int = 40,
         mode: str = MODE_LASSO,
         mask_outside: bool = False,
+        confirm: bool = True,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -100,6 +146,8 @@ class SelectionOverlay(QWidget):
         #: what Google is going to receive.
         self._mask_outside = mask_outside
         self._drag_mode = self._mode
+        #: Stop after the drag and let the user check and adjust the selection.
+        self._confirm = confirm
         self._finished = False
         self._fullscreen_attempts = 0
 
@@ -117,6 +165,17 @@ class SelectionOverlay(QWidget):
         self._origin = QPoint()
         self._current = QPoint()
         self._points: list[QPoint] = []
+
+        #: Confirmation state.  ``_box`` is in *screen* coordinates, like
+        #: everything the painter draws, and becomes the selection once the drag
+        #: is over; ``_box_edited`` records that it no longer matches the lasso,
+        #: so the outline is dropped rather than quietly sent as a wrong mask.
+        self._confirming = False
+        self._box = QRect()
+        self._box_edited = False
+        self._grab: str | None = None
+        self._grab_origin = QPoint()
+        self._grab_box = QRect()
 
         self.setWindowTitle(OVERLAY_WINDOW_TITLE)
         self.setObjectName("CircleToSearchOverlay")
@@ -330,7 +389,7 @@ class SelectionOverlay(QWidget):
         pen.setCosmetic(True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
-        if self._drag_mode == MODE_LASSO and not self._mask_outside:
+        if self._drag_mode == MODE_LASSO and not self._mask_outside and not self._box_edited:
             # Show both: the stroke follows the hand, the dashed box is the crop.
             outline = QColor(self._accent)
             outline.setAlpha(150)
@@ -344,12 +403,15 @@ class SelectionOverlay(QWidget):
         painter.setPen(pen)
         painter.drawPath(self._selection_path())
 
+        if self._confirming:
+            self._draw_handles(painter)
+            self._draw_confirm_hint(painter)
         self._draw_size_label(painter, selection)
         painter.end()
 
     def _reveal_path(self) -> QPainterPath:
         """The area to un-dim: what the upload will actually contain."""
-        if self._drag_mode == MODE_LASSO and self._mask_outside:
+        if self._drag_mode == MODE_LASSO and self._mask_outside and not self._box_edited:
             return self._selection_path()
         rect = self._selection_rect()
         path = QPainterPath()
@@ -359,7 +421,7 @@ class SelectionOverlay(QWidget):
     def _selection_path(self) -> QPainterPath:
         """The selection outline: a polygon for the lasso, a rect otherwise."""
         path = QPainterPath()
-        if self._drag_mode == MODE_LASSO and len(self._points) >= 3:
+        if self._drag_mode == MODE_LASSO and len(self._points) >= 3 and not self._box_edited:
             # QPainterPath only takes floating point coordinates in PyQt6, and
             # the painter draws in screen coordinates.
             points = [point + self._offset for point in self._points]
@@ -387,6 +449,32 @@ class SelectionOverlay(QWidget):
             height,
         )
         self._draw_box(painter, box, text)
+
+    def _draw_handles(self, painter: QPainter) -> None:
+        """The grab squares on the edges and corners of the confirmed box."""
+        painter.setPen(QPen(QColor(255, 255, 255, 220), 1))
+        painter.setBrush(self._accent)
+        for rect in self._handle_rects().values():
+            painter.drawRect(rect.adjusted(2, 2, -2, -2))
+
+    def _draw_confirm_hint(self, painter: QPainter) -> None:
+        """The one line that says the selection has not been sent yet."""
+        text = tr("overlay.confirm")
+        font = QFont(self.font())
+        font.setPointSizeF(max(10.0, font.pointSizeF() + 1.0))
+        painter.setFont(font)
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
+        height = metrics.height() + 2 * _LABEL_PADDING
+
+        # Under the selection when there is room, above it otherwise, so the
+        # thing being described is never covered by its own caption.
+        x = self._offset.x() + (self.width() - width) // 2
+        y = self._box.bottom() + _LABEL_MARGIN * 2
+        if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
+            y = self._box.top() - height - _LABEL_MARGIN * 2
+        y = max(self._offset.y() + _LABEL_MARGIN, y)
+        self._draw_box(painter, QRect(x, y, width, height), text)
 
     def _draw_size_label(self, painter: QPainter, selection: QRect) -> None:
         physical = logical_rect_to_physical(selection, self._metrics)
@@ -424,6 +512,19 @@ class SelectionOverlay(QWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
+
+        if self._confirming:
+            where = event.position().toPoint() + self._offset
+            grab = self._handle_at(where)
+            if grab is not None:
+                self._grab = grab
+                self._grab_origin = where
+                self._grab_box = QRect(self._box)
+                return
+            # A press outside the selection means "no, that one" — start again.
+            self._confirming = False
+            self._reset_selection()
+
         # Shift swaps the mode for this one selection.
         shifted = bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
         if shifted:
@@ -442,6 +543,16 @@ class SelectionOverlay(QWidget):
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         position = event.position().toPoint()
         self._current = position
+
+        if self._confirming:
+            where = position + self._offset
+            if self._grab is not None:
+                self._resize_to(where)
+                return
+            hovered = self._handle_at(where)
+            self.setCursor(_CURSORS.get(hovered or "", Qt.CursorShape.CrossCursor))
+            return
+
         if not self._dragging:
             return
         if self._drag_mode == MODE_LASSO:
@@ -455,7 +566,13 @@ class SelectionOverlay(QWidget):
         self.update()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() != Qt.MouseButton.LeftButton or not self._dragging:
+        if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._grab is not None:
+            self._grab = None
+            self.update()
+            return
+        if not self._dragging:
             return
         self._dragging = False
         self._current = event.position().toPoint()
@@ -487,12 +604,57 @@ class SelectionOverlay(QWidget):
             physical.y(),
             polygon.count(),
         )
-        self._finish(lambda: self.selected.emit(physical, polygon))
+        if not self._confirm:
+            self._finish(lambda: self.selected.emit(physical, polygon))
+            return
+
+        # Nothing is sent yet: hold the selection, let it be adjusted, and wait
+        # for the key that says what to do with it.
+        self._confirming = True
+        self._box = selection
+        self._box_edited = False
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.update()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
-        if event.key() in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
+        key = event.key()
+        if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             self._cancel()
             return
+
+        if not self._confirming:
+            super().keyPressEvent(event)
+            return
+
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+            self._commit(ACTION_SEARCH)
+            return
+        if key == Qt.Key.Key_C:
+            self._commit(ACTION_COPY)
+            return
+        if key == Qt.Key.Key_S:
+            self._commit(ACTION_SAVE)
+            return
+
+        arrows = {
+            Qt.Key.Key_Left: (-1, 0),
+            Qt.Key.Key_Right: (1, 0),
+            Qt.Key.Key_Up: (0, -1),
+            Qt.Key.Key_Down: (0, 1),
+        }
+        if key in arrows:
+            fast = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
+            step = _NUDGE_FAST if fast else _NUDGE
+            dx, dy = arrows[key]
+            # Shift grows or shrinks the far edge; on its own the whole box moves.
+            if event.modifiers() & Qt.KeyboardModifier.ShiftModifier:
+                self._apply_box(
+                    self._box.adjusted(0, 0, dx * step, dy * step), edited=True
+                )
+            else:
+                self._apply_box(self._box.translated(dx * step, dy * step), edited=True)
+            return
+
         super().keyPressEvent(event)
 
     def changeEvent(self, event: QEvent) -> None:
@@ -501,6 +663,7 @@ class SelectionOverlay(QWidget):
             and self._accept_deactivation
             and not self.isActiveWindow()
             and not self._dragging
+            and self._grab is None
             and not self._finished
         ):
             log.debug("overlay lost focus, cancelling")
@@ -521,6 +684,10 @@ class SelectionOverlay(QWidget):
         """The lasso outline in screen-logical pixels (empty for a rectangle)."""
         if self._drag_mode != MODE_LASSO or len(self._points) < 3:
             return QPolygon()
+        if self._box_edited:
+            # The box was adjusted by hand, so the loop no longer describes it.
+            # Returning it anyway would mask the crop against the wrong shape.
+            return QPolygon()
         return QPolygon(self._points).translated(self._offset)
 
     def _selection_rect(self) -> QRect:
@@ -537,6 +704,8 @@ class SelectionOverlay(QWidget):
         """
         if not self._has_selection:
             return QRect()
+        if self._confirming:
+            return self._box
 
         # Points come from mouse events, i.e. widget coordinates; the crop and
         # the drawing both work in screen coordinates.
@@ -557,10 +726,107 @@ class SelectionOverlay(QWidget):
         rect = QRect(left, top, width, height)
         return rect.intersected(self.rect()).translated(self._offset)
 
+    # --------------------------------------------------- adjusting the box
+
+    def _handle_rects(self) -> dict[str, QRect]:
+        """The eight grab areas, in screen coordinates."""
+        box = self._box
+        half = _HANDLE // 2
+        return {
+            name: QRect(
+                int(box.x() + box.width() * fx) - half,
+                int(box.y() + box.height() * fy) - half,
+                _HANDLE,
+                _HANDLE,
+            )
+            for name, fx, fy in _HANDLES
+        }
+
+    def _handle_at(self, position: QPoint) -> str | None:
+        """Which handle is under the pointer — ``"move"`` inside the box."""
+        for name, rect in self._handle_rects().items():
+            if rect.contains(position):
+                return name
+        if self._box.contains(position):
+            return "move"
+        return None
+
+    def _resize_to(self, position: QPoint) -> None:
+        delta = position - self._grab_origin
+        box = QRect(self._grab_box)
+        grab = self._grab or ""
+        if grab == "move":
+            box.translate(delta)
+        else:
+            if "n" in grab:
+                box.setTop(box.top() + delta.y())
+            if "s" in grab:
+                box.setBottom(box.bottom() + delta.y())
+            if "w" in grab:
+                box.setLeft(box.left() + delta.x())
+            if "e" in grab:
+                box.setRight(box.right() + delta.x())
+        self._apply_box(box.normalized(), edited=True)
+
+    def _apply_box(self, box: QRect, *, edited: bool) -> None:
+        """Clamp a proposed box to the screen and keep it usable."""
+        bounds = self.rect().translated(self._offset)
+        box = box.normalized()
+        if box.width() < MIN_SELECTION:
+            box.setWidth(MIN_SELECTION)
+        if box.height() < MIN_SELECTION:
+            box.setHeight(MIN_SELECTION)
+        # Moving must not push the box off screen, and resizing must not pull an
+        # edge past the far side of it.
+        if box.right() > bounds.right():
+            box.moveRight(bounds.right())
+        if box.bottom() > bounds.bottom():
+            box.moveBottom(bounds.bottom())
+        if box.left() < bounds.left():
+            box.moveLeft(bounds.left())
+        if box.top() < bounds.top():
+            box.moveTop(bounds.top())
+        box = box.intersected(bounds)
+        if box.width() < MIN_SELECTION or box.height() < MIN_SELECTION:
+            return
+        if box == self._box:
+            return
+        self._box = box
+        if edited:
+            self._box_edited = True
+        self.update()
+
+    def _commit(self, action: str) -> None:
+        """Send the confirmed selection off as whatever the user asked for."""
+        physical = logical_rect_to_physical(self._box, self._metrics)
+        if physical.width() < 1 or physical.height() < 1:
+            self._cancel()
+            return
+        polygon = self.selection_polygon()
+        log.info(
+            "%s %dx%d physical at %d,%d",
+            action,
+            physical.width(),
+            physical.height(),
+            physical.x(),
+            physical.y(),
+        )
+        signals = {
+            ACTION_COPY: self.copy_requested,
+            ACTION_SAVE: self.save_requested,
+        }
+        signal = signals.get(action, self.selected)
+        self._finish(lambda: signal.emit(physical, polygon))
+
     def _reset_selection(self) -> None:
         self._has_selection = False
+        self._confirming = False
+        self._box = QRect()
+        self._box_edited = False
+        self._grab = None
         self._origin = QPoint()
         self._points = []
+        self.setCursor(Qt.CursorShape.CrossCursor)
         self.update()
 
     def _cancel(self) -> None:

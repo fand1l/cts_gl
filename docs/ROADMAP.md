@@ -37,13 +37,18 @@ Python values, which marshal as `sisssava{sv}i` instead of the declared
 application has ever sent.  `tests/test_dbus_surface.py` now drives the real
 D-Bus surface on a private bus so that class of failure cannot be silent again.
 
-## 3. Confirm and adjust before uploading  ← next
+## 3. Confirm and adjust before uploading  ✅
 
 * The selection is not sent the instant the button is released.  `Enter`
   searches, `C` copies, `S` saves to a file, `Esc` cancels, and the rectangle
   can be nudged by its edges first.
 
-## 4. OCR (optional, off by default)
+Eight drag handles, arrow-key nudging (`Ctrl` for 10 px, `Shift` to stretch),
+and a press outside the box to start again.  Adjusting the box of a lasso drops
+the loop outline rather than masking against a shape that no longer fits.  On by
+default; `confirm_selection` turns it off.
+
+## 4. OCR (optional, off by default)  ← next
 
 * Copy the text out of the selection instead of searching for it.  Asked about
   on first use, never enabled behind the user's back, and the dependency is

@@ -67,6 +67,22 @@ def check(name, cond, detail=""):
         ok = False
 
 
+def wait_until(page, condition, budget_ms=20000, step_ms=250):
+    """Poll instead of sleeping a fixed amount.
+
+    A cold Chromium on a loaded machine needs several seconds to load a page and
+    run its script; a flat wait either makes every run slow or makes some runs
+    fail, and a test that fails one time in six is worse than no test.
+    """
+    waited = 0
+    while waited < budget_ms:
+        if condition():
+            return True
+        page.wait_for_timeout(step_ms)
+        waited += step_ms
+    return condition()
+
+
 captured = {}
 with sync_playwright() as pw:
     executable = find_chromium()
@@ -116,8 +132,8 @@ with sync_playwright() as pw:
     # The page navigates away by itself the moment it loads, so goto() may never
     # see a load event; that is expected here.
     with contextlib.suppress(Exception):
-        probe.goto(path.resolve().as_uri(), wait_until="commit", timeout=10000)
-    probe.wait_for_timeout(2500)
+        probe.goto(path.resolve().as_uri(), wait_until="commit", timeout=20000)
+    wait_until(probe, lambda: bool(stamps))
     check("submit happened", bool(stamps))
     if stamps:
         sent_st = int(re.search(r"st=(\d+)", stamps[0]).group(1))
@@ -142,7 +158,9 @@ with sync_playwright() as pw:
     errors = []
     page.on("pageerror", lambda e: errors.append(str(e)))
     page.goto(path.resolve().as_uri())
-    page.wait_for_timeout(2500)
+    # Loaded, submitted, redirected and rendered — all of it has to have
+    # happened before the body is worth reading.
+    wait_until(page, lambda: "RESULT PAGE" in page.inner_text("body"))
     final_url = page.url
     body_text = page.inner_text("body")
     browser.close()

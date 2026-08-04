@@ -353,6 +353,28 @@ class AppSettings:
         self._settings.setValue("lasso_mask", bool(value))
 
     @property
+    def confirm_selection(self) -> bool:
+        """Stop after the drag and wait for Enter / C / S / Esc.
+
+        On by default: a selection is easy to get slightly wrong and impossible
+        to take back once it has been uploaded.
+        """
+        return self._get_bool("confirm_selection", True)
+
+    @confirm_selection.setter
+    def confirm_selection(self, value: bool) -> None:
+        self._settings.setValue("confirm_selection", bool(value))
+
+    @property
+    def save_directory(self) -> str:
+        """Where *S* writes.  Empty means "ask QStandardPaths for Pictures"."""
+        return str(self._settings.value("save_directory", "") or "")
+
+    @save_directory.setter
+    def save_directory(self, value: str) -> None:
+        self._settings.setValue("save_directory", value)
+
+    @property
     def lens_backend(self) -> str:
         """``browser`` (default), ``auto``, ``lens``, ``searchbyimage`` or a variant.
 

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import subprocess
 import time
+from datetime import datetime
 from pathlib import Path
 
 from PIL import Image
@@ -11,6 +12,7 @@ from PyQt6.QtCore import (
     QObject,
     QRect,
     QRunnable,
+    QStandardPaths,
     Qt,
     QThreadPool,
     QTimer,
@@ -61,7 +63,7 @@ from .misfires import (
     still_learning,
 )
 from .notify import notify, notify_error, supports_actions
-from .overlay import SelectionOverlay
+from .overlay import ACTION_COPY, ACTION_SAVE, ACTION_SEARCH, SelectionOverlay
 from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
 
@@ -418,10 +420,18 @@ class CircleToSearchApp(QObject):
             dim_percent=self._settings.dim_percent,
             mode=self._settings.selection_mode,
             mask_outside=self._settings.lasso_mask,
+            confirm=self._settings.confirm_selection,
         )
-        overlay.selected.connect(
-            lambda rect, polygon: self._on_selected(rect, polygon, capture.image, metrics)
-        )
+        for signal, action in (
+            (overlay.selected, ACTION_SEARCH),
+            (overlay.copy_requested, ACTION_COPY),
+            (overlay.save_requested, ACTION_SAVE),
+        ):
+            signal.connect(
+                lambda rect, polygon, chosen=action: self._on_selected(
+                    rect, polygon, capture.image, metrics, action=chosen
+                )
+            )
         overlay.cancelled.connect(self._on_cancelled)
         self._overlay = overlay
         # Set only here: this is the one point where an opening really happened,
@@ -486,6 +496,7 @@ class CircleToSearchApp(QObject):
         polygon: QPolygon,
         image: Image.Image,
         metrics: ScreenMetrics,
+        action: str = ACTION_SEARCH,
     ) -> None:
         self._release_overlay()
         self._finish_opening()
@@ -500,6 +511,14 @@ class CircleToSearchApp(QObject):
             points = polygon_to_crop_space(polygon, rect.x(), rect.y(), metrics)
             cropped = mask_outside_polygon(cropped, points)
             log.debug("masked everything outside the %d-point lasso", len(points))
+
+        if action == ACTION_COPY:
+            self._copy_to_clipboard(cropped)
+            notify(tr("notify.copied"), transient=True, timeout_ms=3000)
+            return
+        if action == ACTION_SAVE:
+            self._save_to_file(cropped)
+            return
 
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
@@ -549,6 +568,30 @@ class CircleToSearchApp(QObject):
             log.debug("removed %s", path)
         except OSError as exc:
             log.debug("could not remove %s: %s", path, exc)
+
+    def _save_to_file(self, image: Image.Image) -> None:
+        """Write the selection next to the user's other screenshots."""
+        directory = Path(
+            self._settings.save_directory
+            or QStandardPaths.writableLocation(QStandardPaths.StandardLocation.PicturesLocation)
+            or str(Path.home())
+        )
+        path = directory / f"circle-to-search-{datetime.now():%Y%m%d-%H%M%S}.png"
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            image.save(path, "PNG")
+        except (OSError, ValueError) as exc:
+            log.error("could not save the selection to %s: %s", path, exc)
+            notify_error(tr("notify.save_failed"), tr("notify.save_failed_body", error=exc))
+            return
+        log.info("saved the selection to %s", path)
+        notify(
+            tr("notify.saved"),
+            str(path),
+            timeout_ms=10000,
+            actions=(("open", tr("notify.open_folder")),),
+            on_action=lambda _key: self._open_url(directory.as_uri()),
+        )
 
     def _copy_to_clipboard(self, image: Image.Image) -> None:
         clipboard = QGuiApplication.clipboard()

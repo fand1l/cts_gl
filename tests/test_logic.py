@@ -554,6 +554,167 @@ rows = describe_changes(base, brisk)
 check("changes are listed", len(rows) >= 3, str(rows))
 check("nothing listed when identical", describe_changes(base, base) == [])
 
+# --- confirm and adjust before uploading -----------------------------------
+from PyQt6.QtCore import QEvent, QPointF  # noqa: E402
+from PyQt6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+
+from circle_to_search.overlay import ACTION_COPY, ACTION_SAVE, ACTION_SEARCH  # noqa: E402
+
+
+def drag(overlay: SelectionOverlay, start: tuple[int, int], end: tuple[int, int]) -> None:
+    """A real press-move-release through the overlay's own event handlers."""
+    for kind, point, button in (
+        (QEvent.Type.MouseButtonPress, start, Qt.MouseButton.LeftButton),
+        (QEvent.Type.MouseMove, end, Qt.MouseButton.NoButton),
+        (QEvent.Type.MouseButtonRelease, end, Qt.MouseButton.LeftButton),
+    ):
+        position = QPointF(float(point[0]), float(point[1]))
+        event = QMouseEvent(
+            kind,
+            position,
+            position,
+            button,
+            Qt.MouseButton.LeftButton,
+            Qt.KeyboardModifier.NoModifier,
+        )
+        if kind == QEvent.Type.MouseButtonPress:
+            overlay.mousePressEvent(event)
+        elif kind == QEvent.Type.MouseMove:
+            overlay.mouseMoveEvent(event)
+        else:
+            overlay.mouseReleaseEvent(event)
+
+
+def press_key(overlay: SelectionOverlay, key: Qt.Key, modifiers=Qt.KeyboardModifier.NoModifier):
+    overlay.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, modifiers))
+
+
+def confirming(mode: str = MODE_RECTANGLE, mask_outside: bool = False) -> tuple:
+    """An overlay with a finished 200x150 drag waiting to be confirmed."""
+    overlay = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(shot)),
+        metrics,
+        screen,
+        dim_percent=40,
+        mode=mode,
+        mask_outside=mask_outside,
+        confirm=True,
+    )
+    overlay.resize(screen.geometry().size())
+    results: dict[str, tuple] = {}
+    overlay.selected.connect(lambda r, p: results.__setitem__(ACTION_SEARCH, (r, p)))
+    overlay.copy_requested.connect(lambda r, p: results.__setitem__(ACTION_COPY, (r, p)))
+    overlay.save_requested.connect(lambda r, p: results.__setitem__(ACTION_SAVE, (r, p)))
+    overlay.cancelled.connect(lambda: results.__setitem__("cancelled", ()))
+    drag(overlay, (100, 100), (300, 250))
+    return overlay, results
+
+
+# Releasing the button must not send anything any more: an upload cannot be
+# taken back, and a selection is easy to get slightly wrong.
+overlay, results = confirming()
+check("release does not send", results == {}, str(results))
+check("the selection is held", overlay._confirming and
+      overlay._selection_rect() == QRect(100, 100, 200, 150), str(overlay._selection_rect()))
+overlay.render(QPixmap(overlay.size()))
+check("the confirmation paints", True)
+
+press_key(overlay, Qt.Key.Key_Return)
+check("Enter searches", ACTION_SEARCH in results, str(list(results)))
+check("Enter sends the physical crop",
+      results[ACTION_SEARCH][0] == QRect(200, 200, 400, 300), str(results.get(ACTION_SEARCH)))
+
+overlay, results = confirming()
+press_key(overlay, Qt.Key.Key_C)
+check("C copies", list(results) == [ACTION_COPY], str(list(results)))
+
+overlay, results = confirming()
+press_key(overlay, Qt.Key.Key_S)
+check("S saves", list(results) == [ACTION_SAVE], str(list(results)))
+
+overlay, results = confirming()
+press_key(overlay, Qt.Key.Key_Escape)
+check("Esc cancels", list(results) == ["cancelled"], str(list(results)))
+
+# The edges really move the crop, and only the edge that was grabbed.
+overlay, results = confirming()
+handles = overlay._handle_rects()
+check("eight handles", len(handles) == 8, str(sorted(handles)))
+check("the corner handle covers the corner",
+      handles["nw"].contains(QPoint(100, 100)) and handles["se"].contains(QPoint(300, 250)),
+      f'{handles["nw"]} {handles["se"]}')
+
+overlay._grab = "se"
+overlay._grab_origin = QPoint(300, 250)
+overlay._grab_box = QRect(overlay._box)
+overlay._resize_to(QPoint(340, 280))
+check("dragging the corner resizes", overlay._selection_rect() == QRect(100, 100, 240, 180),
+      str(overlay._selection_rect()))
+
+overlay._grab = "w"
+overlay._grab_origin = QPoint(100, 175)
+overlay._grab_box = QRect(overlay._box)
+overlay._resize_to(QPoint(150, 400))
+check("a side handle moves one edge only",
+      overlay._selection_rect() == QRect(150, 100, 190, 180), str(overlay._selection_rect()))
+
+overlay._grab = None
+press_key(overlay, Qt.Key.Key_Right)
+check("arrows nudge", overlay._selection_rect().x() == 151, str(overlay._selection_rect()))
+press_key(overlay, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+check("Ctrl nudges further", overlay._selection_rect().y() == 110, str(overlay._selection_rect()))
+press_key(overlay, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+check("Shift resizes", overlay._selection_rect().width() == 191,
+      str(overlay._selection_rect()))
+
+# The box cannot be pushed off the screen, or the crop would fall outside the
+# screenshot.
+overlay, results = confirming()
+for _ in range(400):
+    press_key(overlay, Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
+check("nudging stops at the edge", overlay._selection_rect().x() == 0,
+      str(overlay._selection_rect()))
+
+# A lasso whose box was adjusted is no longer described by the loop, so the
+# outline is dropped instead of being used as a mask that no longer fits.
+overlay, results = confirming(MODE_LASSO)
+check("the lasso outline survives an untouched box",
+      overlay.selection_polygon().count() > 0, str(overlay.selection_polygon().count()))
+press_key(overlay, Qt.Key.Key_Right)
+check("an edited box drops the outline", overlay.selection_polygon().count() == 0)
+press_key(overlay, Qt.Key.Key_Return)
+check("the edited lasso still searches", ACTION_SEARCH in results, str(list(results)))
+
+# Pressing outside the selection starts again rather than adjusting it.
+overlay, results = confirming()
+drag(overlay, (400, 300), (500, 400))
+check("a second drag replaces the first",
+      overlay._selection_rect() == QRect(400, 300, 100, 100), str(overlay._selection_rect()))
+check("and still sends nothing by itself", results == {}, str(results))
+
+# With confirmation switched off the old behaviour is exactly as it was.
+immediate = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(shot)),
+    metrics,
+    screen,
+    dim_percent=40,
+    mode=MODE_RECTANGLE,
+    confirm=False,
+)
+immediate.resize(screen.geometry().size())
+sent: list[tuple] = []
+immediate.selected.connect(lambda r, p: sent.append((r, p)))
+drag(immediate, (100, 100), (300, 250))
+check("without confirmation the release sends", len(sent) == 1, str(sent))
+check("and sends the same crop", sent and sent[0][0] == QRect(200, 200, 400, 300), str(sent))
+
+# A stray click is still not a selection, confirmation or not.
+overlay, results = confirming()
+overlay._reset_selection()
+drag(overlay, (500, 500), (503, 502))
+check("a stray click selects nothing",
+      not overlay._confirming and results == {}, str(results))
+
 # --- learning from misfires ------------------------------------------------
 import itertools  # noqa: E402
 import json  # noqa: E402

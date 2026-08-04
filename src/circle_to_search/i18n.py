@@ -33,6 +33,10 @@ _EN: dict[str, str] = {
         "KWin Scripts. The tray menu and the global shortcut still work."
     ),
     "notify.copied": "The selection was copied to the clipboard",
+    "notify.saved": "The selection was saved",
+    "notify.save_failed": "Could not save the selection",
+    "notify.save_failed_body": "{error}",
+    "notify.open_folder": "Open the folder",
     "about.text": (
         "<h3>Circle to Search {version}</h3>"
         "<p>Select any region of the screen and search it with Google Lens.</p>"
@@ -111,6 +115,13 @@ _EN: dict[str, str] = {
     "calibrate.before": "Now",
     "calibrate.after": "Suggested",
     "calibrate.restart": "Start over",
+    "settings.confirm": "Check the selection before sending it",
+    "settings.confirm.hint": (
+        "The drag only marks the area out. Enter searches, C copies, S saves to "
+        "a file, Esc cancels — and the edges can be dragged, or nudged with the "
+        "arrow keys, first. Turn this off to send the moment the button is "
+        "released."
+    ),
     "settings.learn": "Occasionally ask whether a trigger was wanted",
     "settings.learn.hint": (
         "At most {total} questions in total, with at least {interval} openings "
@@ -187,6 +198,10 @@ _EN: dict[str, str] = {
     "launcher.retry": "Try again",
     "overlay.hint.lasso": "Circle what you want · Esc or right-click to cancel",
     "overlay.hint.rect": "Drag to select · Esc or right-click to cancel",
+    "overlay.confirm": (
+        "Enter — search · C — copy · S — save · Esc — cancel   |   "
+        "drag the edges or use the arrow keys to adjust"
+    ),
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
 }
@@ -217,6 +232,10 @@ _UK: dict[str, str] = {
         "працюють і без нього."
     ),
     "notify.copied": "Виділення скопійовано в буфер обміну",
+    "notify.saved": "Виділення збережено",
+    "notify.save_failed": "Не вдалося зберегти виділення",
+    "notify.save_failed_body": "{error}",
+    "notify.open_folder": "Відкрити теку",
     "about.text": (
         "<h3>Circle to Search {version}</h3>"
         "<p>Виділіть будь-яку ділянку екрана й знайдіть її через Google Lens.</p>"
@@ -295,6 +314,13 @@ _UK: dict[str, str] = {
     "calibrate.before": "Зараз",
     "calibrate.after": "Пропоную",
     "calibrate.restart": "Почати спочатку",
+    "settings.confirm": "Перевіряти виділення перед надсиланням",
+    "settings.confirm.hint": (
+        "Перетягування лише окреслює область. Enter — пошук, C — копіювати, "
+        "S — зберегти у файл, Esc — скасувати, а краї перед цим можна тягнути "
+        "або підправити стрілками. Вимкніть, щоб надсилати одразу після "
+        "відпускання кнопки."
+    ),
     "settings.learn": "Іноді запитувати, чи спрацювання було потрібним",
     "settings.learn.hint": (
         "Щонайбільше {total} запитань загалом, і між ними щонайменше "
@@ -375,6 +401,10 @@ _UK: dict[str, str] = {
     "launcher.retry": "Спробувати ще раз",
     "overlay.hint.lasso": "Обведіть потрібне · Esc або права кнопка — скасувати",
     "overlay.hint.rect": "Потягніть, щоб виділити · Esc або права кнопка — скасувати",
+    "overlay.confirm": (
+        "Enter — пошук · C — копіювати · S — зберегти · Esc — скасувати   |   "
+        "тягніть за краї або стрілками, щоб підправити"
+    ),
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",
 }

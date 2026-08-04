@@ -65,7 +65,9 @@ Four components, each in its own place:
    on a phone the loop only *marks out the edges*: what gets uploaded is the
    plain rectangle around it, so the un-dimmed area always shows exactly what
    Google will receive. Hold *Shift* while starting a drag for a rectangle (or
-   swap the default in Settings).
+   swap the default in Settings). Letting go does not send anything: the
+   selection waits with handles on its edges until **Enter** (search), **C**
+   (copy), **S** (save) or **Esc**.
 4. **Lens upload** (`lens.py`) — the daemon does **not** upload. It writes a
    small self-contained HTML page with the JPEG inlined and opens it, and the
    *browser* posts it to `lens.google.com/v3/upload`. That is not a detour:
@@ -138,7 +140,7 @@ journalctl --user -u plasma-kwin_wayland -f | grep -i circle
 
 Then shake the pointer: **down-right, up-left, down-right** at roughly 45°,
 about 150 px per swing, inside 600 ms. Or press **Meta+Shift+L**. Then circle
-what you want to look up.
+what you want to look up and press **Enter**.
 
 Check the upload path on its own, without the GUI:
 
@@ -253,6 +255,8 @@ Application-only settings live in
 |---|---|---|
 | `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
 | `lasso_mask` | `false` | Keep only the inside of the loop and whiten the rest — off, because the loop is there to set the bounds |
+| `confirm_selection` | `true` | Wait for a key instead of sending the moment the button is released |
+| `save_directory` | *(Pictures)* | Where **S** writes |
 | `lens_backend` | `browser` | `browser` (the browser uploads), `auto`, `lens`, `searchbyimage`, or one variant name |
 | `max_side` | `1000` | Longest side of the uploaded JPEG |
 | `jpeg_quality` | `85` | |
@@ -271,6 +275,31 @@ the setting, so the bright area is always what gets sent.
 
 The UI is available in Ukrainian and English; it follows the system locale
 unless you pick one in Settings.
+
+### Check it before it goes anywhere
+
+Releasing the button used to upload immediately, which is one slip away from
+sending the wrong part of the screen to Google — and an upload cannot be taken
+back. So the drag now only *marks the area out*, and the overlay waits:
+
+| Key | |
+|---|---|
+| **Enter** (or Space) | search it with Lens |
+| **C** | copy it to the clipboard |
+| **S** | save it as a PNG (Pictures, or `save_directory`) |
+| **Esc** / right-click | cancel |
+
+Before pressing anything the box can be adjusted: drag any of the eight
+handles, drag inside it to move the whole thing, or use the **arrow keys**
+(*Ctrl* for 10 px steps, *Shift* to stretch the far edge instead of moving).
+Pressing outside the box throws it away and starts a new selection.
+
+Adjusting the box of a *lasso* selection drops the loop outline, because a loop
+that no longer matches its box would produce a wrong mask when `lasso_mask` is
+on. The selection simply becomes the rectangle you adjusted.
+
+Uncheck **Settings → General → Check the selection before sending it** to get
+the old send-on-release behaviour back.
 
 ### Learning from the times it was wrong
 
