@@ -27,7 +27,7 @@ import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageOps, ImageStat
 
 from .logging_setup import get_logger
 
@@ -55,10 +55,16 @@ _TIMEOUT_S = 60
 #: icon, and a text layer full of those is worse than a smaller one.
 MIN_CONFIDENCE = 40.0
 
-#: LSTM only (skips the slower legacy engine) and no second pass over an
-#: inverted copy.  Both are pure speed on screenshots, which are already
-#: dark-on-light or light-on-dark and never both.
-_SPEED = ["--oem", "1", "-c", "tessedit_do_invert=0"]
+#: LSTM only, which skips the slower legacy engine.  Nothing else: an earlier
+#: version also passed tessedit_do_invert=0 for speed and that was a mistake —
+#: tesseract expects dark text on a light background, and that setting turns off
+#: the very retry that copes with the opposite.  On a dark desktop it came back
+#: with fragments of noise instead of words.
+_SPEED = ["--oem", "1"]
+
+#: Below this mean brightness (0-255) an image is light text on a dark
+#: background, and is inverted before tesseract ever sees it.
+_DARK_BELOW = 110
 
 
 class OcrError(Exception):
@@ -153,6 +159,23 @@ def pick_languages(ui_language: str, configured: str = "") -> str:
     return available[0] if available else _FALLBACK
 
 
+def prepare(image: Image.Image) -> Image.Image:
+    """Give tesseract the polarity it was trained on.
+
+    Dark desktops are light text on a dark background, which is the one thing
+    tesseract is not built for.  It can retry with an inverted copy, but only
+    after a first pass has already gone badly — inverting here instead is both
+    faster and more reliable, and it is the difference between reading a dark
+    terminal and reading noise off it.
+    """
+    grey = image.convert("L")
+    mean = ImageStat.Stat(grey).mean[0]
+    if mean >= _DARK_BELOW:
+        return image
+    log.debug("inverting a dark image (mean brightness %.0f)", mean)
+    return ImageOps.invert(grey)
+
+
 def _run(image: Image.Image, languages: str, extra: list[str]) -> str:
     """Run tesseract over ``image`` and return its standard output.
 
@@ -167,7 +190,7 @@ def _run(image: Image.Image, languages: str, extra: list[str]) -> str:
         try:
             # PNG, not JPEG: recognition rates drop noticeably on text that has
             # been through a lossy encoder.
-            image.save(source, "PNG")
+            prepare(image).save(source, "PNG")
         except (OSError, ValueError) as exc:
             raise OcrError(f"cannot write the image for recognition: {exc}") from exc
 

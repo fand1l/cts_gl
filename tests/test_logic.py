@@ -892,6 +892,37 @@ check("text is lit once it is recognised", on_text > dark_everywhere + 30,
 check("and the rest of the screen is not", on_text > off_text + 30,
       f"{on_text} vs {off_text}")
 
+# Reported from a real desktop: with an area drawn, the marks over the text
+# disappeared, so there was no way to tell it could still be taken.
+kept_marks = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(lit_shot)),
+    hidpi.measure_screen(screen.name(), screen.geometry(), lit_shot.size, 2.0),
+    screen,
+    dim_percent=50,
+    mode=MODE_RECTANGLE,
+)
+kept_marks.resize(screen.geometry().size())
+kept_marks.set_words(sample_words)
+drag(kept_marks, (400, 400), (700, 700))          # an area away from the text
+canvas = QPixmap(kept_marks.size())
+kept_marks.render(canvas)
+with_box = canvas.toImage()
+check("the text marks survive an area selection",
+      with_box.pixelColor(120, 105) != with_box.pixelColor(600, 300),
+      f"{with_box.pixelColor(120, 105).name()} vs {with_box.pixelColor(600, 300).name()}")
+
+# Selected text is drawn as one run per line, the way selected text looks
+# everywhere else, rather than a separate box around each word.
+runs = make_overlay(MODE_RECTANGLE)
+runs.set_words(sample_words)
+runs.select_all_text()
+canvas = QPixmap(runs.size())
+runs.render(canvas)
+between = canvas.toImage().pixelColor(155, 107)   # the space between two words
+inside = canvas.toImage().pixelColor(120, 107)    # inside the first word
+check("the gap between selected words is filled too", between == inside,
+      f"{between.name()} vs {inside.name()}")
+
 # A drag that starts on empty screen is an ordinary area selection, even with a
 # text layer present — otherwise the feature would take the app over.
 text_overlay4 = make_overlay(MODE_RECTANGLE)
@@ -1115,6 +1146,20 @@ with tempfile.TemporaryDirectory() as tmp:
 
     text = ocr.recognise(Image.new("RGB", (20, 20), "white"), "ukr+eng")
     check("text comes back cleaned", text == "Hello there\n\nsecond line", repr(text))
+
+    # Dark desktops are light text on a dark background, which is the one
+    # polarity tesseract is not built for.  Reported from a real one: it came
+    # back with fragments of noise instead of words.
+    dark = Image.new("L", (20, 20), 25)
+    dark.putpixel((10, 10), 230)
+    prepared = ocr.prepare(dark)
+    check("a dark image is inverted", prepared.getpixel((0, 0)) > 200,
+          str(prepared.getpixel((0, 0))))
+    check("and its text becomes dark", prepared.getpixel((10, 10)) < 60,
+          str(prepared.getpixel((10, 10))))
+
+    light = Image.new("RGB", (20, 20), (240, 240, 240))
+    check("a light image is left alone", ocr.prepare(light) is light)
 
     # The word boxes, which are what make the text selectable on screen.
     rows = [

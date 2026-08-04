@@ -424,7 +424,8 @@ and the words become selectable where they are:
 * **the recognised lines stay lit while the rest of the screen dims**, with a
   soft highlighter wash and a rule under each one. That is the whole
   affordance: you can see what can be taken before the pointer goes anywhere
-  near it;
+  near it, and the marks stay put once you draw a rectangle, because the text
+  is still takeable then;
 * **drag across a line** and you get text instead of an area — the way a browser
   tells text and pictures apart, so there is no mode to switch into. Text has
   priority: pressing on a line takes the text even when it lies inside an area
@@ -457,9 +458,15 @@ sudo dnf install tesseract tesseract-langpack-ukr tesseract-langpack-eng
 The language is picked from the interface language plus English, restricted to
 the packs that are actually installed — naming a missing one makes `tesseract`
 fail outright instead of doing its best. Set `ocr_languages=deu+eng` in
-`circle-to-search.conf` to override that. It runs with `--oem 1` and
-`tessedit_do_invert=0`, which is markedly faster on screenshots and costs
-nothing: they are never both dark-on-light and light-on-dark at once.
+`circle-to-search.conf` to override that.
+
+A **dark desktop is inverted before `tesseract` ever sees it**. Light text on a
+dark background is the one polarity it is not built for; it can retry with an
+inverted copy, but only after a first pass has already gone badly. Doing it up
+front is faster and far more reliable — without it, a dark terminal comes back
+as fragments of noise rather than words. The decision is the image's mean
+brightness, so a light desktop is passed through untouched, and `tesseract`'s
+own retry is left enabled for screens that are a mixture of both.
 
 This is the only part of the program that may be absent: there is no Python
 dependency for it, nothing is uploaded, no key is needed, and if `tesseract` is

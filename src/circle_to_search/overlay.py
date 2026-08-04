@@ -653,6 +653,11 @@ class SelectionOverlay(QWidget):
             outside.addRect(self._visible_area())
             painter.fillPath(outside.subtracted(self._reveal_path()), self._dim)
 
+        # The text is still takeable while an area is drawn, so the marks that
+        # say so have to stay: without them the affordance vanished the moment
+        # the first rectangle appeared.
+        self._draw_word_hints(painter)
+
         pen = QPen(self._accent)
         pen.setWidth(1)
         pen.setCosmetic(True)
@@ -787,9 +792,20 @@ class SelectionOverlay(QWidget):
         if not selected:
             return
 
-        area = QPainterPath()
+        # One rectangle per line, not per word: a selection with a gap at every
+        # space is not what selected text looks like anywhere else.
+        runs: list[QRect] = []
+        previous: tuple[int, int, int] | None = None
         for word in selected:
-            area.addRoundedRect(QRectF(word.rect.adjusted(-2, -1, 2, 1)), 3, 3)
+            if previous == word.line and runs:
+                runs[-1] = runs[-1].united(word.rect)
+            else:
+                runs.append(QRect(word.rect))
+            previous = word.line
+
+        area = QPainterPath()
+        for run in runs:
+            area.addRoundedRect(QRectF(run.adjusted(-3, -2, 3, 2)), 4, 4)
 
         if self._dim.alpha():
             outside = QPainterPath()
@@ -821,6 +837,7 @@ class SelectionOverlay(QWidget):
         bounds = selected[0].rect
         for word in selected[1:]:
             bounds = bounds.united(word.rect)
+
         x = self._offset.x() + (self.width() - width) // 2
         y = bounds.bottom() + _LABEL_MARGIN * 2
         if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
