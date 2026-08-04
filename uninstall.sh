@@ -2,9 +2,10 @@
 #
 # Circle to Search — uninstaller.  Removes everything install.sh created.
 #
-#   ./uninstall.sh              remove files, keep the settings
-#   ./uninstall.sh --purge      also drop [Script-circletosearch] from kwinrc
-#                               and the application's own INI file
+#   ./uninstall.sh              remove files, keep the settings and the data
+#   ./uninstall.sh --purge      also drop [Script-circletosearch] from kwinrc,
+#                               the application's own INI file, the recent
+#                               captures and the recorded traces
 #
 set -euo pipefail
 
@@ -48,7 +49,11 @@ fi
 rm -rf "$DATA_HOME/kwin/scripts/$SCRIPT_ID"
 
 info "Removing files"
-rm -rf "$APPDIR"
+# Only the code.  $APPDIR also holds the recent captures and the traces saved
+# from misfire reports, and a plain uninstall has no business deleting those —
+# --purge does that, further down, where it says it will.
+rm -rf "${APPDIR:?}/circle_to_search"
+rmdir "$APPDIR" 2>/dev/null || true
 rm -f "$BINDIR/$APP_NAME"
 rm -f "$DESKTOPDIR/$APP_ID.desktop"
 rm -f "$ICONDIR/$APP_ID.svg"
@@ -63,11 +68,14 @@ if (( PURGE )); then
         >/dev/null 2>&1 || true
     for key in reversals windowMs minAmplitudePx angleTolerance pollMs cooldownMs \
                minStepPx minSpeedPxPerSec maxCurvaturePct reversalTolerance \
-               debug trace glow disableInFullscreen shortcut; do
+               debug trace glow calibrating collectTraces restoreFocus \
+               disableInFullscreen shortcut; do
         kwriteconfig6 --file kwinrc --group "Script-$SCRIPT_ID" --key "$key" --delete \
             >/dev/null 2>&1 || true
     done
     rm -rf "$CONFIG_HOME/$APP_NAME"
+    # The kept captures and the traces saved from "no, that was accidental".
+    rm -rf "$APPDIR"
     kwriteconfig6 --file kwinrc --group Plugins --key "${SCRIPT_ID}Enabled" --delete \
         >/dev/null 2>&1 || true
 fi
@@ -81,5 +89,6 @@ fi
 
 info "Uninstalled."
 if (( ! PURGE )); then
-    echo "    Settings were kept; re-run with --purge to remove them too."
+    echo "    Settings, recent captures and saved traces were kept;"
+    echo "    re-run with --purge to remove those too."
 fi
