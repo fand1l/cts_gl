@@ -273,7 +273,6 @@ minStepPx=6
 minSpeedPxPerSec=700
 maxCurvaturePct=140
 reversalTolerance=40
-glow=true
 disableInFullscreen=true
 shortcut=Meta+Shift+L
 EOF

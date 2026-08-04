@@ -4,10 +4,8 @@ Interface ``io.github.fand1l.CircleToSearch`` on the session bus::
 
     Trigger(int32 x, int32 y, string screen)               -> ()
     TriggerShake(int32 x, int32 y, string screen)          -> ()
+    OverlayGeometry(int32 x, int32 y, int32 w, int32 h)    -> ()
     TriggerCurrentScreen()                                 -> ()
-    GestureProgress(int32 x, int32 y, int32 count,
-                    int32 needed, string screen)           -> ()
-    GestureEnded()                                         -> ()
     ShowSettings()                                         -> ()
     Ping()                                                 -> string
 
@@ -65,19 +63,16 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
         log.info("TriggerShake(%d, %d, %r)", x, y, screen)
         self._service.shake_triggered.emit(x, y, screen)
 
-    @pyqtSlot(int, int, int, int, str)
-    def GestureProgress(self, x: int, y: int, count: int, needed: int, screen: str) -> None:
-        """A shake is under way: light the cursor up at ``x``/``y``.
+    @pyqtSlot(int, int, int, int)
+    def OverlayGeometry(self, x: int, y: int, width: int, height: int) -> None:
+        """Where the KWin script left the overlay window, relative to its output.
 
-        Sent by the KWin script only once at least one swing has been accepted,
-        so the pointer being used normally still costs no D-Bus traffic at all.
+        A Wayland client cannot ask for its own position; without this the
+        overlay would keep painting the screenshot from its own corner even when
+        the window was placed below a panel.
         """
-        self._service.gesture_progress.emit(x, y, count, needed, screen)
-
-    @pyqtSlot()
-    def GestureEnded(self) -> None:
-        """The shake was abandoned or has fired: put the glow away."""
-        self._service.gesture_ended.emit()
+        log.debug("OverlayGeometry(%d, %d, %d, %d)", x, y, width, height)
+        self._service.overlay_geometry.emit(x, y, width, height)
 
     @pyqtSlot()
     def ShowSettings(self) -> None:
@@ -96,10 +91,9 @@ class ServiceObject(QObject):
 
     triggered = pyqtSignal(int, int, str)
     shake_triggered = pyqtSignal(int, int, str)
+    overlay_geometry = pyqtSignal(int, int, int, int)
     triggered_current = pyqtSignal()
     settings_requested = pyqtSignal()
-    gesture_progress = pyqtSignal(int, int, int, int, str)
-    gesture_ended = pyqtSignal()
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)

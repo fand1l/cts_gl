@@ -105,10 +105,6 @@ class SettingsDialog(QDialog):
         form.addRow(self.fullscreen_box)
         form.addRow(_hint(tr("settings.fullscreen.hint")))
 
-        self.glow_box = QCheckBox(tr("settings.glow"), shake)
-        form.addRow(self.glow_box)
-        form.addRow(_hint(tr("settings.glow.hint")))
-
         self.reversals_spin = self._spin(shake, 1, 6, 1)
         form.addRow(tr("settings.reversals"), self.reversals_spin)
 
@@ -261,7 +257,6 @@ class SettingsDialog(QDialog):
     def _load(self) -> None:
         detection = self._detection
         self.enabled_box.setChecked(detection.enabled)
-        self.glow_box.setChecked(detection.glow)
         self.fullscreen_box.setChecked(detection.disableInFullscreen)
         self.reversals_spin.setValue(detection.reversals)
         self.window_spin.setValue(detection.windowMs)
@@ -300,7 +295,6 @@ class SettingsDialog(QDialog):
         )
         return DetectionSettings(
             enabled=self.enabled_box.isChecked(),
-            glow=self.glow_box.isChecked(),
             disableInFullscreen=self.fullscreen_box.isChecked(),
             reversals=self.reversals_spin.value(),
             windowMs=self.window_spin.value(),

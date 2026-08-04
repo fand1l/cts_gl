@@ -314,34 +314,6 @@ if (!run("fullscreen allowed when configured", { disableInFullscreen: false },
     void quiet;
 }
 
-/* The glow: reported once a swing is accepted, and stopped afterwards. */
-run("glow during a shake", defaults, shake(3, 200, 1000, 4, 40), 1);
-{
-    const progress = lastHarness.calls.filter((c) => c[3] === "GestureProgress");
-    const ended = lastHarness.calls.filter((c) => c[3] === "GestureEnded");
-    const ok = progress.length > 0 && ended.length > 0;
-    console.log(`${ok ? "PASS" : "FAIL"}  glow: ${progress.length} progress, ${ended.length} ended`);
-    if (!ok) failures += 1;
-    /* GestureProgress(x, y, count, needed, screen) — integers, then a string. */
-    const shapeOk = progress.every((c) => c.length === 9
-        && Number.isInteger(c[4]) && Number.isInteger(c[5])
-        && Number.isInteger(c[6]) && Number.isInteger(c[7])
-        && typeof c[8] === "string" && c[6] >= 1 && c[6] <= c[7]);
-    console.log(`${shapeOk ? "PASS" : "FAIL"}  glow call shape: ${JSON.stringify(progress[0] ? progress[0].slice(3) : null)}`);
-    if (!shapeOk) failures += 1;
-    /* The glow must never be reported before the first accepted swing. */
-    const firstProgressIndex = lastHarness.calls.findIndex((c) => c[3] === "GestureProgress");
-    console.log(`${firstProgressIndex >= 0 ? "PASS" : "FAIL"}  glow starts only after a swing`);
-}
-
-/* Turning the glow off means no progress traffic whatsoever. */
-run("no glow when disabled", { glow: false }, shake(3, 200, 1000, 4, 40), 1);
-{
-    const chatter = lastHarness.calls.filter((c) => c[3] !== "TriggerShake").length;
-    console.log(`${chatter === 0 ? "PASS" : "FAIL"}  glow disabled sends nothing extra: ${chatter}`);
-    if (chatter !== 0) failures += 1;
-}
-
 /* Ordinary pointer use must stay completely silent on D-Bus. */
 run("straight move stays silent", defaults, straight(900, 1000, 12, 40), 0);
 {

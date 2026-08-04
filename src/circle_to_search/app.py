@@ -8,7 +8,6 @@ from pathlib import Path
 from PIL import Image
 from PyQt6.QtCore import (
     QObject,
-    QPoint,
     QRect,
     QRunnable,
     Qt,
@@ -38,8 +37,7 @@ from .config import (
     set_detection_enabled,
 )
 from .dbus_service import ServiceObject, register_service, unregister_service
-from .glow import GestureGlow
-from .hidpi import ScreenMetrics, global_to_local, measure_screen
+from .hidpi import ScreenMetrics, measure_screen
 from .i18n import current_language, set_language, tr
 from .imageops import mask_outside_polygon, pil_to_qimage, polygon_to_crop_space
 from .lens import (
@@ -179,13 +177,11 @@ class CircleToSearchApp(QObject):
         self._service = ServiceObject(self)
         self._service.triggered.connect(self.on_trigger)
         self._service.shake_triggered.connect(self.on_shake_trigger)
+        self._service.overlay_geometry.connect(self.on_overlay_geometry)
         self._service.triggered_current.connect(self.on_trigger_current)
         self._service.settings_requested.connect(self.show_settings)
-        self._service.gesture_progress.connect(self.on_gesture_progress)
-        self._service.gesture_ended.connect(self.on_gesture_ended)
 
         self._overlay: SelectionOverlay | None = None
-        self._glow: GestureGlow | None = None
         self._dialog: SettingsDialog | None = None
         self._tasks: set[QRunnable] = set()
         self._busy = False
@@ -337,40 +333,6 @@ class CircleToSearchApp(QObject):
                 return screen
         return QGuiApplication.primaryScreen()
 
-    # ----------------------------------------------------------------- glow
-
-    @pyqtSlot(int, int, int, int, str)
-    def on_gesture_progress(
-        self, x: int, y: int, count: int, needed: int, screen_name: str
-    ) -> None:
-        """A shake is in progress: light the cursor up where it is."""
-        if self._overlay is not None:
-            return
-        screen = self._resolve_screen(screen_name, x, y)
-        if screen is None:
-            return
-        glow = self._glow
-        if glow is not None and glow.screen_name != screen.name():
-            # The pointer crossed to another output; the window cannot follow,
-            # so put it away and build one for the new screen.
-            glow.dismiss()
-            glow.deleteLater()
-            glow = None
-        if glow is None:
-            glow = GestureGlow(screen)
-            self._glow = glow
-        # KWin reports global coordinates; the widget covers one screen.
-        glow.update_gesture(global_to_local(QPoint(x, y), screen.geometry()), count, needed)
-
-    @pyqtSlot()
-    def on_gesture_ended(self) -> None:
-        if self._glow is not None:
-            self._glow.end()
-
-    def _dismiss_glow(self) -> None:
-        if self._glow is not None:
-            self._glow.dismiss()
-
     # -------------------------------------------------------------- overlay
 
     def _begin_selection(self, screen: QScreen, screen_name: str) -> None:
@@ -385,8 +347,6 @@ class CircleToSearchApp(QObject):
             log.warning("clearing a stale busy flag from an earlier trigger")
             self._busy = False
         self._busy = True
-        # The selection overlay is about to cover everything anyway.
-        self._dismiss_glow()
         try:
             capture = capture_screen(screen, screen_name)
         except CaptureError as exc:
@@ -428,6 +388,15 @@ class CircleToSearchApp(QObject):
             log.exception("could not map the overlay")
             self._release_overlay()
             notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
+
+    @pyqtSlot(int, int, int, int)
+    def on_overlay_geometry(self, x: int, y: int, width: int, height: int) -> None:
+        """The KWin script telling us where the overlay window really landed."""
+        overlay = self._overlay
+        if overlay is None:
+            return
+        overlay.set_window_offset(x, y)
+        log.debug("overlay window geometry from KWin: %dx%d+%d+%d", width, height, x, y)
 
     def _check_overlay_geometry(self, screen: QScreen) -> None:
         """Say so when the overlay was not given the whole output.

@@ -19,7 +19,7 @@ from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtCore import QPoint, QRect
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
 
@@ -29,7 +29,6 @@ import requests  # noqa: E402
 from PIL import Image  # noqa: E402
 
 from circle_to_search import hidpi, i18n, lens  # noqa: E402
-from circle_to_search.glow import GestureGlow  # noqa: E402
 from circle_to_search.imageops import (  # noqa: E402
     mask_outside_polygon,
     pil_to_qimage,
@@ -394,51 +393,42 @@ check("mask corner white", masked.getpixel((1, 1)) == (255, 255, 255),
 degenerate = mask_outside_polygon(source, [(0, 0), (5, 0)])
 check("mask degenerate", degenerate.getpixel((1, 1)) == (10, 200, 30))
 
-# --- cursor glow -----------------------------------------------------------
-glow = GestureGlow(screen)
-check("glow starts hidden", not glow.isVisible())
-check("glow is click-through",
-      bool(glow.windowFlags() & Qt.WindowType.WindowTransparentForInput))
-check("glow refuses focus",
-      bool(glow.windowFlags() & Qt.WindowType.WindowDoesNotAcceptFocus))
-check("glow does not activate",
-      glow.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
-check("glow is translucent", glow.testAttribute(Qt.WidgetAttribute.WA_TranslucentBackground))
+# --- the overlay compensates for a window that is not at the screen corner ---
+# KWin sometimes leaves the window in the work area, below the panel.  A Wayland
+# client cannot ask for its own position, so the KWin script reports it and
+# everything shifts by that offset; without this the screenshot is painted from
+# the window's corner and appears moved down by the panel's height.
+offset_overlay = make_overlay(MODE_RECTANGLE)
+offset_overlay._has_selection = True
+offset_overlay._origin = QPoint(100, 100)
+offset_overlay._current = QPoint(300, 250)
+check("no offset by default", offset_overlay._selection_rect() == QRect(100, 100, 200, 150))
 
-glow.update_gesture(QPoint(400, 300), 1, 2)
-check("glow covers the screen", glow.size() == screen.geometry().size(), str(glow.size()))
-check("glow shows itself", glow.isVisible())
-check("progress from count", abs(glow._progress - 0.5) < 1e-9, str(glow._progress))
-glow.update_gesture(QPoint(410, 300), 2, 2)
-check("progress caps at 1", glow._progress == 1.0)
+offset_overlay.set_window_offset(0, 35)
+check(
+    "selection shifts with the window",
+    offset_overlay._selection_rect() == QRect(100, 135, 200, 150),
+    str(offset_overlay._selection_rect()),
+)
+offset_overlay.render(QPixmap(offset_overlay.size()))
+check("offset overlay paints", True)
 
-# Painting must work at every stage, including a full fade cycle.
-for _ in range(20):
-    glow._tick()
-glow.render(QPixmap(glow.size()))
-check("glow paints", True)
-check("faded in", glow._opacity > 0.9, str(glow._opacity))
+lasso_offset = make_overlay(MODE_LASSO)
+lasso_offset._has_selection = True
+lasso_offset._drag_mode = MODE_LASSO
+lasso_offset._points = [QPoint(200, 100), QPoint(300, 200), QPoint(200, 300), QPoint(100, 200)]
+lasso_offset._current = QPoint(100, 200)
+lasso_offset.set_window_offset(0, 35)
+check("lasso bbox shifts", lasso_offset._selection_rect() == QRect(100, 135, 200, 200),
+      str(lasso_offset._selection_rect()))
+check("lasso polygon shifts", lasso_offset.selection_polygon().point(0) == QPoint(200, 135),
+      str(lasso_offset.selection_polygon().point(0)))
+lasso_offset.render(QPixmap(lasso_offset.size()))
+check("offset lasso paints", True)
 
-glow.end()
-for _ in range(40):
-    glow._tick()
-check("faded out", glow._opacity == 0.0, str(glow._opacity))
-check("glow hides itself", not glow.isVisible())
-
-# The daemon dismisses it the moment the selection overlay takes over.
-glow.update_gesture(QPoint(100, 100), 1, 2)
-check("glow back for a new gesture", glow.isVisible())
-glow.dismiss()
-check("dismiss hides at once", not glow.isVisible() and glow._opacity == 0.0)
-
-# Only the area around the cursor is repainted, not the whole screen.
-damage = glow._damage(QPoint(500, 500))
-check("damage is local", damage.width() < 200 and damage.height() < 200, str(damage))
-# It must cover the whole halo around the cursor (QRect.center() is off by
-# Qt's integer-centre convention, so check coverage instead).
-check("damage covers the halo",
-      damage.contains(QPoint(500 - 52, 500 - 52)) and damage.contains(QPoint(500 + 52, 500 + 52)),
-      str(damage))
+# The crop lands where the user pointed, in physical pixels of the screenshot.
+shifted_crop = hidpi.logical_rect_to_physical(lasso_offset._selection_rect(), metrics)
+check("offset crop", shifted_crop == QRect(200, 270, 400, 400), str(shifted_crop))
 
 print()
 if failures:

@@ -50,7 +50,6 @@ class DetectionSettings:
     maxCurvaturePct: int = 140
     reversalTolerance: int = 40
     debug: bool = False
-    glow: bool = True
     disableInFullscreen: bool = True
     shortcut: str = DEFAULT_SHORTCUT
 

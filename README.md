@@ -74,21 +74,6 @@ Four components, each in its own place:
    effect the daemon never makes a network connection at all. Direct uploading
    is still implemented and selectable.
 
-### The cursor glow
-
-The gesture is invisible until it fires, which makes it hard to learn. Once the
-script has accepted the first swing it starts sending the pointer position
-(`GestureProgress`) and `glow.py` lights the cursor up: a halo whose ring closes
-as the remaining swings are made. It is click-through
-(`Qt.WindowTransparentForInput` → an empty `wl_surface.set_input_region`) and
-never takes focus, so it cannot get in the way of what is underneath.
-
-This is the one place that spends D-Bus calls on cursor movement, so it is
-bounded on purpose: nothing is sent until a swing has been accepted, updates are
-throttled to 3 px / 40 ms, and a shake is over in well under a second. Turning
-the glow off in the settings removes the traffic entirely — the script then
-never calls out at all until the gesture fires.
-
 The HiDPI arithmetic lives in `hidpi.py`: KWin's coordinates and Qt's widget
 coordinates are **logical** pixels, the screenshot is **physical** pixels, and
 the scale is *measured* (screenshot size ÷ logical screen size) rather than
@@ -212,7 +197,6 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `pollMs` | `50` | Cursor polling interval while moving |
 | `cooldownMs` | `1500` | Ignore further shakes for this long |
 | `minStepPx` | `6` | Movement below this is noise |
-| `glow` | `true` | Light the cursor up once the gesture is being recognised |
 | `disableInFullscreen` | `true` | Ignore the shake while a full screen window has the focus (games, video). The global shortcut still works. |
 | `debug` | `false` | Log why each swing was accepted or rejected |
 | `trace` | `false` | Log every cursor sample, for `tools/record-trace.sh` |
@@ -289,7 +273,7 @@ package on disk changes nothing by itself — `reconfigure` only re-reads
 
 ```bash
 journalctl --user -u plasma-kwin_wayland | grep "script started"
-#  circle-to-search: KWin script started (v1.1.0)
+#  circle-to-search: KWin script started (v1.2.0)
 grep SCRIPT_VERSION kwinscript/contents/code/main.js
 ```
 
@@ -454,25 +438,27 @@ The overlay is showing the screenshot from its own top-left corner, but the
 window was left in the *work area* — below the panel. You then see the live
 panel at the top and, right under it, the panel that was in the screenshot.
 
-Promoting the overlay to full screen is the KWin script's job. It sets each
-window property independently now, because a single unsettable one (`noBorder`
-and `skipSwitcher` are not writable for every window type) used to abort the
-whole promotion — including the full-screen assignment — and forces the frame
-geometry to the output as a fallback. The journal shows the outcome:
+Promoting the overlay to full screen is the KWin script's job, and it is tried
+three ways: `fullScreen = true` first, each window property set independently
+(a single unsettable one — `noBorder` and `skipSwitcher` are not writable for
+every window type — used to abort the whole promotion), and the frame geometry
+forced to the output as a fallback.
+
+Because none of that is guaranteed, the script then *tells the daemon where the
+window actually landed* (`OverlayGeometry`). A Wayland client cannot ask for its
+own position, so this is the only way the overlay can know; with the offset in
+hand it draws the screenshot — and computes the crop — in screen coordinates, so
+the picture lines up even when the window was left in the work area. The journal
+shows both halves:
 
 ```
 circle-to-search: promoted the overlay (fullScreen=true geometry=3840x2160+0+0)
+the overlay is at +0+35 inside its screen instead of the corner; compensating…
 ```
 
-and the daemon complains when it ends up with less than the whole screen:
-
-```
-the overlay is 3840x2125 but eDP-1 is 3840x2160 — the KWin script did not make
-it full screen, so the screenshot will look shifted
-```
-
-If you see either, the usual cause is the previous section: KWin is still
-running the old script.
+The second line means the promotion did not fully work but the drawing was
+corrected. If you see it every time, the usual cause is the previous section:
+KWin is still running the old script.
 
 ### The overlay appears *under* the panel
 

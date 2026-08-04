@@ -82,10 +82,6 @@
             <label>Log every cursor sample for offline replay</label>
             <default>false</default>
         </entry>
-        <entry name="glow" type="Bool">
-            <label>Light the cursor up while a shake is being recognised</label>
-            <default>true</default>
-        </entry>
         <entry name="disableInFullscreen" type="Bool">
             <label>Ignore the shake while a full screen window has the focus</label>
             <default>true</default>

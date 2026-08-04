@@ -114,13 +114,6 @@
     </widget>
    </item>
    <item>
-    <widget class="QCheckBox" name="kcfg_glow">
-     <property name="text">
-      <string>Light the cursor up while the gesture is recognised</string>
-     </property>
-    </widget>
-   </item>
-   <item>
     <widget class="QCheckBox" name="kcfg_disableInFullscreen">
      <property name="text">
       <string>Do not detect the shake in full screen windows (games, video)</string>

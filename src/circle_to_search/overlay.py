@@ -101,6 +101,13 @@ class SelectionOverlay(QWidget):
         self._drag_mode = self._mode
         self._finished = False
 
+        #: Where this window sits inside its screen, in logical pixels.  It is
+        #: (0, 0) for a proper full-screen overlay; when KWin leaves the window
+        #: in the work area the KWin script reports the real offset and
+        #: everything — the screenshot, the selection, the crop — shifts by it,
+        #: so what is drawn still lines up with the actual screen.
+        self._offset = QPoint(0, 0)
+
         self._dragging = False
         #: False until the first press: without it the selection would be drawn
         #: from the widget origin to the pointer before anything was clicked.
@@ -164,6 +171,21 @@ class SelectionOverlay(QWidget):
     def _enable_deactivation(self) -> None:
         self._accept_deactivation = True
 
+    def set_window_offset(self, x: int, y: int) -> None:
+        """Told by the KWin script where the window really is."""
+        offset = QPoint(x, y)
+        if offset == self._offset:
+            return
+        self._offset = offset
+        if not offset.isNull():
+            log.warning(
+                "the overlay is at +%d+%d inside its screen instead of the corner; "
+                "compensating so the screenshot is not drawn shifted",
+                x,
+                y,
+            )
+        self.update()
+
     def show_on_screen(self) -> None:
         """Map the overlay full-screen on the target output."""
         geometry = self._target_screen.geometry()
@@ -191,6 +213,10 @@ class SelectionOverlay(QWidget):
 
     def paintEvent(self, _event: QPaintEvent) -> None:
         painter = QPainter(self)
+        # Everything is drawn in *screen* coordinates; the translation makes the
+        # window's own corner line up with the screen's, even when the window
+        # was not given the whole output.
+        painter.translate(-self._offset)
         painter.drawPixmap(0, 0, self._dimmed)
 
         if not self._has_selection:
@@ -250,9 +276,11 @@ class SelectionOverlay(QWidget):
         """The selection outline: a polygon for the lasso, a rect otherwise."""
         path = QPainterPath()
         if self._drag_mode == MODE_LASSO and len(self._points) >= 3:
-            # QPainterPath only takes floating point coordinates in PyQt6.
-            path.moveTo(float(self._points[0].x()), float(self._points[0].y()))
-            for point in self._points[1:]:
+            # QPainterPath only takes floating point coordinates in PyQt6, and
+            # the painter draws in screen coordinates.
+            points = [point + self._offset for point in self._points]
+            path.moveTo(float(points[0].x()), float(points[0].y()))
+            for point in points[1:]:
                 path.lineTo(float(point.x()), float(point.y()))
             path.closeSubpath()
             return path
@@ -269,8 +297,8 @@ class SelectionOverlay(QWidget):
         width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
         height = metrics.height() + 2 * _LABEL_PADDING
         box = QRect(
-            (self.width() - width) // 2,
-            max(24, self.height() // 12),
+            self._offset.x() + (self.width() - width) // 2,
+            self._offset.y() + max(24, self.height() // 12),
             width,
             height,
         )
@@ -287,12 +315,13 @@ class SelectionOverlay(QWidget):
         height = metrics.height() + _LABEL_PADDING
 
         # Below/right of the cursor, flipped when there is no room.
-        x = self._current.x() + _LABEL_MARGIN * 2
-        y = self._current.y() + _LABEL_MARGIN * 2
-        if x + width > self.width() - _LABEL_MARGIN:
-            x = self._current.x() - width - _LABEL_MARGIN * 2
-        if y + height > self.height() - _LABEL_MARGIN:
-            y = self._current.y() - height - _LABEL_MARGIN * 2
+        cursor = self._current + self._offset
+        x = cursor.x() + _LABEL_MARGIN * 2
+        y = cursor.y() + _LABEL_MARGIN * 2
+        if x + width > self._offset.x() + self.width() - _LABEL_MARGIN:
+            x = cursor.x() - width - _LABEL_MARGIN * 2
+        if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
+            y = cursor.y() - height - _LABEL_MARGIN * 2
         x = max(_LABEL_MARGIN, x)
         y = max(_LABEL_MARGIN, y)
 
@@ -405,10 +434,10 @@ class SelectionOverlay(QWidget):
     # --------------------------------------------------------------- helpers
 
     def selection_polygon(self) -> QPolygon:
-        """The lasso outline in widget-logical pixels (empty for a rectangle)."""
+        """The lasso outline in screen-logical pixels (empty for a rectangle)."""
         if self._drag_mode != MODE_LASSO or len(self._points) < 3:
             return QPolygon()
-        return QPolygon(self._points)
+        return QPolygon(self._points).translated(self._offset)
 
     def _selection_rect(self) -> QRect:
         """Selection bounding box in widget-logical pixels.
@@ -425,6 +454,8 @@ class SelectionOverlay(QWidget):
         if not self._has_selection:
             return QRect()
 
+        # Points come from mouse events, i.e. widget coordinates; the crop and
+        # the drawing both work in screen coordinates.
         if self._drag_mode == MODE_LASSO:
             if len(self._points) < 2:
                 return QRect()
@@ -432,13 +463,15 @@ class SelectionOverlay(QWidget):
             ys = [point.y() for point in self._points]
             left, right = min(xs), max(xs)
             top, bottom = min(ys), max(ys)
-            return QRect(left, top, right - left, bottom - top).intersected(self.rect())
+            rect = QRect(left, top, right - left, bottom - top)
+            return rect.intersected(self.rect()).translated(self._offset)
 
         left = min(self._origin.x(), self._current.x())
         top = min(self._origin.y(), self._current.y())
         width = abs(self._current.x() - self._origin.x())
         height = abs(self._current.y() - self._origin.y())
-        return QRect(left, top, width, height).intersected(self.rect())
+        rect = QRect(left, top, width, height)
+        return rect.intersected(self.rect()).translated(self._offset)
 
     def _reset_selection(self) -> None:
         self._has_selection = False

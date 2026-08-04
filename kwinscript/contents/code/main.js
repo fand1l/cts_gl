@@ -27,15 +27,14 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.1.0";
+var SCRIPT_VERSION = "1.2.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
 var DBUS_INTERFACE = "io.github.fand1l.CircleToSearch";
 
-/* Must match OVERLAY_WINDOW_TITLE / GLOW_WINDOW_TITLE in the Python package. */
+/* Must match OVERLAY_WINDOW_TITLE in the Python package. */
 var OVERLAY_CAPTION = "Circle to Search Overlay";
-var GLOW_CAPTION = "Circle to Search Glow";
 
 /* How long to keep looking for the overlay window after a trigger, in ms. */
 var OVERLAY_WATCH_MS = 5000;
@@ -65,7 +64,6 @@ var cfg = {
     containmentFactor: 3,
     debug: false,
     trace: false,
-    glow: true,
     disableInFullscreen: true,
     shortcut: "Meta+Shift+L"
 };
@@ -85,21 +83,6 @@ var state = {
     boxMaxY: 0,
     lastTriggerAt: 0,
     watchUntil: 0
-};
-
-/*
- * Cursor glow.  The daemon cannot know where the pointer is, so once a swing
- * has been recognised the script starts feeding it the position — but only
- * then: while nothing is happening there is still not a single D-Bus call per
- * tick, which is the whole point of the polling design.  A shake lasts well
- * under a second, so this costs a couple of dozen calls per gesture.
- */
-var glow = {
-    active: false,
-    lastX: -1,
-    lastY: -1,
-    lastCount: 0,
-    lastSentAt: 0
 };
 
 /* Re-reading the active window on every tick is wasteful; half a second of
@@ -148,7 +131,6 @@ function loadConfig() {
     cfg.containmentFactor = Math.max(1.2, readNumber("containmentFactor", 3));
     cfg.debug = readBoolean("debug", false);
     cfg.trace = readBoolean("trace", false);
-    cfg.glow = readBoolean("glow", true);
     cfg.disableInFullscreen = readBoolean("disableInFullscreen", true);
     cfg.shortcut = String(readConfig("shortcut", "Meta+Shift+L"));
 
@@ -163,7 +145,6 @@ function loadConfig() {
         + " pollMs=" + cfg.pollMs
         + " cooldownMs=" + cfg.cooldownMs
         + " minStepPx=" + cfg.minStepPx
-        + " glow=" + cfg.glow
         + " debug=" + cfg.debug
         + " trace=" + cfg.trace
         + " disableInFullscreen=" + cfg.disableInFullscreen;
@@ -204,7 +185,7 @@ function maybeReloadConfig(now) {
     }
 }
 
-/* --------------------------------------------------- fullscreen and glow */
+/* ---------------------------------------------- the full screen guard */
 
 function activeWindow() {
     try {
@@ -234,38 +215,6 @@ function activeIsFullScreen() {
     var window = activeWindow();
     fullScreenCache.value = !!(window && window.fullScreen);
     return fullScreenCache.value;
-}
-
-function reportGlow(x, y, count) {
-    if (!cfg.glow) {
-        return;
-    }
-    var now = Date.now();
-    if (count === glow.lastCount
-        && now - glow.lastSentAt < 40
-        && Math.abs(x - glow.lastX) < 3
-        && Math.abs(y - glow.lastY) < 3) {
-        return;
-    }
-    glow.active = true;
-    glow.lastCount = count;
-    glow.lastX = x;
-    glow.lastY = y;
-    glow.lastSentAt = now;
-    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "GestureProgress",
-             Math.round(x) | 0, Math.round(y) | 0, count | 0, cfg.reversals | 0,
-             screenNameAt(x, y));
-}
-
-function endGlow() {
-    if (!glow.active) {
-        return;
-    }
-    glow.active = false;
-    glow.lastCount = 0;
-    if (cfg.glow) {
-        callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "GestureEnded");
-    }
 }
 
 /* --------------------------------------------------------------- detection */
@@ -338,7 +287,6 @@ function resetDetector() {
     state.boxMaxX = 0;
     state.boxMaxY = 0;
     state.boxValid = false;
-    endGlow();
 }
 
 function pruneReversals(now) {
@@ -442,8 +390,7 @@ function trackContainment(x, y) {
 function forgetChain() {
     if (state.reversalTimes.length > 0) {
         state.reversalTimes.length = 0;
-        endGlow();
-    }
+        }
     state.boxValid = false;
 }
 
@@ -606,7 +553,6 @@ function poll() {
     if (state.stroke === null) {
         beginStroke(previousX, previousY, now);
         extendStroke(x, y, now);
-        refreshGlow(x, y, now);
         return;
     }
 
@@ -624,7 +570,6 @@ function poll() {
             fire(x, y, now);
             return;
         }
-        refreshGlow(x, y, now);
         return;
     }
 
@@ -632,20 +577,6 @@ function poll() {
     if (tryCountInProgress(now)) {
         fire(x, y, now);
         return;
-    }
-    refreshGlow(x, y, now);
-}
-
-/*
- * Light the cursor up once at least one swing has been accepted, so the gesture
- * is discoverable: keep going and the ring closes.
- */
-function refreshGlow(x, y, now) {
-    pruneReversals(now);
-    if (state.reversalTimes.length > 0) {
-        reportGlow(x, y, state.reversalTimes.length);
-    } else {
-        endGlow();
     }
 }
 
@@ -658,7 +589,6 @@ function fire(x, y, now) {
     }
     state.lastTriggerAt = now;
     resetDetector();
-    endGlow();
     trigger(x, y, "TriggerShake");
 }
 
@@ -856,14 +786,40 @@ function promote(window) {
     setProperty(workspace, "activeWindow", window);
     print("circle-to-search: promoted the overlay (fullScreen=" + full
         + " geometry=" + describeGeometry(window) + ")");
+
+    reportOverlayGeometry(window);
+}
+
+/*
+ * Tell the daemon where the window actually ended up.
+ *
+ * A Wayland client cannot ask for its own position, so if KWin leaves the
+ * overlay in the work area — below the panel — it has no way of knowing, and it
+ * paints the screenshot from its own top-left corner.  The picture then appears
+ * shifted down by the panel's height and the live panel shows above it, which
+ * looks like two panels.  With the real geometry in hand the overlay can draw
+ * (and crop) at the right offset whatever the window manager decided.
+ */
+function reportOverlayGeometry(window) {
+    var frame;
+    try {
+        frame = window.frameGeometry;
+    } catch (error) {
+        return;
+    }
+    var output = outputFor(window);
+    var originX = output ? output.x : 0;
+    var originY = output ? output.y : 0;
+    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "OverlayGeometry",
+             Math.round(frame.x - originX) | 0,
+             Math.round(frame.y - originY) | 0,
+             Math.round(frame.width) | 0,
+             Math.round(frame.height) | 0);
 }
 
 function checkForOverlay() {
     var windows = allWindows();
     for (var i = 0; i < windows.length; i += 1) {
-        if (isGlow(windows[i])) {
-            placeGlow(windows[i]);
-        }
         if (isOverlay(windows[i])) {
             promote(windows[i]);
             stopOverlayWatch();
@@ -888,44 +844,9 @@ function stopOverlayWatch() {
     }
 }
 
-function isGlow(window) {
-    try {
-        return !!window && window.caption === GLOW_CAPTION;
-    } catch (error) {
-        return false;
-    }
-}
-
-/*
- * The glow is click-through and must not steal focus, so it is only placed and
- * raised — never full-screened, which would make KWin hide the panels for it.
- */
-function placeGlow(window) {
-    var geometry = outputFor(window);
-    setProperty(window, "keepAbove", true);
-    setProperty(window, "noBorder", true);
-    setProperty(window, "skipTaskbar", true);
-    setProperty(window, "skipPager", true);
-    setProperty(window, "skipSwitcher", true);
-    setProperty(window, "onAllDesktops", true);
-    if (geometry !== null && !coversOutput(window, geometry)) {
-        setProperty(window, "frameGeometry", {
-            x: geometry.x,
-            y: geometry.y,
-            width: geometry.width,
-            height: geometry.height
-        });
-    }
-    if (cfg.debug) {
-        print("circle-to-search: placed the glow at " + describeGeometry(window));
-    }
-}
-
 function onWindowAdded(window) {
     if (isOverlay(window)) {
         promote(window);
-    } else if (isGlow(window)) {
-        placeGlow(window);
     }
 }
 
