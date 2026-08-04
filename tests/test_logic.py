@@ -399,6 +399,8 @@ check("mask degenerate", degenerate.getpixel((1, 1)) == (10, 200, 30))
 # everything shifts by that offset; without this the screenshot is painted from
 # the window's corner and appears moved down by the panel's height.
 offset_overlay = make_overlay(MODE_RECTANGLE)
+# The window really is short in this situation — that is why it has an offset.
+offset_overlay.resize(screen.geometry().width(), screen.geometry().height() - 35)
 offset_overlay._has_selection = True
 offset_overlay._origin = QPoint(100, 100)
 offset_overlay._current = QPoint(300, 250)
@@ -414,6 +416,7 @@ offset_overlay.render(QPixmap(offset_overlay.size()))
 check("offset overlay paints", True)
 
 lasso_offset = make_overlay(MODE_LASSO)
+lasso_offset.resize(screen.geometry().width(), screen.geometry().height() - 35)
 lasso_offset._has_selection = True
 lasso_offset._drag_mode = MODE_LASSO
 lasso_offset._points = [QPoint(200, 100), QPoint(300, 200), QPoint(200, 300), QPoint(100, 200)]
@@ -460,6 +463,22 @@ good_overlay._ensure_fullscreen()
 check("no retry when correct", good_overlay._fullscreen_attempts == 0)
 good_overlay.close()
 retry_overlay.close()
+
+# A stale offset must never survive the window becoming full screen: the retry
+# and the KWin report race, and shifting a window that is now correct would
+# break it in the opposite direction.
+race_overlay = make_overlay(MODE_RECTANGLE)
+race_overlay.show()
+race_overlay.resize(screen.geometry().width(), screen.geometry().height() - 36)
+race_overlay.set_window_offset(0, 36)
+check("offset applied while short", race_overlay._offset == QPoint(0, 36))
+race_overlay.resize(screen.geometry().size())
+check("offset dropped once full screen", race_overlay._offset == QPoint(0, 0),
+      str(race_overlay._offset))
+# A report that arrives after the window is already full screen is ignored.
+race_overlay.set_window_offset(0, 36)
+check("late report ignored", race_overlay._offset == QPoint(0, 0), str(race_overlay._offset))
+race_overlay.close()
 
 print()
 if failures:

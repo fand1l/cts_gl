@@ -43,6 +43,7 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QPolygon,
+    QResizeEvent,
     QScreen,
 )
 from PyQt6.QtWidgets import QApplication, QWidget
@@ -172,9 +173,21 @@ class SelectionOverlay(QWidget):
     def _enable_deactivation(self) -> None:
         self._accept_deactivation = True
 
+    def covers_screen(self) -> bool:
+        """True when the window really did get the whole output."""
+        return self.size() == self._target_screen.geometry().size()
+
     def set_window_offset(self, x: int, y: int) -> None:
         """Told by the KWin script where the window really is."""
         offset = QPoint(x, y)
+        if not offset.isNull() and self.covers_screen():
+            # The report raced with the window becoming full screen.  A window
+            # the size of the output is at its corner by definition, so trust
+            # that over a message that was true a moment ago — a stale offset
+            # would shift the drawing the other way and break a window that is
+            # now perfectly fine.
+            log.debug("ignoring offset %d,%d: the overlay already covers the screen", x, y)
+            offset = QPoint(0, 0)
         if offset == self._offset:
             return
         self._offset = offset
@@ -220,6 +233,20 @@ class SelectionOverlay(QWidget):
         self._fullscreen_attempts = 0
         QTimer.singleShot(250, self._ensure_fullscreen)
 
+    def resizeEvent(self, event: QResizeEvent) -> None:
+        """Drop the offset the moment the window does cover the screen.
+
+        The KWin script reports the geometry it sees, but the window can grow
+        into full screen a moment later — through the retry below, or because
+        the compositor got round to it.  Keeping the old offset then would shift
+        everything in the opposite direction, so the size decides.
+        """
+        super().resizeEvent(event)
+        if self.covers_screen() and not self._offset.isNull():
+            log.info("the overlay now covers %s, dropping the offset", self._target_screen.name())
+            self._offset = QPoint(0, 0)
+            self.update()
+
     def _ensure_fullscreen(self) -> None:
         """Re-ask for full screen if the compositor gave us less than the output.
 
@@ -232,7 +259,11 @@ class SelectionOverlay(QWidget):
         expected = self._target_screen.geometry().size()
         if self.size() == expected:
             if self._fullscreen_attempts:
-                log.info("the overlay is full screen after %d retries", self._fullscreen_attempts)
+                log.info(
+                    "the overlay is full screen after %d retr%s",
+                    self._fullscreen_attempts,
+                    "y" if self._fullscreen_attempts == 1 else "ies",
+                )
             return
 
         self._fullscreen_attempts += 1

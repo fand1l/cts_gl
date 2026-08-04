@@ -273,7 +273,7 @@ package on disk changes nothing by itself — `reconfigure` only re-reads
 
 ```bash
 journalctl --user -u plasma-kwin_wayland | grep "script started"
-#  circle-to-search: KWin script started (v1.3.0)
+#  circle-to-search: KWin script started (v1.3.1)
 grep SCRIPT_VERSION kwinscript/contents/code/main.js
 ```
 
@@ -468,7 +468,16 @@ the overlay is at +0+35 inside its screen instead of the corner; compensating…
 ```
 
 The second line means the promotion did not fully work but the drawing was
-corrected. If you see it every time, the usual cause is the previous section:
+corrected. If the window later does become full screen — the retry usually gets
+there — the offset is dropped again on the resize, because a window the size of
+the output is at its corner by definition:
+
+```
+the overlay came up 1920x1044 instead of 1920x1080, asking for full screen again (1)
+the overlay is full screen after 1 retry
+```
+
+Those two lines together mean it ended up right. If you see it every time, the usual cause is the previous section:
 KWin is still running the old script.
 
 ### The overlay appears *under* the panel
