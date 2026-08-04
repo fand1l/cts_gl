@@ -105,12 +105,16 @@ One fill and one path subtraction per repaint instead of a second copy of the
 screenshot.  It matters more since item 5: with an overlay per monitor the
 saving multiplies.
 
-## 10. First-run experience  ← next
+## 10. First-run experience  ✅
 
 * One notification explaining the gesture, the few settings worth choosing up
   front, and an offer to run the calibration from item 1.
 
-## 11. CI
+A window rather than a notification, since a notification cannot hold the
+settings and the settings are half the point.  Shown once; `--welcome` brings it
+back.
+
+## 11. CI  ← next
 
 * GitHub Actions: `ruff`, the three test suites, and an RPM build on every
   push.
