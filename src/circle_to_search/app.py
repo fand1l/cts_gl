@@ -62,6 +62,7 @@ from .misfires import (
     should_ask,
     still_learning,
 )
+from .multiscreen import OverlayGroup, ScreenShot, VirtualDesktop
 from .notify import notify, notify_error, supports_actions
 from .overlay import (
     ACTION_COPY,
@@ -239,6 +240,8 @@ class CircleToSearchApp(QObject):
         self._service.settings_requested.connect(self.show_settings)
 
         self._overlay: SelectionOverlay | None = None
+        self._group: OverlayGroup | None = None
+        self._desktop: VirtualDesktop | None = None
         self._dialog: SettingsDialog | None = None
         self._calibration: CalibrationDialog | None = None
         self._tasks: set[QRunnable] = set()
@@ -415,8 +418,11 @@ class CircleToSearchApp(QObject):
     # -------------------------------------------------------------- overlay
 
     def _begin_selection(self, screen: QScreen, screen_name: str, trace: str = "") -> None:
-        if self._overlay is not None:
+        if self._overlay is not None or self._group is not None:
             log.info("ignoring trigger, a selection is already in progress")
+            return
+        if self._settings.all_screens and len(QGuiApplication.screens()) > 1:
+            self._begin_selection_everywhere(trace)
             return
         if self._busy:
             # The flag is cleared when the overlay finishes, so finding it set
@@ -479,6 +485,100 @@ class CircleToSearchApp(QObject):
             log.exception("could not map the overlay")
             self._release_overlay()
             notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
+
+    def _begin_selection_everywhere(self, trace: str) -> None:
+        """One overlay per screen, so a selection can cross the seam."""
+        self._busy = True
+        shots: list[ScreenShot] = []
+        for screen in QGuiApplication.screens():
+            name = screen.name()
+            try:
+                capture = capture_screen(screen, name)
+            except Exception as exc:
+                # One screen that cannot be captured takes the whole selection
+                # down: half a desktop would be a lie about what is on screen.
+                self._busy = False
+                log.exception("could not capture %s", name)
+                notify_error(
+                    tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc)
+                )
+                return
+            metrics = measure_screen(
+                name=name,
+                logical_geometry=screen.geometry(),
+                physical_size=capture.size,
+                fallback_dpr=screen.devicePixelRatio(),
+            )
+            log.info("%s (back end: %s)", metrics, capture.backend)
+            shots.append(ScreenShot(metrics=metrics, image=capture.image))
+
+        desktop = VirtualDesktop(shots)
+        bounds = desktop.bounds
+        log.info("selecting across %d screens, %s", len(shots), bounds)
+
+        overlays = []
+        for shot, screen in zip(shots, QGuiApplication.screens(), strict=True):
+            overlays.append(
+                SelectionOverlay(
+                    pixmap=QPixmap.fromImage(pil_to_qimage(shot.image)),
+                    metrics=shot.metrics,
+                    screen=screen,
+                    dim_percent=self._settings.dim_percent,
+                    mode=self._settings.selection_mode,
+                    mask_outside=self._settings.lasso_mask,
+                    confirm=self._settings.confirm_selection,
+                    group_bounds=bounds,
+                )
+            )
+
+        group = OverlayGroup(overlays, self)
+        group.committed.connect(self._on_group_committed)
+        group.cancelled.connect(self._on_group_cancelled)
+        self._group = group
+        self._desktop = desktop
+        self._opening_trace = trace
+        try:
+            group.show()
+        except Exception as exc:
+            log.exception("could not map the overlays")
+            self._release_group()
+            notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
+
+    def _release_group(self) -> None:
+        group = self._group
+        self._group = None
+        self._desktop = None
+        self._busy = False
+        if group is not None:
+            group.release()
+
+    @pyqtSlot(QRect, str)
+    def _on_group_committed(self, rect: QRect, action: str) -> None:
+        desktop = self._desktop
+        self._release_group()
+        if desktop is None:
+            return
+        try:
+            cropped = desktop.compose(rect)
+        except ValueError as exc:
+            log.error("could not compose the selection: %s", exc)
+            notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
+            self._finish_opening()
+            return
+        log.info(
+            "composed %dx%d from %d screen(s)",
+            cropped.width,
+            cropped.height,
+            len(desktop.shots),
+        )
+        self._finish_opening()
+        self._deliver(cropped, action)
+
+    @pyqtSlot()
+    def _on_group_cancelled(self) -> None:
+        log.info("selection cancelled")
+        self._release_group()
+        self._finish_opening()
 
     @pyqtSlot(int, int, int, int)
     def on_overlay_geometry(self, x: int, y: int, width: int, height: int) -> None:
@@ -547,6 +647,14 @@ class CircleToSearchApp(QObject):
             cropped = mask_outside_polygon(cropped, points)
             log.debug("masked everything outside the %d-point lasso", len(points))
 
+        self._deliver(cropped, action)
+
+    def _deliver(self, cropped: Image.Image, action: str) -> None:
+        """Do whatever the user asked with a finished crop.
+
+        Shared by the single-screen path and the composed multi-screen one, so
+        the two cannot drift apart.
+        """
         if action == ACTION_COPY:
             self._copy_to_clipboard(cropped)
             notify(tr("notify.copied"), transient=True, timeout_ms=3000)

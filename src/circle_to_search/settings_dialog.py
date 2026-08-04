@@ -210,6 +210,10 @@ class SettingsDialog(QDialog):
         self.lasso_mask_box = QCheckBox(tr("settings.lasso_mask"), selection)
         selection_layout.addWidget(self.lasso_mask_box)
         selection_layout.addWidget(_hint(tr("settings.lasso_mask.hint")))
+        self.all_screens_box = QCheckBox(tr("settings.all_screens"), selection)
+        selection_layout.addWidget(self.all_screens_box)
+        selection_layout.addWidget(_hint(tr("settings.all_screens.hint")))
+
         self.confirm_box = QCheckBox(tr("settings.confirm"), selection)
         selection_layout.addWidget(self.confirm_box)
         selection_layout.addWidget(_hint(tr("settings.confirm.hint")))
@@ -326,6 +330,7 @@ class SettingsDialog(QDialog):
         self.autostart_box.setChecked(autostart_enabled())
         self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(settings.selection_mode)))
         self.lasso_mask_box.setChecked(settings.lasso_mask)
+        self.all_screens_box.setChecked(settings.all_screens)
         self.confirm_box.setChecked(settings.confirm_selection)
         self.ocr_box.setChecked(settings.ocr_enabled)
         self.ocr_state.setText(self._ocr_state())
@@ -373,6 +378,7 @@ class SettingsDialog(QDialog):
         settings.use_layer_shell = self.layer_shell_box.isChecked()
         settings.selection_mode = str(self.mode_combo.currentData())
         settings.lasso_mask = self.lasso_mask_box.isChecked()
+        settings.all_screens = self.all_screens_box.isChecked()
         settings.confirm_selection = self.confirm_box.isChecked()
         settings.ocr_enabled = self.ocr_box.isChecked()
         if self.ocr_box.isChecked():

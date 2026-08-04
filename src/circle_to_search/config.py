@@ -353,6 +353,19 @@ class AppSettings:
         self._settings.setValue("lasso_mask", bool(value))
 
     @property
+    def all_screens(self) -> bool:
+        """Open an overlay on every monitor instead of only the pointer's.
+
+        Off by default: on one screen it changes nothing, and on several it
+        captures every one of them on every trigger.
+        """
+        return self._get_bool("all_screens", False)
+
+    @all_screens.setter
+    def all_screens(self, value: bool) -> None:
+        self._settings.setValue("all_screens", bool(value))
+
+    @property
     def confirm_selection(self) -> bool:
         """Stop after the drag and wait for Enter / C / S / Esc.
 

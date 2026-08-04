@@ -324,7 +324,7 @@ rect_overlay.render(QPixmap(rect_overlay.size()))
 check("hint paints", True)
 
 rect_overlay._has_selection = True
-rect_overlay._origin = QPoint(100, 100)
+rect_overlay._anchor = QPoint(100, 100)
 rect_overlay._current = QPoint(300, 250)
 check("rect selection", rect_overlay._selection_rect() == QRect(100, 100, 200, 150))
 check("rect has no polygon", rect_overlay.selection_polygon().count() == 0)
@@ -402,7 +402,7 @@ offset_overlay = make_overlay(MODE_RECTANGLE)
 # The window really is short in this situation — that is why it has an offset.
 offset_overlay.resize(screen.geometry().width(), screen.geometry().height() - 35)
 offset_overlay._has_selection = True
-offset_overlay._origin = QPoint(100, 100)
+offset_overlay._anchor = QPoint(100, 100)
 offset_overlay._current = QPoint(300, 250)
 check("no offset by default", offset_overlay._selection_rect() == QRect(100, 100, 200, 150))
 
@@ -724,6 +724,138 @@ overlay._reset_selection()
 drag(overlay, (500, 500), (503, 502))
 check("a stray click selects nothing",
       not overlay._confirming and results == {}, str(results))
+
+# --- selecting across more than one screen ---------------------------------
+from circle_to_search.multiscreen import (  # noqa: E402
+    OverlayGroup,
+    ScreenShot,
+    VirtualDesktop,
+)
+
+# Two screens side by side at different scales — the case that makes stitching
+# more than a paste: 1920x1080 logical at 200 %, and 1280x1024 at 100 %.
+left_metrics = hidpi.measure_screen("eDP-1", QRect(0, 0, 1920, 1080), (3840, 2160))
+right_metrics = hidpi.measure_screen("HDMI-A-1", QRect(1920, 0, 1280, 1024), (1280, 1024))
+left_shot = ScreenShot(left_metrics, Image.new("RGB", (3840, 2160), (255, 0, 0)))
+right_shot = ScreenShot(right_metrics, Image.new("RGB", (1280, 1024), (0, 0, 255)))
+desktop = VirtualDesktop([left_shot, right_shot])
+
+check("desktop bounds", desktop.bounds == QRect(0, 0, 3200, 1080), str(desktop.bounds))
+check("the sharper screen sets the scale", desktop.scale_for(QRect(0, 0, 3200, 1080)) == 2.0,
+      str(desktop.scale_for(QRect(0, 0, 3200, 1080))))
+check("one screen keeps its own scale", desktop.scale_for(QRect(2000, 0, 100, 100)) == 1.0,
+      str(desktop.scale_for(QRect(2000, 0, 100, 100))))
+check("screen lookup", desktop.screen_at(QPoint(2000, 10)).name == "HDMI-A-1")
+check("no screen out there", desktop.screen_at(QPoint(9000, 9000)) is None)
+
+# A crop wholly inside the left screen must come out exactly as it would have
+# without any of this: same size, same pixels.
+inside = desktop.compose(QRect(100, 100, 200, 150))
+check("a single-screen crop keeps its scale", inside.size == (400, 300), str(inside.size))
+check("and its pixels", inside.getpixel((10, 10)) == (255, 0, 0), str(inside.getpixel((10, 10))))
+
+# A crop straddling the seam: 100 logical px from each side, composed at the
+# higher scale, so 400 physical px wide with the seam exactly in the middle.
+across = desktop.compose(QRect(1820, 200, 200, 100))
+check("a spanning crop is composed", across.size == (400, 200), str(across.size))
+check("the left half comes from the left screen",
+      across.getpixel((10, 10)) == (255, 0, 0), str(across.getpixel((10, 10))))
+check("the right half comes from the right screen",
+      across.getpixel((390, 10)) == (0, 0, 255), str(across.getpixel((390, 10))))
+
+# The right screen is shorter: below its bottom edge there is nothing to show.
+gapped = VirtualDesktop([
+    left_shot,
+    ScreenShot(
+        hidpi.measure_screen("HDMI-A-1", QRect(1920, 0, 1280, 400), (1280, 400)),
+        Image.new("RGB", (1280, 400), (0, 0, 255)),
+    ),
+])
+gap = gapped.compose(QRect(1900, 300, 200, 200))
+check("a gap in the layout is black", gap.getpixel((390, 390)) == (0, 0, 0),
+      str(gap.getpixel((390, 390))))
+check("and the screen part is not", gap.getpixel((10, 10)) == (255, 0, 0),
+      str(gap.getpixel((10, 10))))
+
+# Selections that miss every screen are refused rather than silently empty.
+try:
+    desktop.compose(QRect(9000, 9000, 100, 100))
+except ValueError as exc:
+    check("an off-desktop selection is refused", "does not overlap" in str(exc), str(exc))
+else:
+    check("an off-desktop selection is refused", False)
+try:
+    VirtualDesktop([])
+except ValueError:
+    check("an empty desktop is refused", True)
+else:
+    check("an empty desktop is refused", False)
+
+
+def group_overlay(shot: ScreenShot, bounds: QRect) -> SelectionOverlay:
+    overlay = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(Image.new("RGB", (40, 40), "green"))),
+        shot.metrics,
+        screen,
+        dim_percent=40,
+        mode=MODE_RECTANGLE,
+        confirm=True,
+        group_bounds=bounds,
+    )
+    overlay.resize(shot.geometry.size())
+    return overlay
+
+
+bounds = desktop.bounds
+left_overlay = group_overlay(left_shot, bounds)
+right_overlay = group_overlay(right_shot, bounds)
+group = OverlayGroup([left_overlay, right_overlay])
+committed: list[tuple] = []
+group.committed.connect(lambda r, a: committed.append((r, a)))
+group_cancelled: list[bool] = []
+group.cancelled.connect(lambda: group_cancelled.append(True))
+
+check("group members know it", left_overlay.in_group and right_overlay.in_group)
+
+# A drag on the left screen that runs past its right edge: Wayland keeps
+# sending the motion to the surface the button went down on, with coordinates
+# beyond the edge, so the selection has to be allowed to grow past 1920.
+drag(left_overlay, (1800, 200), (2020, 300))
+check("a drag may cross the edge",
+      left_overlay._selection_rect() == QRect(1800, 200, 220, 100),
+      str(left_overlay._selection_rect()))
+
+# ...and the neighbour draws its share of it, in its own coordinates.
+check("the neighbour shows the shared part",
+      right_overlay._selection_rect() == QRect(0, 200, 100, 100),
+      str(right_overlay._selection_rect()))
+right_overlay.render(QPixmap(right_overlay.size()))
+check("the neighbour paints it", True)
+check("but claims no selection of its own", not right_overlay._has_selection)
+
+press_key(left_overlay, Qt.Key.Key_Return)
+check("the group commits once", len(committed) == 1, str(committed))
+check("in global coordinates", committed[0][0] == QRect(1800, 200, 220, 100),
+      str(committed[0][0]))
+check("with the action", committed[0][1] == ACTION_SEARCH, str(committed[0][1]))
+check("and does not also cancel", not group_cancelled, str(group_cancelled))
+
+# The selection still cannot leave the desktop altogether.
+left_overlay2 = group_overlay(left_shot, bounds)
+right_overlay2 = group_overlay(right_shot, bounds)
+group2 = OverlayGroup([left_overlay2, right_overlay2])
+drag(left_overlay2, (1800, 200), (5000, 300))
+check("clamped to the virtual desktop",
+      left_overlay2._selection_rect() == QRect(1800, 200, 1400, 100),
+      str(left_overlay2._selection_rect()))
+
+# Cancelling anywhere cancels the whole group, exactly once.
+cancels: list[bool] = []
+group2.cancelled.connect(lambda: cancels.append(True))
+press_key(right_overlay2, Qt.Key.Key_Escape)
+check("cancelling one cancels the group", len(cancels) == 1, str(cancels))
+press_key(left_overlay2, Qt.Key.Key_Escape)
+check("and only once", len(cancels) == 1, str(cancels))
 
 # --- optional text recognition ---------------------------------------------
 import tempfile  # noqa: E402

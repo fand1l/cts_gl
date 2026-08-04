@@ -146,6 +146,13 @@ _EN: dict[str, str] = {
     ),
     "settings.ocr.found": "tesseract found, languages: {languages}",
     "settings.ocr.missing": "tesseract is not installed",
+    "settings.all_screens": "Show the overlay on every screen",
+    "settings.all_screens.hint": (
+        "Off by default. With it on, all monitors are captured and dimmed at "
+        "once, so you can select on whichever one you like — and a drag that "
+        "runs past an edge carries on onto the next screen, if the compositor "
+        "keeps sending the movement after the button went down."
+    ),
     "settings.confirm": "Check the selection before sending it",
     "settings.confirm.hint": (
         "The drag only marks the area out. Enter searches, C copies, S saves to "
@@ -376,6 +383,13 @@ _UK: dict[str, str] = {
     ),
     "settings.ocr.found": "tesseract знайдено, мови: {languages}",
     "settings.ocr.missing": "tesseract не встановлено",
+    "settings.all_screens": "Показувати оверлей на всіх екранах",
+    "settings.all_screens.hint": (
+        "Вимкнено за замовчуванням. Якщо увімкнути, знімок робиться з усіх "
+        "моніторів одразу, тож виділяти можна на будь-якому — а виділення, "
+        "що виходить за край, продовжиться на сусідньому екрані, якщо "
+        "композитор і далі надсилає рух після натискання кнопки."
+    ),
     "settings.confirm": "Перевіряти виділення перед надсиланням",
     "settings.confirm.hint": (
         "Перетягування лише окреслює область. Enter — пошук, C — копіювати, "

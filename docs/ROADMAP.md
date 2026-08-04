@@ -58,11 +58,18 @@ Done with the `tesseract` binary rather than a Python OCR package: no new
 dependency, nothing uploaded, no key.  `T` in the overlay; `Suggests:` in the
 spec file, so it is never pulled in by default.
 
-## 5. Overlay on every screen at once  ← next
+## 5. Overlay on every screen at once  ✅
 
 * A selection that spans two monitors.  A setting, off by default.
 
-## 6. Recent captures in the tray
+One overlay per screen (Wayland has no surface spanning two outputs), agreeing
+about one rectangle in global logical coordinates, and `VirtualDesktop` stitches
+the crop back out of the separate screenshots at the highest scale involved.
+Crossing an edge depends on the compositor continuing to send motion to the
+surface that holds the implicit grab; where it does not, the drag stops at the
+edge and the rest still works.
+
+## 6. Recent captures in the tray  ← next
 
 * The last five crops: search again, copy, or save without redoing the gesture.
 

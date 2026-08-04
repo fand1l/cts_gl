@@ -257,6 +257,7 @@ Application-only settings live in
 |---|---|---|
 | `selection_mode` | `lasso` | `lasso` (freehand) or `rectangle`; *Shift* swaps it for one drag |
 | `lasso_mask` | `false` | Keep only the inside of the loop and whiten the rest — off, because the loop is there to set the bounds |
+| `all_screens` | `false` | Open an overlay on every monitor at once (see below) |
 | `confirm_selection` | `true` | Wait for a key instead of sending the moment the button is released |
 | `save_directory` | *(Pictures)* | Where **S** writes |
 | `ocr_enabled` | `false` | Let **T** read text (see below) |
@@ -306,6 +307,34 @@ on. The selection simply becomes the rectangle you adjusted.
 
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
+
+### Every screen at once
+
+By default the overlay opens on the monitor the pointer was on. Settings →
+General → **Show the overlay on every screen** captures and dims all of them
+instead, so you can select on whichever one you like without shaking there
+first — and a drag that runs past an edge carries on onto the next screen.
+
+It is off by default because on a single monitor it changes nothing while
+costing an extra capture, and on three monitors it is three captures per
+trigger.
+
+How it works, and where it can disappoint:
+
+* There is no such thing as one Wayland surface spanning two outputs, so this
+  is one full-screen overlay per screen. They agree about a single rectangle
+  in **global logical coordinates**; the one you started the drag on owns it,
+  the others draw their share, and the seam falls exactly on the screen edge.
+* Crossing an edge relies on the compositor's implicit pointer grab: the
+  surface where the button went down keeps receiving motion, with coordinates
+  that run past its own bounds. KWin does this. If a compositor does not, the
+  drag simply stops at the edge and everything else still works.
+* The crop is stitched back together at the **highest scale factor involved**,
+  so a 4K panel is not downsampled to match the 1080p one beside it; the part
+  from the coarser screen is upscaled instead. In an L-shaped layout the area
+  no screen covers comes out black, because that is what is there.
+* The KWin script promotes every overlay it finds, not just the first, or the
+  ones on the other screens would sit under their panels.
 
 ### Reading the text instead of searching for the picture
 

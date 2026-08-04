@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.5.0";
+var SCRIPT_VERSION = "1.6.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -890,7 +890,7 @@ function describeGeometry(window) {
     }
 }
 
-function promote(window, verbose) {
+function promote(window, verbose, report) {
     var geometry = outputFor(window);
 
     /* The one that matters goes first, and none of these can stop the others. */
@@ -921,7 +921,13 @@ function promote(window, verbose) {
             + " geometry=" + describeGeometry(window) + ")");
     }
 
-    reportOverlayGeometry(window);
+    /* With "all screens" there is one overlay per output.  They all need
+     * promoting, but only one position can be reported: the daemon uses it to
+     * correct a single window that KWin left inside the work area, and a stream
+     * of different geometries would just make it shift the drawing at random. */
+    if (report) {
+        reportOverlayGeometry(window);
+    }
 }
 
 /*
@@ -973,16 +979,17 @@ function reportOverlayGeometry(window) {
  */
 function checkForOverlay() {
     var windows = allWindows();
-    var found = false;
+    var found = 0;
     for (var i = 0; i < windows.length; i += 1) {
         if (isOverlay(windows[i])) {
-            found = true;
-            promote(windows[i], !state.overlayPromoted);
+            found += 1;
+            /* Every one of them: with "all screens" selected there is an
+             * overlay per output, and an unpromoted one sits under its panel. */
+            promote(windows[i], !state.overlayPromoted && found === 1, found === 1);
             state.overlayPromoted = true;
-            break;
         }
     }
-    if (!found && state.overlayPromoted) {
+    if (found === 0 && state.overlayPromoted) {
         /* The overlay closed. */
         stopOverlayWatch();
         return;

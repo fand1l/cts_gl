@@ -128,6 +128,11 @@ class SelectionOverlay(QWidget):
     text_requested = pyqtSignal(QRect, QPolygon)
     cancelled = pyqtSignal()
 
+    #: Group mode only (see multiscreen.py): the selection in *global logical*
+    #: pixels, which is the only space several overlays can agree about.
+    committed = pyqtSignal(QRect, str)
+    preview_changed = pyqtSignal(QRect)
+
     def __init__(
         self,
         pixmap: QPixmap,
@@ -137,6 +142,7 @@ class SelectionOverlay(QWidget):
         mode: str = MODE_LASSO,
         mask_outside: bool = False,
         confirm: bool = True,
+        group_bounds: QRect | None = None,
         parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
@@ -164,7 +170,9 @@ class SelectionOverlay(QWidget):
         #: False until the first press: without it the selection would be drawn
         #: from the widget origin to the pointer before anything was clicked.
         self._has_selection = False
-        self._origin = QPoint()
+        #: The point the drag started from, in widget coordinates.  Not to be
+        #: confused with _origin below, which is where this screen starts.
+        self._anchor = QPoint()
         self._current = QPoint()
         self._points: list[QPoint] = []
 
@@ -178,6 +186,16 @@ class SelectionOverlay(QWidget):
         self._grab: str | None = None
         self._grab_origin = QPoint()
         self._grab_box = QRect()
+
+        #: Group mode.  ``_group_bounds`` is the whole virtual desktop in global
+        #: logical pixels; a selection may reach anywhere inside it instead of
+        #: being clamped to this one screen.  ``_preview`` is the part of another
+        #: overlay's selection that falls on this screen, so all of them draw the
+        #: same rectangle.
+        self._group_bounds = QRect(group_bounds) if group_bounds is not None else QRect()
+        self._origin = metrics.logical_geometry.topLeft()
+        self._preview = QRect()
+        self._deactivation_guard: Callable[[], bool] | None = None
 
         self.setWindowTitle(OVERLAY_WINDOW_TITLE)
         self.setObjectName("CircleToSearchOverlay")
@@ -234,6 +252,30 @@ class SelectionOverlay(QWidget):
     def _enable_deactivation(self) -> None:
         self._accept_deactivation = True
 
+    @property
+    def in_group(self) -> bool:
+        """True when this overlay is one of several covering all screens."""
+        return not self._group_bounds.isNull()
+
+    def set_deactivation_guard(self, guard: Callable[[], bool] | None) -> None:
+        """Let the group veto "the overlay lost focus, cancel".
+
+        Focus moving from one overlay to its neighbour is not the user walking
+        away from the selection, and without this the group would close itself
+        the first time the pointer crossed an edge.
+        """
+        self._deactivation_guard = guard
+
+    def set_preview(self, rect: QRect) -> None:
+        """Draw the part of another overlay's selection that lands here."""
+        if self._has_selection:
+            return
+        local = rect.translated(-self._origin) if not rect.isNull() else QRect()
+        if local == self._preview:
+            return
+        self._preview = local
+        self.update()
+
     def covers_screen(self) -> bool:
         """True when the window really did get the whole output."""
         return self.size() == self._target_screen.geometry().size()
@@ -284,7 +326,11 @@ class SelectionOverlay(QWidget):
         self.raise_()
         self.activateWindow()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
-        self.grabKeyboard()
+        if not self.in_group:
+            # One keyboard grab per group would be one too many: the overlays
+            # would fight over it and only the last one mapped would ever see a
+            # key press.
+            self.grabKeyboard()
         log.debug(
             "overlay mapped on %s at %s in %s mode",
             self._target_screen.name(),
@@ -364,7 +410,7 @@ class SelectionOverlay(QWidget):
         painter.translate(-self._offset)
         painter.drawPixmap(0, 0, self._dimmed)
 
-        if not self._has_selection:
+        if not self._has_selection and self._preview.isNull():
             self._draw_hint(painter)
             painter.end()
             return
@@ -391,7 +437,12 @@ class SelectionOverlay(QWidget):
         pen.setCosmetic(True)
         painter.setBrush(Qt.BrushStyle.NoBrush)
 
-        if self._drag_mode == MODE_LASSO and not self._mask_outside and not self._box_edited:
+        if (
+            self._has_selection
+            and self._drag_mode == MODE_LASSO
+            and not self._mask_outside
+            and not self._box_edited
+        ):
             # Show both: the stroke follows the hand, the dashed box is the crop.
             outline = QColor(self._accent)
             outline.setAlpha(150)
@@ -405,7 +456,7 @@ class SelectionOverlay(QWidget):
         painter.setPen(pen)
         painter.drawPath(self._selection_path())
 
-        if self._confirming:
+        if self._confirming and self._has_selection:
             self._draw_handles(painter)
             self._draw_confirm_hint(painter)
         self._draw_size_label(painter, selection)
@@ -423,7 +474,12 @@ class SelectionOverlay(QWidget):
     def _selection_path(self) -> QPainterPath:
         """The selection outline: a polygon for the lasso, a rect otherwise."""
         path = QPainterPath()
-        if self._drag_mode == MODE_LASSO and len(self._points) >= 3 and not self._box_edited:
+        if (
+            self._has_selection
+            and self._drag_mode == MODE_LASSO
+            and len(self._points) >= 3
+            and not self._box_edited
+        ):
             # QPainterPath only takes floating point coordinates in PyQt6, and
             # the painter draws in screen coordinates.
             points = [point + self._offset for point in self._points]
@@ -537,10 +593,11 @@ class SelectionOverlay(QWidget):
         position = event.position().toPoint()
         self._dragging = True
         self._has_selection = True
-        self._origin = position
+        self._preview = QRect()
+        self._anchor = position
         self._current = position
         self._points = [position]
-        self.update()
+        self._changed()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         position = event.position().toPoint()
@@ -565,7 +622,7 @@ class SelectionOverlay(QWidget):
                 or abs(position.y() - last.y()) >= _LASSO_MIN_STEP
             ):
                 self._points.append(position)
-        self.update()
+        self._changed()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
@@ -607,6 +664,10 @@ class SelectionOverlay(QWidget):
             polygon.count(),
         )
         if not self._confirm:
+            if self.in_group:
+                global_box = selection.translated(self._origin)
+                self._finish(lambda: self.committed.emit(global_box, ACTION_SEARCH))
+                return
             self._finish(lambda: self.selected.emit(physical, polygon))
             return
 
@@ -616,7 +677,7 @@ class SelectionOverlay(QWidget):
         self._box = selection
         self._box_edited = False
         self.setCursor(Qt.CursorShape.CrossCursor)
-        self.update()
+        self._changed()
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         key = event.key()
@@ -671,10 +732,25 @@ class SelectionOverlay(QWidget):
             and self._grab is None
             and not self._finished
         ):
+            if self._deactivation_guard is not None:
+                # Focus crossing from one overlay of a group to the next is not
+                # the user walking away.  Ask again in a moment, once the other
+                # window has had time to become the active one.
+                QTimer.singleShot(200, self._cancel_if_really_deactivated)
+                return
             log.debug("overlay lost focus, cancelling")
             self._cancel()
             return
         super().changeEvent(event)
+
+    def _cancel_if_really_deactivated(self) -> None:
+        if self._finished or self.isActiveWindow() or self._dragging:
+            return
+        guard = self._deactivation_guard
+        if guard is not None and not guard():
+            return
+        log.debug("the whole overlay group lost focus, cancelling")
+        self._cancel()
 
     def closeEvent(self, event: QCloseEvent) -> None:
         if not self._finished:
@@ -695,6 +771,27 @@ class SelectionOverlay(QWidget):
             return QPolygon()
         return QPolygon(self._points).translated(self._offset)
 
+    def _changed(self) -> None:
+        """Repaint, and in a group tell the other overlays what to draw."""
+        self.update()
+        if self.in_group:
+            rect = self._selection_rect()
+            self.preview_changed.emit(
+                rect.translated(self._origin) if not rect.isEmpty() else QRect()
+            )
+
+    def _clamp_bounds(self) -> QRect:
+        """Where a selection may reach, in this screen's coordinates.
+
+        One screen on its own: the window.  In a group: the whole virtual
+        desktop, so a drag can carry on past the edge onto the next monitor —
+        Wayland keeps sending the motion to the surface the button went down on,
+        with coordinates that simply run negative or past the far side.
+        """
+        if self.in_group:
+            return self._group_bounds.translated(-self._origin)
+        return self.rect().translated(self._offset)
+
     def _selection_rect(self) -> QRect:
         """Selection bounding box in widget-logical pixels.
 
@@ -708,12 +805,17 @@ class SelectionOverlay(QWidget):
         size label would disagree with the crop the user asked for.
         """
         if not self._has_selection:
+            # A group member showing someone else's selection: only the part
+            # that lands on this screen, so the seam falls exactly on the edge.
+            if not self._preview.isNull():
+                return self._preview.intersected(self.rect().translated(self._offset))
             return QRect()
         if self._confirming:
             return self._box
 
         # Points come from mouse events, i.e. widget coordinates; the crop and
         # the drawing both work in screen coordinates.
+        bounds = self._clamp_bounds()
         if self._drag_mode == MODE_LASSO:
             if len(self._points) < 2:
                 return QRect()
@@ -722,14 +824,14 @@ class SelectionOverlay(QWidget):
             left, right = min(xs), max(xs)
             top, bottom = min(ys), max(ys)
             rect = QRect(left, top, right - left, bottom - top)
-            return rect.intersected(self.rect()).translated(self._offset)
+            return rect.translated(self._offset).intersected(bounds)
 
-        left = min(self._origin.x(), self._current.x())
-        top = min(self._origin.y(), self._current.y())
-        width = abs(self._current.x() - self._origin.x())
-        height = abs(self._current.y() - self._origin.y())
+        left = min(self._anchor.x(), self._current.x())
+        top = min(self._anchor.y(), self._current.y())
+        width = abs(self._current.x() - self._anchor.x())
+        height = abs(self._current.y() - self._anchor.y())
         rect = QRect(left, top, width, height)
-        return rect.intersected(self.rect()).translated(self._offset)
+        return rect.translated(self._offset).intersected(bounds)
 
     # --------------------------------------------------- adjusting the box
 
@@ -775,7 +877,7 @@ class SelectionOverlay(QWidget):
 
     def _apply_box(self, box: QRect, *, edited: bool) -> None:
         """Clamp a proposed box to the screen and keep it usable."""
-        bounds = self.rect().translated(self._offset)
+        bounds = self._clamp_bounds()
         box = box.normalized()
         if box.width() < MIN_SELECTION:
             box.setWidth(MIN_SELECTION)
@@ -799,7 +901,7 @@ class SelectionOverlay(QWidget):
         self._box = box
         if edited:
             self._box_edited = True
-        self.update()
+        self._changed()
 
     def _commit(self, action: str) -> None:
         """Send the confirmed selection off as whatever the user asked for."""
@@ -816,6 +918,14 @@ class SelectionOverlay(QWidget):
             physical.x(),
             physical.y(),
         )
+        if self.in_group:
+            # The app cannot use a per-screen crop box here: the selection may
+            # cover parts of two screenshots at two different scales, so it is
+            # handed over in global logical pixels and stitched afterwards.
+            global_box = self._box.translated(self._origin)
+            self._finish(lambda: self.committed.emit(global_box, action))
+            return
+
         signals = {
             ACTION_COPY: self.copy_requested,
             ACTION_SAVE: self.save_requested,
@@ -830,10 +940,10 @@ class SelectionOverlay(QWidget):
         self._box = QRect()
         self._box_edited = False
         self._grab = None
-        self._origin = QPoint()
+        self._anchor = QPoint()
         self._points = []
         self.setCursor(Qt.CursorShape.CrossCursor)
-        self.update()
+        self._changed()
 
     def _cancel(self) -> None:
         self._finish(self.cancelled.emit)
