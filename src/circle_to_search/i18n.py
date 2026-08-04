@@ -69,6 +69,24 @@ _EN: dict[str, str] = {
     "settings.poll": "Cursor polling interval (ms):",
     "settings.cooldown": "Cooldown after a trigger (ms):",
     "settings.step": "Movement noise floor (px):",
+    "settings.speed": "Minimum swing speed (px/s):",
+    "settings.speed.hint": (
+        "The strongest guard against false positives: drawing and dragging are "
+        "slow, a deliberate shake is a flick. Raise it if the overlay still "
+        "appears while you work; lower it if your shake is not picked up."
+    ),
+    "settings.curvature": "Maximum swing curvature (%):",
+    "settings.curvature.hint": "100 % is a perfectly straight swing; a drawn stroke curves.",
+    "settings.reversal": "Turn-back tolerance (°):",
+    "settings.reversal.hint": (
+        "How far from a full 180° the pointer may turn and still count as coming "
+        "back along the same line. Smaller is stricter."
+    ),
+    "settings.debug": "Log why each swing was accepted or rejected",
+    "settings.debug.hint": (
+        "journalctl --user -u plasma-kwin_wayland -f | grep circle — and "
+        "tools/record-trace.sh turns a real misfire into a replayable file."
+    ),
     "settings.shortcut": "Shortcut:",
     "settings.shortcut.hint": (
         "The KWin script registers this sequence the first time it is loaded. "
@@ -191,6 +209,25 @@ _UK: dict[str, str] = {
     "settings.poll": "Інтервал опитування курсора (мс):",
     "settings.cooldown": "Пауза після спрацювання (мс):",
     "settings.step": "Поріг шуму руху (px):",
+    "settings.speed": "Мінімальна швидкість маху (px/с):",
+    "settings.speed.hint": (
+        "Найсильніший захист від хибних спрацювань: малювання й перетягування "
+        "повільні, а свідоме трясіння — це різкий рух. Підвищуйте, якщо оверлей "
+        "усе одно вилазить під час роботи; знижуйте, якщо ваш жест не ловиться."
+    ),
+    "settings.curvature": "Максимальна кривина маху (%):",
+    "settings.curvature.hint": "100 % — ідеально прямий мах; намальована лінія завжди вигинається.",
+    "settings.reversal": "Допуск на розворот (°):",
+    "settings.reversal.hint": (
+        "Наскільки рух може відхилятися від повних 180°, щоб вважатися поверненням "
+        "тією ж лінією. Менше — суворіше."
+    ),
+    "settings.debug": "Записувати в журнал, чому мах зараховано або відхилено",
+    "settings.debug.hint": (
+        "journalctl --user -u plasma-kwin_wayland -f | grep circle — а "
+        "tools/record-trace.sh перетворює реальне хибне спрацювання на файл для "
+        "повторного відтворення."
+    ),
     "settings.shortcut": "Хоткей:",
     "settings.shortcut.hint": (
         "KWin-скрипт реєструє цю комбінацію при першому завантаженні. Якщо ви вже "

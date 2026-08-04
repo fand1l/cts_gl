@@ -205,13 +205,22 @@ Management → KWin Scripts → Circle to Search ⚙.
 | `reversals` | `2` | Direction reversals needed to fire |
 | `windowMs` | `600` | They must all happen inside this window |
 | `minAmplitudePx` | `150` | Minimum length of one swing |
+| `minSpeedPxPerSec` | `700` | **A swing slower than this is drawing, not shaking** |
+| `maxCurvaturePct` | `140` | How much a swing may curve (100 % = a straight line) |
 | `angleTolerance` | `30` | Allowed deviation from 45° |
+| `reversalTolerance` | `40` | Allowed deviation from a full 180° turn-back |
 | `pollMs` | `50` | Cursor polling interval while moving |
 | `cooldownMs` | `1500` | Ignore further shakes for this long |
 | `minStepPx` | `6` | Movement below this is noise |
 | `glow` | `true` | Light the cursor up once the gesture is being recognised |
 | `disableInFullscreen` | `true` | Ignore the shake while a full screen window has the focus (games, video). The global shortcut still works. |
+| `debug` | `false` | Log why each swing was accepted or rejected |
+| `trace` | `false` | Log every cursor sample, for `tools/record-trace.sh` |
 | `shortcut` | `Meta+Shift+L` | Fallback global shortcut |
+
+Changing any of them takes effect on the running session: the script re-reads
+its settings on `options.configChanged` and, as a safety net, at least every
+four seconds.
 
 Application-only settings live in
 `~/.config/circle-to-search/circle-to-search.conf`:
@@ -246,6 +255,7 @@ unless you pick one in Settings.
 ruff check src tests               # lint (clean)
 python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, raw decode, overlay, lasso
 node    tests/test_detection.js    # the real main.js against a fake KWin API
+node    tests/replay-trace.js FILE # replay a recorded cursor trace
 python3 tests/test_browser_upload.py   # the launcher page, in a real Chromium
 ```
 
@@ -294,15 +304,69 @@ Management → KWin Scripts → *KWin Script Console* (or run `kwin-script-conso
 `print()` output goes to the console and to the KWin journal. Offline,
 `node tests/test_detection.js` replays recorded gestures against the same file.
 
+### What counts as a shake
+
+Counting direction reversals is not enough — dragging a window, scribbling,
+resizing from a corner and hunting through a menu all reverse direction
+constantly. A swing is only accepted when **all** of these hold, and a swing
+that fails any of them breaks the chain:
+
+| Test | Why it separates a shake from ordinary work |
+|---|---|
+| **speed** ≥ `minSpeedPxPerSec` | Drawing and dragging happen at 200–400 px/s; a deliberate shake is a flick at 1500+ |
+| **straightness** ≤ `maxCurvaturePct` | A swing is a straight line; a drawn stroke curves |
+| **turn-back** within `reversalTolerance` of 180° | Consecutive swings must return along the same line — "both axes changed sign" also accepts a 90° corner |
+| **symmetry** | Swings must be of comparable length, not one long and one short |
+| **containment** | The whole gesture stays in one place instead of travelling across the screen |
+| **diagonal** within `angleTolerance` of 45° | The gesture is deliberately not a horizontal or vertical wiggle |
+
+Tick **Log why each swing was accepted or rejected** in the settings and watch:
+
+```
+journalctl --user -u plasma-kwin_wayland -f | grep circle
+  swing len=283 speed=2357 curve=1 diag=0 ok
+  turn=180 ratio=1 -> reversal
+  swing len=96 speed=310 curve=1.8 diag=12 rejected:slow
+```
+
+The rejection reason names the test that said no, which is what to loosen.
+
+### Turning a misfire into a test
+
+If it fires while you are drawing — or refuses to fire when you mean it —
+record the actual movement and replay it through the same detector:
+
+```bash
+./tools/record-trace.sh drawing-false-positive.json   # redo the movement, Ctrl-C
+node tests/replay-trace.js drawing-false-positive.json
+```
+
+The replay prints the per-swing diagnostics and whether the overlay would have
+opened. Settings can be overridden to see what a change would have done to that
+exact movement, without touching your session:
+
+```bash
+node tests/replay-trace.js drawing-false-positive.json minSpeedPxPerSec=1000
+```
+
+A trace is only pointer coordinates and timestamps, so it can go straight into
+`tests/` as a regression case. `tests/test_detection.js` already replays
+synthetic versions of the movements that used to misfire: wavy drawing,
+scribbling, circles, box corners, corner-resizing, window dragging, a flick
+across the screen and back, and half a shake followed by a drawn stroke.
+
 ### The trigger fires too often / never fires
 
 Raise or lower the thresholds in Settings → Detection:
 
-* **too often** — increase `minAmplitudePx` (200–250), lower `angleTolerance`
-  (15–20°), increase `reversals` to 3, or shorten `windowMs` to 400.
-* **never** — lower `minAmplitudePx` to 80–100, raise `angleTolerance` to 40°,
-  lengthen `windowMs` to 900, and make sure the movement really is diagonal:
-  both `|dx|` and `|dy|` must exceed `minStepPx` on every sample.
+* **too often** — raise `minSpeedPxPerSec` first (1000–1400); it is the test
+  that separates intent from work. Then `minAmplitudePx` (200–250), a lower
+  `angleTolerance` (15–20°), `reversals` = 3, or a shorter `windowMs` (400).
+* **never** — turn on the swing log above and read the reason. `slow` →
+  lower `minSpeedPxPerSec` (300–500) *and* raise `windowMs` (a slower shake
+  needs a longer window); `curved` → raise `maxCurvaturePct` to 180;
+  `off-diagonal` → raise `angleTolerance` to 40°; `short` → lower
+  `minAmplitudePx` to 80–100.
 * A HiDPI screen makes swings *shorter in logical pixels* than they feel —
   `minAmplitudePx` is in logical px, so 150 logical px on a 200 %-scaled 4K
   panel is 300 physical px of travel.

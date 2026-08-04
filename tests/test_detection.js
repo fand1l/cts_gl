@@ -49,6 +49,9 @@ function makeSandbox(config, options) {
             activeWindow: active,
         },
         readConfig: (key, fallback) => (key in config ? config[key] : fallback),
+        /* `config` is the same object the test holds, so a test can change a
+         * setting while the script is running — which is exactly what the tray
+         * checkbox does through kwriteconfig6 + reconfigure. */
         callDBus: (...args) => calls.push(args),
         registerShortcut: () => {},
         print: () => {},
@@ -67,6 +70,7 @@ function makeSandbox(config, options) {
         sandbox,
         calls,
         timers,
+        config,
         setNow: (value) => { now = value; },
         getNow: () => now,
         setFullScreen: (value) => { active.fullScreen = value; },
@@ -156,6 +160,91 @@ function slowDrift(t0, steps, dt) {
     for (let i = 1; i <= steps; i += 1) {
         path.push({ x: 400 + i * 2, y: 400 + i * 2, t: t0 + i * dt });
     }
+    return path;
+}
+
+/* ---- movements that must NOT be mistaken for a shake --------------------- */
+
+/* Drawing: a wavy, slow, curved line. */
+function drawing(t0, points, dt) {
+    const path = [];
+    for (let i = 1; i <= points; i += 1) {
+        path.push({
+            x: Math.round(600 + i * 6 + 40 * Math.sin(i / 2)),
+            y: Math.round(500 + 40 * Math.cos(i / 2)),
+            t: t0 + i * dt,
+        });
+    }
+    return path;
+}
+
+/* Scribbling: fast but curly and going nowhere in particular. */
+function scribble(t0, points, dt) {
+    const path = [];
+    let seed = 7;
+    const random = () => {
+        seed = (seed * 1103515245 + 12345) % 2147483648;
+        return seed / 2147483648;
+    };
+    let x = 900;
+    let y = 500;
+    for (let i = 1; i <= points; i += 1) {
+        x += (random() - 0.5) * 120;
+        y += (random() - 0.5) * 120;
+        path.push({ x: Math.round(x), y: Math.round(y), t: t0 + i * dt });
+    }
+    return path;
+}
+
+/* Dragging a window diagonally down and back up, at a human drag speed. */
+function slowDrag(t0, swings, amplitude, dt, stepsPerSwing) {
+    return shake(swings, amplitude, t0, stepsPerSwing, dt);
+}
+
+/* Drawing a circle: constant reversals on each axis, never antiparallel. */
+function circle(t0, points, radius, dt) {
+    const path = [];
+    for (let i = 1; i <= points; i += 1) {
+        const angle = (i / points) * Math.PI * 2 * 2;
+        path.push({
+            x: Math.round(800 + radius * Math.cos(angle)),
+            y: Math.round(500 + radius * Math.sin(angle)),
+            t: t0 + i * dt,
+        });
+    }
+    return path;
+}
+
+/* Resizing from a corner: diagonal, back and forth, but slow and short. */
+function resizeCorner(t0, swings, dt) {
+    return shake(swings, 90, t0, 6, dt);
+}
+
+/* A right angle, as in drawing a box corner: 90° turns, not reversals. */
+function boxCorners(t0, dt) {
+    let path = [{ x: 500, y: 500, t: t0 }];
+    const corners = [
+        { x: 800, y: 500 },
+        { x: 800, y: 800 },
+        { x: 500, y: 800 },
+        { x: 500, y: 500 },
+    ];
+    let from = { x: 500, y: 500 };
+    let time = t0;
+    for (const corner of corners) {
+        const leg = swing(from, corner, time, 5, dt);
+        path = path.concat(leg);
+        from = corner;
+        time = leg[leg.length - 1].t;
+    }
+    return path;
+}
+
+/* Flicking the pointer to a far corner and back — two swings, but travelling. */
+function travelAndBack(t0, dt) {
+    let path = swing({ x: 100, y: 100 }, { x: 1400, y: 1400 }, t0, 6, dt);
+    const last = path[path.length - 1];
+    path = path.concat(swing({ x: 1400, y: 1400 }, { x: 200, y: 200 }, last.t, 6, dt));
     return path;
 }
 
@@ -257,6 +346,104 @@ run("straight move stays silent", defaults, straight(900, 1000, 12, 40), 0);
     const chatter = lastHarness.calls.length;
     console.log(`${chatter === 0 ? "PASS" : "FAIL"}  normal movement sends nothing: ${chatter}`);
     if (chatter !== 0) failures += 1;
+}
+
+/* ---- false positives: none of these may open the overlay ---------------- */
+
+if (!run("drawing a wavy line", defaults, drawing(1000, 40, 40), 0)) failures += 1;
+if (!run("scribbling fast", defaults, scribble(1000, 40, 30), 0)) failures += 1;
+if (!run("drawing a circle", defaults, circle(1000, 40, 200, 30), 0)) failures += 1;
+if (!run("drawing box corners", defaults, boxCorners(1000, 30), 0)) failures += 1;
+if (!run("resizing from a corner", defaults, resizeCorner(1000, 6, 40), 0)) failures += 1;
+
+/* The classic one: dragging a window diagonally back and forth.  Same shape as
+ * a shake, but at a human drag speed (≈300 px/s) instead of a flick. */
+if (!run("dragging a window", defaults, slowDrag(1000, 5, 200, 130, 6), 0)) failures += 1;
+
+/* Travelling across the screen and back is antiparallel and fast, but it does
+ * not stay in one place. */
+if (!run("flick across the screen", defaults, travelAndBack(1000, 25), 0)) failures += 1;
+
+/* Half a shake followed by a drawn stroke must not add up to a gesture. */
+{
+    const half = shake(2, 200, 1000, 4, 30);
+    const tail = drawing(half[half.length - 1].t, 20, 40);
+    if (!run("half a shake then drawing", defaults, half.concat(tail), 0)) failures += 1;
+}
+
+/* ---- true positives: these must still work ------------------------------ */
+
+/* A deliberate shake: ~200 px swings in ~120 ms each (≈1600 px/s). */
+if (!run("deliberate shake", defaults, shake(3, 200, 1000, 4, 30), 1)) failures += 1;
+if (!run("faster shake", defaults, shake(3, 250, 1000, 3, 25), 1)) failures += 1;
+if (!run("bigger shake", defaults, shake(4, 320, 1000, 5, 25), 1)) failures += 1;
+
+/* A shake that is not perfectly straight still counts. */
+{
+    const wobbly = shake(3, 220, 1000, 4, 30).map((p, i) => ({
+        x: p.x + (i % 2 === 0 ? 6 : -6),
+        y: p.y + (i % 3 === 0 ? 5 : -5),
+        t: p.t,
+    }));
+    if (!run("shake with a wobble", defaults, wobbly, 1)) failures += 1;
+}
+
+/* The knobs really do loosen it: a user with a slow pointer lowers the speed
+ * floor *and* widens the window, because the swings then take longer than the
+ * default 600 ms window allows. */
+if (!run("slow shake accepted when configured",
+         { minSpeedPxPerSec: 200, windowMs: 2500 },
+         slowDrag(1000, 4, 200, 130, 6), 1)) failures += 1;
+
+/* Lowering only one of the two is not enough — the window still governs. */
+if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
+         slowDrag(1000, 4, 200, 130, 6), 0)) failures += 1;
+
+/* ---- the live settings reload ------------------------------------------- */
+/*
+ * KWin does not re-run a script when its settings change, so the tray checkbox
+ * used to have no effect at all on a running session.  Turn detection off
+ * mid-flight and the script must stop firing without being restarted.
+ */
+{
+    const harness = makeSandbox({});
+    const context = vm.createContext(harness.sandbox);
+    vm.runInContext(fs.readFileSync(SOURCE, "utf8"), context, { filename: SOURCE });
+    const tick = harness.timers[0].handlers[0];
+
+    const play = (path) => {
+        for (const step of path) {
+            harness.moveTo(step.x, step.y);
+            harness.setNow(step.t);
+            tick();
+        }
+    };
+
+    play(shake(3, 200, 1000, 4, 30));
+    const before = harness.calls.filter((c) => c[3] === "Trigger").length;
+
+    /* The user unticks "Detect cursor shake". */
+    harness.config.enabled = false;
+    /* Nothing else happens for a few seconds; the script re-reads by itself. */
+    harness.setNow(20000);
+    tick();
+
+    play(shake(3, 200, 30000, 4, 30));
+    const after = harness.calls.filter((c) => c[3] === "Trigger").length;
+
+    const ok = before === 1 && after === 1;
+    console.log(`${ok ? "PASS" : "FAIL"}  disabling at runtime stops it: ` +
+                `${before} before, ${after} after`);
+    if (!ok) failures += 1;
+
+    /* And switching it back on works without a restart either. */
+    harness.config.enabled = true;
+    harness.setNow(60000);
+    tick();
+    play(shake(3, 200, 70000, 4, 30));
+    const again = harness.calls.filter((c) => c[3] === "Trigger").length;
+    console.log(`${again === 2 ? "PASS" : "FAIL"}  re-enabling at runtime works: ${again}`);
+    if (again !== 2) failures += 1;
 }
 
 console.log(failures === 0 ? "\nall good" : `\n${failures} failure(s)`);

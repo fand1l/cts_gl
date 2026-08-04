@@ -56,6 +56,32 @@
             <min>1</min>
             <max>40</max>
         </entry>
+        <entry name="minSpeedPxPerSec" type="Int">
+            <label>A swing slower than this is drawing, not shaking (px/s)</label>
+            <default>700</default>
+            <min>0</min>
+            <max>5000</max>
+        </entry>
+        <entry name="maxCurvaturePct" type="Int">
+            <label>How much a swing may curve, as a percentage of a straight line</label>
+            <default>140</default>
+            <min>100</min>
+            <max>400</max>
+        </entry>
+        <entry name="reversalTolerance" type="Int">
+            <label>Allowed deviation from a full 180 degree turn-back (degrees)</label>
+            <default>40</default>
+            <min>5</min>
+            <max>90</max>
+        </entry>
+        <entry name="debug" type="Bool">
+            <label>Log why each swing was accepted or rejected</label>
+            <default>false</default>
+        </entry>
+        <entry name="trace" type="Bool">
+            <label>Log every cursor sample for offline replay</label>
+            <default>false</default>
+        </entry>
         <entry name="glow" type="Bool">
             <label>Light the cursor up while a shake is being recognised</label>
             <default>true</default>

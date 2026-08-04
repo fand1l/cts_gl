@@ -130,6 +130,22 @@ class SettingsDialog(QDialog):
         self.step_spin = self._spin(shake, 1, 40, 1, suffix=" px")
         form.addRow(tr("settings.step"), self.step_spin)
 
+        self.speed_spin = self._spin(shake, 0, 5000, 50)
+        form.addRow(tr("settings.speed"), self.speed_spin)
+        form.addRow(_hint(tr("settings.speed.hint")))
+
+        self.curvature_spin = self._spin(shake, 100, 400, 10, suffix=" %")
+        form.addRow(tr("settings.curvature"), self.curvature_spin)
+        form.addRow(_hint(tr("settings.curvature.hint")))
+
+        self.reversal_spin = self._spin(shake, 5, 90, 5, suffix=" °")
+        form.addRow(tr("settings.reversal"), self.reversal_spin)
+        form.addRow(_hint(tr("settings.reversal.hint")))
+
+        self.debug_box = QCheckBox(tr("settings.debug"), shake)
+        form.addRow(self.debug_box)
+        form.addRow(_hint(tr("settings.debug.hint")))
+
         layout.addWidget(shake)
 
         shortcut = QGroupBox(tr("settings.group.shortcut"), page)
@@ -254,6 +270,10 @@ class SettingsDialog(QDialog):
         self.poll_spin.setValue(detection.pollMs)
         self.cooldown_spin.setValue(detection.cooldownMs)
         self.step_spin.setValue(detection.minStepPx)
+        self.speed_spin.setValue(detection.minSpeedPxPerSec)
+        self.curvature_spin.setValue(detection.maxCurvaturePct)
+        self.reversal_spin.setValue(detection.reversalTolerance)
+        self.debug_box.setChecked(detection.debug)
         self.shortcut_edit.setKeySequence(QKeySequence(detection.shortcut))
 
         settings = self._app_settings
@@ -289,6 +309,10 @@ class SettingsDialog(QDialog):
             pollMs=self.poll_spin.value(),
             cooldownMs=self.cooldown_spin.value(),
             minStepPx=self.step_spin.value(),
+            minSpeedPxPerSec=self.speed_spin.value(),
+            maxCurvaturePct=self.curvature_spin.value(),
+            reversalTolerance=self.reversal_spin.value(),
+            debug=self.debug_box.isChecked(),
             shortcut=sequence or self._detection.shortcut,
         )
 

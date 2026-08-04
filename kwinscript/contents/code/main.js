@@ -34,6 +34,10 @@ var GLOW_CAPTION = "Circle to Search Glow";
 var OVERLAY_WATCH_MS = 5000;
 var OVERLAY_WATCH_INTERVAL = 200;
 
+/* Re-read the configuration at least this often (ms), so a settings change
+ * takes effect without logging out even if the change signal never arrives. */
+var CONFIG_RELOAD_MS = 4000;
+
 /* Slow the poll timer down after this many idle ticks (~1 s at 50 ms). */
 var IDLE_TICKS = 20;
 var IDLE_POLL_MS = 250;
@@ -47,6 +51,13 @@ var cfg = {
     pollMs: 50,
     cooldownMs: 1500,
     minStepPx: 6,
+    minSpeedPxPerSec: 700,
+    maxCurvaturePct: 140,
+    reversalTolerance: 40,
+    maxAmplitudeRatio: 3,
+    containmentFactor: 3,
+    debug: false,
+    trace: false,
     glow: true,
     disableInFullscreen: true,
     shortcut: "Meta+Shift+L"
@@ -57,9 +68,14 @@ var state = {
     lastY: -1,
     idleTicks: 0,
     slow: false,
-    stroke: null,          /* {x0, y0, sx, sy, amp} */
-    offDiagonal: 0,
+    stroke: null,          /* the movement since the last direction change */
+    lastSwing: null,       /* the previous accepted swing, for the turn test */
     reversalTimes: [],
+    boxValid: false,       /* bounding box of the gesture so far */
+    boxMinX: 0,
+    boxMinY: 0,
+    boxMaxX: 0,
+    boxMaxY: 0,
     lastTriggerAt: 0,
     watchUntil: 0
 };
@@ -85,6 +101,9 @@ var fullScreenCache = {
     value: false,
     at: 0
 };
+
+var lastConfigSummary = "";
+var lastConfigAt = 0;
 
 var pollTimer = null;      /* kept in a global on purpose: a QTimer that goes  */
 var watchTimer = null;     /* out of scope would be garbage collected          */
@@ -114,20 +133,68 @@ function loadConfig() {
     cfg.pollMs = Math.max(20, Math.min(200, Math.round(readNumber("pollMs", 50))));
     cfg.cooldownMs = Math.max(0, Math.round(readNumber("cooldownMs", 1500)));
     cfg.minStepPx = Math.max(1, Math.round(readNumber("minStepPx", 6)));
+    cfg.minSpeedPxPerSec = Math.max(0, Math.round(readNumber("minSpeedPxPerSec", 700)));
+    cfg.maxCurvaturePct = Math.max(100, Math.round(readNumber("maxCurvaturePct", 140)));
+    cfg.reversalTolerance =
+        Math.max(5, Math.min(90, Math.round(readNumber("reversalTolerance", 40))));
+    cfg.maxAmplitudeRatio = Math.max(1.2, readNumber("maxAmplitudeRatio", 3));
+    cfg.containmentFactor = Math.max(1.2, readNumber("containmentFactor", 3));
+    cfg.debug = readBoolean("debug", false);
+    cfg.trace = readBoolean("trace", false);
     cfg.glow = readBoolean("glow", true);
     cfg.disableInFullscreen = readBoolean("disableInFullscreen", true);
     cfg.shortcut = String(readConfig("shortcut", "Meta+Shift+L"));
 
-    print("circle-to-search: config enabled=" + cfg.enabled
+    var summary = "enabled=" + cfg.enabled
         + " reversals=" + cfg.reversals
         + " windowMs=" + cfg.windowMs
         + " minAmplitudePx=" + cfg.minAmplitudePx
+        + " minSpeedPxPerSec=" + cfg.minSpeedPxPerSec
+        + " maxCurvaturePct=" + cfg.maxCurvaturePct
         + " angleTolerance=" + cfg.angleTolerance
+        + " reversalTolerance=" + cfg.reversalTolerance
         + " pollMs=" + cfg.pollMs
         + " cooldownMs=" + cfg.cooldownMs
         + " minStepPx=" + cfg.minStepPx
         + " glow=" + cfg.glow
-        + " disableInFullscreen=" + cfg.disableInFullscreen);
+        + " debug=" + cfg.debug
+        + " trace=" + cfg.trace
+        + " disableInFullscreen=" + cfg.disableInFullscreen;
+
+    lastConfigAt = Date.now();
+    /* The config is also re-read on a timer, so only speak up when something
+     * actually changed — otherwise the journal fills with identical lines. */
+    if (summary !== lastConfigSummary) {
+        lastConfigSummary = summary;
+        print("circle-to-search: config " + summary);
+        resetDetector();
+    }
+}
+
+/*
+ * KWin does not re-run a script when its settings change, so without this the
+ * "Detect cursor shake" checkbox had no effect on a running session: the script
+ * kept using whatever it read at start-up.  `options.configChanged` is the
+ * documented signal; the timed re-read is the safety net for the versions where
+ * it is not emitted for script settings.
+ */
+function watchConfig() {
+    try {
+        if (typeof options !== "undefined" && options.configChanged) {
+            options.configChanged.connect(function () {
+                loadConfig();
+            });
+            print("circle-to-search: watching options.configChanged");
+        }
+    } catch (error) {
+        print("circle-to-search: cannot watch the config: " + error);
+    }
+}
+
+function maybeReloadConfig(now) {
+    if (now - lastConfigAt >= CONFIG_RELOAD_MS) {
+        loadConfig();
+    }
 }
 
 /* --------------------------------------------------- fullscreen and glow */
@@ -195,6 +262,26 @@ function endGlow() {
 }
 
 /* --------------------------------------------------------------- detection */
+/*
+ * What counts as "the user wants this" versus "the user is drawing".
+ *
+ * Counting direction reversals is not enough: dragging a window back and forth,
+ * scribbling in a canvas, resizing from a corner and hunting through a menu all
+ * reverse direction constantly, and the first version fired on all of them.
+ * A deliberate shake is a much more specific thing, and every one of these is
+ * cheap to measure on the samples we already collect:
+ *
+ *   speed        a shake is fast — drawing and dragging are not
+ *   straightness a shake swing is a straight line; a drawn stroke curves
+ *   antiparallel consecutive swings must come back along the same line,
+ *                not merely "both axes changed sign", which allows 90°
+ *   symmetry     the swings are of comparable length
+ *   containment  the whole thing happens in one place instead of travelling
+ *
+ * Any single one of them rejects most accidental motion, and together they are
+ * hard to hit by accident while still being trivial to do on purpose.  Turn on
+ * `debug` to see, per swing, which test said no.
+ */
 
 function sign(value) {
     if (value > 0) {
@@ -203,26 +290,47 @@ function sign(value) {
     return value < 0 ? -1 : 0;
 }
 
-/*
- * A movement counts as "diagonal" when both axes move more than the noise floor
- * and the direction is within `angleTolerance` degrees of 45°.  Everything else
- * (straight lines, tiny jitter, moving to a menu) is ignored, which is what
- * keeps normal mouse use from triggering the overlay.
- */
-function isDiagonal(dx, dy) {
-    var ax = Math.abs(dx);
-    var ay = Math.abs(dy);
-    if (ax < cfg.minStepPx || ay < cfg.minStepPx) {
-        return false;
+function distance(x0, y0, x1, y1) {
+    var dx = x1 - x0;
+    var dy = y1 - y0;
+    return Math.sqrt(dx * dx + dy * dy);
+}
+
+/* Angle of a vector against the nearest 45° diagonal, in degrees. */
+function diagonalError(vx, vy) {
+    var ax = Math.abs(vx);
+    var ay = Math.abs(vy);
+    if (ax < 1 && ay < 1) {
+        return 90;
     }
-    var angle = Math.atan2(ay, ax) * 180 / Math.PI;   /* 0..90 */
-    return Math.abs(angle - 45) <= cfg.angleTolerance;
+    return Math.abs(Math.atan2(ay, ax) * 180 / Math.PI - 45);
+}
+
+/* Angle between two vectors, 0..180 degrees. */
+function angleBetween(ax, ay, bx, by) {
+    var la = Math.sqrt(ax * ax + ay * ay);
+    var lb = Math.sqrt(bx * bx + by * by);
+    if (la < 1 || lb < 1) {
+        return 180;
+    }
+    var cosine = (ax * bx + ay * by) / (la * lb);
+    if (cosine > 1) {
+        cosine = 1;
+    } else if (cosine < -1) {
+        cosine = -1;
+    }
+    return Math.acos(cosine) * 180 / Math.PI;
 }
 
 function resetDetector() {
     state.stroke = null;
-    state.offDiagonal = 0;
+    state.lastSwing = null;
     state.reversalTimes.length = 0;
+    state.boxMinX = 0;
+    state.boxMinY = 0;
+    state.boxMaxX = 0;
+    state.boxMaxY = 0;
+    state.boxValid = false;
     endGlow();
 }
 
@@ -230,20 +338,195 @@ function pruneReversals(now) {
     while (state.reversalTimes.length > 0 && now - state.reversalTimes[0] > cfg.windowMs) {
         state.reversalTimes.shift();
     }
+    if (state.reversalTimes.length === 0) {
+        state.boxValid = false;
+    }
 }
 
-function beginStroke(x, y, sx, sy) {
-    state.stroke = { x0: x, y0: y, sx: sx, sy: sy, amp: 0 };
+function strokePauseMs() {
+    return Math.max(150, Math.round(cfg.windowMs / 2));
 }
 
-function distance(x0, y0, x1, y1) {
-    var dx = x1 - x0;
-    var dy = y1 - y0;
-    return Math.sqrt(dx * dx + dy * dy);
+function beginStroke(x, y, now) {
+    state.stroke = {
+        x0: x,
+        y0: y,
+        x1: x,
+        y1: y,
+        t0: now,
+        tLast: now,
+        pathLength: 0,
+        counted: false     /* already counted as a reversal while in progress */
+    };
 }
+
+function extendStroke(x, y, now) {
+    var stroke = state.stroke;
+    stroke.pathLength += distance(stroke.x1, stroke.y1, x, y);
+    stroke.x1 = x;
+    stroke.y1 = y;
+    stroke.tLast = now;
+}
+
+/*
+ * Turn the stroke that just ended into a swing, or explain why it is not one.
+ * Returns an object with `ok` plus the measurements, so `debug` can print them.
+ */
+function judgeStroke(stroke, now) {
+    var vx = stroke.x1 - stroke.x0;
+    var vy = stroke.y1 - stroke.y0;
+    var displacement = Math.sqrt(vx * vx + vy * vy);
+    var duration = Math.max(1, now - stroke.t0);
+    var speed = displacement * 1000 / duration;
+    var curvature = displacement < 1 ? 99 : stroke.pathLength / displacement;
+    var diagonal = diagonalError(vx, vy);
+
+    var reason = "";
+    if (displacement < cfg.minAmplitudePx) {
+        reason = "short";
+    } else if (speed < cfg.minSpeedPxPerSec) {
+        reason = "slow";
+    } else if (curvature * 100 > cfg.maxCurvaturePct) {
+        reason = "curved";
+    } else if (diagonal > cfg.angleTolerance) {
+        reason = "off-diagonal";
+    }
+
+    return {
+        ok: reason === "",
+        reason: reason,
+        vx: vx,
+        vy: vy,
+        length: displacement,
+        speed: speed,
+        curvature: curvature,
+        diagonal: diagonal,
+        endX: stroke.x1,
+        endY: stroke.y1
+    };
+}
+
+function describeSwing(swing) {
+    return "len=" + Math.round(swing.length)
+        + " speed=" + Math.round(swing.speed)
+        + " curve=" + (Math.round(swing.curvature * 100) / 100)
+        + " diag=" + Math.round(swing.diagonal)
+        + (swing.ok ? " ok" : " rejected:" + swing.reason);
+}
+
+/* The gesture has to stay in one place: a shake does not travel. */
+function trackContainment(x, y) {
+    if (!state.boxValid) {
+        state.boxValid = true;
+        state.boxMinX = x;
+        state.boxMaxX = x;
+        state.boxMinY = y;
+        state.boxMaxY = y;
+        return true;
+    }
+    state.boxMinX = Math.min(state.boxMinX, x);
+    state.boxMaxX = Math.max(state.boxMaxX, x);
+    state.boxMinY = Math.min(state.boxMinY, y);
+    state.boxMaxY = Math.max(state.boxMaxY, y);
+    var span = Math.max(state.boxMaxX - state.boxMinX, state.boxMaxY - state.boxMinY);
+    return span <= cfg.minAmplitudePx * cfg.containmentFactor;
+}
+
+function forgetChain() {
+    if (state.reversalTimes.length > 0) {
+        state.reversalTimes.length = 0;
+        endGlow();
+    }
+    state.boxValid = false;
+}
+
+/*
+ * Does `swing` complete a reversal against the swing before it?  Returns true
+ * when that was the last one needed and the overlay should open.
+ */
+function considerReversal(swing, now) {
+    var previous = state.lastSwing;
+    if (previous === null) {
+        return false;
+    }
+
+    var turn = angleBetween(previous.vx, previous.vy, swing.vx, swing.vy);
+    var ratio = swing.length / Math.max(1, previous.length);
+    var symmetric = ratio <= cfg.maxAmplitudeRatio && ratio >= 1 / cfg.maxAmplitudeRatio;
+    var reversed = turn >= 180 - cfg.reversalTolerance;
+
+    if (cfg.debug) {
+        print("circle-to-search: turn=" + Math.round(turn)
+            + " ratio=" + (Math.round(ratio * 100) / 100)
+            + (reversed && symmetric ? " -> reversal" : " -> ignored"));
+    }
+
+    if (!reversed || !symmetric) {
+        return false;
+    }
+    if (!trackContainment(swing.endX, swing.endY)) {
+        /* Antiparallel, but the gesture is travelling across the screen
+         * instead of happening in one place. */
+        forgetChain();
+        return false;
+    }
+
+    state.reversalTimes.push(now);
+    pruneReversals(now);
+    return state.reversalTimes.length >= cfg.reversals;
+}
+
+/*
+ * A swing counts as soon as it has gone far enough, not only once it turns
+ * back: the overlay should open on the last swing of the shake, not after the
+ * user has already started moving somewhere else.
+ */
+function tryCountInProgress(now) {
+    var stroke = state.stroke;
+    if (stroke === null || stroke.counted || state.lastSwing === null) {
+        return false;
+    }
+    var swing = judgeStroke(stroke, now);
+    if (!swing.ok) {
+        return false;
+    }
+    stroke.counted = true;
+    if (cfg.debug) {
+        print("circle-to-search: swing (in progress) " + describeSwing(swing));
+    }
+    return considerReversal(swing, now);
+}
+
+function finishStroke(now) {
+    var swing = judgeStroke(state.stroke, now);
+    var counted = state.stroke.counted;
+
+    if (cfg.debug) {
+        print("circle-to-search: swing " + describeSwing(swing));
+    }
+
+    if (!swing.ok) {
+        /* A bad swing breaks the chain: half a shake plus a drawn stroke is
+         * not a shake. */
+        state.lastSwing = null;
+        forgetChain();
+        return false;
+    }
+
+    var fired = counted ? false : considerReversal(swing, now);
+    state.lastSwing = swing;
+    return fired;
+}
+/* -------------------------------------------------------------- the loop */
 
 function poll() {
+    var now = Date.now();
+    maybeReloadConfig(now);
+
     if (!cfg.enabled) {
+        if (state.stroke !== null || state.reversalTimes.length > 0) {
+            resetDetector();
+        }
         return;
     }
     if (cfg.disableInFullscreen && activeIsFullScreen()) {
@@ -252,7 +535,6 @@ function poll() {
         if (state.stroke !== null || state.reversalTimes.length > 0) {
             resetDetector();
         }
-        endGlow();
         return;
     }
 
@@ -290,62 +572,66 @@ function poll() {
         return;
     }
 
-    if (!isDiagonal(dx, dy)) {
-        state.offDiagonal += 1;
-        if (state.offDiagonal > 3) {
-            /* Normal pointer travel: forget any half-finished shake. */
-            resetDetector();
-        }
+    /*
+     * Recording mode: print every sample so a movement that behaved wrongly on
+     * a real desktop can be replayed through the same code offline.  See
+     * tools/record-trace.sh and tests/replay-trace.js.
+     */
+    if (cfg.trace) {
+        print("CTS-TRACE " + x + " " + y + " " + now);
+    }
+
+    /* Sub-pixel jitter is not movement. */
+    if (Math.abs(dx) < cfg.minStepPx && Math.abs(dy) < cfg.minStepPx) {
         return;
     }
-    state.offDiagonal = 0;
 
-    var sx = sign(dx);
-    var sy = sign(dy);
-    var now = Date.now();
+    /* The pointer stopped for a moment: whatever comes next is a new movement,
+     * not a continuation.  This is a *pause* test, deliberately not a limit on
+     * how long a stroke may last — a slow drag is one long swing that the speed
+     * test then rejects, and cutting it in half here would hide it from that
+     * test by turning it into two short ones. */
+    if (state.stroke !== null && now - state.stroke.tLast > strokePauseMs()) {
+        finishStroke(now);
+        state.stroke = null;
+    }
 
     if (state.stroke === null) {
-        beginStroke(previousX, previousY, sx, sy);
+        beginStroke(previousX, previousY, now);
+        extendStroke(x, y, now);
         refreshGlow(x, y, now);
         return;
     }
 
-    if (sx === state.stroke.sx && sy === state.stroke.sy) {
-        var travelled = distance(state.stroke.x0, state.stroke.y0, x, y);
-        if (travelled > state.stroke.amp) {
-            state.stroke.amp = travelled;
+    var vx = state.stroke.x1 - state.stroke.x0;
+    var vy = state.stroke.y1 - state.stroke.y0;
+
+    /* Direction change = the new step points back against the stroke so far.
+     * The dot product decides that without caring which axis flipped, which is
+     * what keeps a 90° corner (drawing a box) from looking like a reversal. */
+    if (vx * vx + vy * vy > 4 && dx * vx + dy * vy < 0) {
+        var fired = finishStroke(now);
+        beginStroke(previousX, previousY, now);
+        extendStroke(x, y, now);
+        if (fired || tryCountInProgress(now)) {
+            fire(x, y, now);
+            return;
         }
         refreshGlow(x, y, now);
         return;
     }
 
-    if (sx === -state.stroke.sx && sy === -state.stroke.sy) {
-        /* Both axes flipped at once: this is the turning point of a swing. */
-        var amplitude = Math.max(
-            state.stroke.amp,
-            distance(state.stroke.x0, state.stroke.y0, previousX, previousY)
-        );
-        if (amplitude >= cfg.minAmplitudePx) {
-            state.reversalTimes.push(now);
-            pruneReversals(now);
-            if (state.reversalTimes.length >= cfg.reversals) {
-                fire(x, y, now);
-                return;
-            }
-        }
-        beginStroke(previousX, previousY, sx, sy);
-        refreshGlow(x, y, now);
+    extendStroke(x, y, now);
+    if (tryCountInProgress(now)) {
+        fire(x, y, now);
         return;
     }
-
-    /* Only one axis changed sign — treat it as a new swing, not a reversal. */
-    beginStroke(previousX, previousY, sx, sy);
     refreshGlow(x, y, now);
 }
 
 /*
- * Light the cursor up once at least one swing has been recognised, so the
- * gesture is discoverable: keep moving and the ring closes.
+ * Light the cursor up once at least one swing has been accepted, so the gesture
+ * is discoverable: keep going and the ring closes.
  */
 function refreshGlow(x, y, now) {
     pruneReversals(now);
@@ -570,6 +856,7 @@ function onWindowAdded(window) {
 
 function init() {
     loadConfig();
+    watchConfig();
 
     pollTimer = new QTimer();
     pollTimer.interval = cfg.pollMs;

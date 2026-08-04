@@ -46,6 +46,10 @@ class DetectionSettings:
     pollMs: int = 50
     cooldownMs: int = 1500
     minStepPx: int = 6
+    minSpeedPxPerSec: int = 700
+    maxCurvaturePct: int = 140
+    reversalTolerance: int = 40
+    debug: bool = False
     glow: bool = True
     disableInFullscreen: bool = True
     shortcut: str = DEFAULT_SHORTCUT
