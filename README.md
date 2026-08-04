@@ -78,6 +78,11 @@ Four components, each in its own place:
    effect the daemon never makes a network connection at all. Direct uploading
    is still implemented and selectable.
 
+The overlay keeps **one** copy of the screenshot and paints the dimming over
+the parts that are not selected, rather than holding a second pre-dimmed pixmap:
+at 3840×2160 that second copy is another ~33 MB resident, and with `all_screens`
+there is one overlay per monitor.
+
 The HiDPI arithmetic lives in `hidpi.py`: KWin's coordinates and Qt's widget
 coordinates are **logical** pixels, the screenshot is **physical** pixels, and
 the scale is *measured* (screenshot size ÷ logical screen size) rather than

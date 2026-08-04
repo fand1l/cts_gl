@@ -37,7 +37,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
@@ -209,15 +209,15 @@ class SelectionOverlay(QWidget):
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
 
-        # The screenshot is kept at native resolution; the device pixel ratio
-        # makes Qt blit it 1:1 instead of rescaling it on every repaint.  The
-        # dimmed copy is rendered while both pixmaps still have a ratio of 1, so
-        # the blit inside _make_dimmed is a plain pixel-for-pixel copy.
-        pixmap.setDevicePixelRatio(1.0)
-        self._dimmed = self._make_dimmed(pixmap, dim_percent)
+        # One copy of the screenshot, not two.  A pre-dimmed second pixmap used
+        # to be kept so that dimming cost nothing per frame, but at 3840x2160
+        # that is another ~33 MB resident for a window that is on screen for a
+        # couple of seconds — and with an overlay per monitor it multiplies.
+        # Painting the dim over the parts that are not selected is a fill and a
+        # path subtraction per repaint, which is nothing.
         self._sharp = pixmap
         self._sharp.setDevicePixelRatio(metrics.scale)
-        self._dimmed.setDevicePixelRatio(metrics.scale)
+        self._dim = QColor(0, 0, 0, max(0, min(90, dim_percent)) * 255 // 100)
 
         self._accent = self._accent_colour()
 
@@ -228,18 +228,6 @@ class SelectionOverlay(QWidget):
         QTimer.singleShot(600, self._enable_deactivation)
 
     # ----------------------------------------------------------------- setup
-
-    @staticmethod
-    def _make_dimmed(pixmap: QPixmap, dim_percent: int) -> QPixmap:
-        """Pre-render the darkened copy once instead of blending every frame."""
-        dimmed = QPixmap(pixmap.size())
-        dimmed.setDevicePixelRatio(1.0)
-        painter = QPainter(dimmed)
-        painter.drawPixmap(0, 0, pixmap)
-        alpha = max(0, min(90, dim_percent)) * 255 // 100
-        painter.fillRect(dimmed.rect(), QColor(0, 0, 0, alpha))
-        painter.end()
-        return dimmed
 
     @staticmethod
     def _accent_colour() -> QColor:
@@ -408,29 +396,30 @@ class SelectionOverlay(QWidget):
         # window's own corner line up with the screen's, even when the window
         # was not given the whole output.
         painter.translate(-self._offset)
-        painter.drawPixmap(0, 0, self._dimmed)
+        painter.drawPixmap(0, 0, self._sharp)
 
         if not self._has_selection and self._preview.isNull():
+            self._dim_everything(painter)
             self._draw_hint(painter)
             painter.end()
             return
 
         selection = self._selection_rect()
         if selection.width() < 1 or selection.height() < 1:
+            self._dim_everything(painter)
             painter.end()
             return
 
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        # Cut the "hole" showing exactly what will be uploaded: the bounding box
-        # (the loop only marks out the edges, like Circle to Search on Android)
-        # or the loop itself when the outside is going to be whitened.
-        # Clipping is used instead of a source rectangle so that the lasso and
-        # the rectangle take the same code path.
-        painter.save()
-        painter.setClipPath(self._reveal_path())
-        painter.drawPixmap(0, 0, self._sharp)
-        painter.restore()
+        # Darken everything except what will actually be uploaded: the bounding
+        # box (the loop only marks out the edges, like Circle to Search on
+        # Android) or the loop itself when the outside is going to be whitened.
+        # The subtraction gives the lasso and the rectangle one code path.
+        if self._dim.alpha():
+            outside = QPainterPath()
+            outside.addRect(self._visible_area())
+            painter.fillPath(outside.subtracted(self._reveal_path()), self._dim)
 
         pen = QPen(self._accent)
         pen.setWidth(1)
@@ -461,6 +450,15 @@ class SelectionOverlay(QWidget):
             self._draw_confirm_hint(painter)
         self._draw_size_label(painter, selection)
         painter.end()
+
+    def _visible_area(self) -> QRectF:
+        """The part of the screen this window actually covers, in screen px."""
+        area = self.rect().translated(self._offset)
+        return QRectF(area)
+
+    def _dim_everything(self, painter: QPainter) -> None:
+        if self._dim.alpha():
+            painter.fillRect(self._visible_area(), self._dim)
 
     def _reveal_path(self) -> QPainterPath:
         """The area to un-dim: what the upload will actually contain."""

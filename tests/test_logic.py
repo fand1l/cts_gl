@@ -725,6 +725,56 @@ drag(overlay, (500, 500), (503, 502))
 check("a stray click selects nothing",
       not overlay._confirming and results == {}, str(results))
 
+# --- the overlay paints its dimming instead of keeping a second copy -------
+# Two full-resolution pixmaps are ~66 MB on a 4K screen, and with an overlay per
+# monitor that multiplies.  What matters is that the result still looks right:
+# the selection bright, everything else darkened.
+check("only one screenshot is held", not hasattr(rect_overlay, "_dimmed"))
+
+bright_shot = Image.new("RGB", (screen.geometry().width() * 2,
+                               screen.geometry().height() * 2), (200, 200, 200))
+dim_overlay = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(bright_shot)),
+    hidpi.measure_screen(screen.name(), screen.geometry(), bright_shot.size, 2.0),
+    screen,
+    dim_percent=50,
+    mode=MODE_RECTANGLE,
+    confirm=True,
+)
+dim_overlay.resize(screen.geometry().size())
+
+canvas = QPixmap(dim_overlay.size())
+dim_overlay.render(canvas)
+everything = canvas.toImage()
+check("with no selection the whole screen is dimmed",
+      everything.pixelColor(400, 400).red() < 150,
+      str(everything.pixelColor(400, 400).red()))
+
+drag(dim_overlay, (100, 100), (300, 250))
+canvas = QPixmap(dim_overlay.size())
+dim_overlay.render(canvas)
+painted = canvas.toImage()
+inside = painted.pixelColor(200, 175).red()
+outside = painted.pixelColor(600, 600).red()
+check("the selection is not dimmed", inside > 180, str(inside))
+check("everything else is", outside < 150, str(outside))
+check("and there is a real difference", inside - outside > 40, f"{inside} vs {outside}")
+
+# dim_percent=0 means no dimming at all, not a black screen.
+clear_overlay = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(bright_shot)),
+    hidpi.measure_screen(screen.name(), screen.geometry(), bright_shot.size, 2.0),
+    screen,
+    dim_percent=0,
+    mode=MODE_RECTANGLE,
+)
+clear_overlay.resize(screen.geometry().size())
+canvas = QPixmap(clear_overlay.size())
+clear_overlay.render(canvas)
+check("zero dimming leaves the screenshot alone",
+      canvas.toImage().pixelColor(400, 400).red() > 190,
+      str(canvas.toImage().pixelColor(400, 400).red()))
+
 # --- selecting across more than one screen ---------------------------------
 from circle_to_search.multiscreen import (  # noqa: E402
     OverlayGroup,

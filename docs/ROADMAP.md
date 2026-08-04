@@ -96,12 +96,16 @@ Done in the KWin script, because a Wayland client cannot focus another client's
 window.  It acts only when the keyboard ended up nowhere, so it never fights the
 browser tab a search just opened.
 
-## 9. Halve the overlay's memory  ← next
+## 9. Halve the overlay's memory  ✅
 
 * Two full-resolution pixmaps (plain and dimmed) are ~66 MB on a 4K screen.
   Paint the dimming instead of keeping a second copy.
 
-## 10. First-run experience
+One fill and one path subtraction per repaint instead of a second copy of the
+screenshot.  It matters more since item 5: with an overlay per monitor the
+saving multiplies.
+
+## 10. First-run experience  ← next
 
 * One notification explaining the gesture, the few settings worth choosing up
   front, and an offer to run the calibration from item 1.
