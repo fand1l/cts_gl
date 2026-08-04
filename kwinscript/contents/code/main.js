@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.2.0";
+var SCRIPT_VERSION = "1.3.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -37,8 +37,8 @@ var DBUS_INTERFACE = "io.github.fand1l.CircleToSearch";
 var OVERLAY_CAPTION = "Circle to Search Overlay";
 
 /* How long to keep looking for the overlay window after a trigger, in ms. */
-var OVERLAY_WATCH_MS = 5000;
-var OVERLAY_WATCH_INTERVAL = 200;
+var OVERLAY_WATCH_MS = 6000;
+var OVERLAY_WATCH_INTERVAL = 250;
 
 /* Re-read the configuration at least this often (ms), so a settings change
  * takes effect without logging out even if the change signal never arrives. */
@@ -82,7 +82,12 @@ var state = {
     boxMaxX: 0,
     boxMaxY: 0,
     lastTriggerAt: 0,
-    watchUntil: 0
+    watchUntil: 0,
+    overlayPromoted: false,
+    reportedX: -1,
+    reportedY: -1,
+    reportedW: -1,
+    reportedH: -1
 };
 
 /* Re-reading the active window on every tick is wasteful; half a second of
@@ -760,7 +765,7 @@ function describeGeometry(window) {
     }
 }
 
-function promote(window) {
+function promote(window, verbose) {
     var geometry = outputFor(window);
 
     /* The one that matters goes first, and none of these can stop the others. */
@@ -773,7 +778,9 @@ function promote(window) {
     setProperty(window, "onAllDesktops", true);
 
     /* Belt and braces: whatever the placement policy decided, the overlay has
-     * to cover the whole output, panel included. */
+     * to cover the whole output, panel included.  Only when it does not — a
+     * window that is already full screen must not be poked, or KWin takes the
+     * geometry assignment as a request to leave that state. */
     if (geometry !== null && !coversOutput(window, geometry)) {
         setProperty(window, "frameGeometry", {
             x: geometry.x,
@@ -784,8 +791,10 @@ function promote(window) {
     }
 
     setProperty(workspace, "activeWindow", window);
-    print("circle-to-search: promoted the overlay (fullScreen=" + full
-        + " geometry=" + describeGeometry(window) + ")");
+    if (verbose || cfg.debug) {
+        print("circle-to-search: promoted the overlay (fullScreen=" + full
+            + " geometry=" + describeGeometry(window) + ")");
+    }
 
     reportOverlayGeometry(window);
 }
@@ -810,21 +819,48 @@ function reportOverlayGeometry(window) {
     var output = outputFor(window);
     var originX = output ? output.x : 0;
     var originY = output ? output.y : 0;
-    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "OverlayGeometry",
-             Math.round(frame.x - originX) | 0,
-             Math.round(frame.y - originY) | 0,
-             Math.round(frame.width) | 0,
-             Math.round(frame.height) | 0);
+    var x = Math.round(frame.x - originX) | 0;
+    var y = Math.round(frame.y - originY) | 0;
+    var width = Math.round(frame.width) | 0;
+    var height = Math.round(frame.height) | 0;
+
+    /* The watch runs several times a second; only speak when something moved. */
+    if (x === state.reportedX && y === state.reportedY
+        && width === state.reportedW && height === state.reportedH) {
+        return;
+    }
+    state.reportedX = x;
+    state.reportedY = y;
+    state.reportedW = width;
+    state.reportedH = height;
+
+    callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "OverlayGeometry", x, y, width, height);
 }
 
+/*
+ * Keep an eye on the overlay for a few seconds instead of promoting it once.
+ *
+ * `windowAdded` fires before the client has committed its final size, so a
+ * single pass reports a geometry that is already out of date, and a compositor
+ * that hands the window the work area rather than the output would never be
+ * corrected.  Re-promoting is a no-op once everything is right, and the repeated
+ * geometry report is what lets the daemon line its drawing up if it is not.
+ */
 function checkForOverlay() {
     var windows = allWindows();
+    var found = false;
     for (var i = 0; i < windows.length; i += 1) {
         if (isOverlay(windows[i])) {
-            promote(windows[i]);
-            stopOverlayWatch();
-            return;
+            found = true;
+            promote(windows[i], !state.overlayPromoted);
+            state.overlayPromoted = true;
+            break;
         }
+    }
+    if (!found && state.overlayPromoted) {
+        /* The overlay closed. */
+        stopOverlayWatch();
+        return;
     }
     if (Date.now() > state.watchUntil) {
         stopOverlayWatch();
@@ -833,6 +869,11 @@ function checkForOverlay() {
 
 function startOverlayWatch() {
     state.watchUntil = Date.now() + OVERLAY_WATCH_MS;
+    state.overlayPromoted = false;
+    state.reportedX = -1;
+    state.reportedY = -1;
+    state.reportedW = -1;
+    state.reportedH = -1;
     if (watchTimer !== null) {
         watchTimer.start();
     }
@@ -846,7 +887,8 @@ function stopOverlayWatch() {
 
 function onWindowAdded(window) {
     if (isOverlay(window)) {
-        promote(window);
+        promote(window, true);
+        state.overlayPromoted = true;
     }
 }
 

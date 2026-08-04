@@ -432,5 +432,90 @@ if (!run("slow shake still rejected on speed alone", { minSpeedPxPerSec: 200 },
     if (!usesShake || plain) failures += 1;
 }
 
+/* ---- promoting the overlay window --------------------------------------- */
+/*
+ * A Wayland client cannot ask for its own position, and KWin sometimes hands the
+ * overlay the work area instead of the whole output — the screenshot is then
+ * painted from the window's corner and appears shifted down by the panel's
+ * height, which looks like two panels.  The script has to keep correcting it and
+ * keep the daemon informed.
+ */
+{
+    const harness = makeSandbox({});
+    /* A window that the compositor placed below a 35 px panel and that ignores
+     * the fullScreen request, which is the case that used to go unnoticed. */
+    const overlay = {
+        caption: "Circle to Search Overlay",
+        resourceName: "circle-to-search",
+        fullScreen: false,
+        keepAbove: false,
+        skipTaskbar: false,
+        skipPager: false,
+        onAllDesktops: false,
+    };
+    /* The properties that are not writable for every window type: setting them
+     * has to fail without taking the rest of the promotion down with it, and
+     * a compositor that ignores the geometry assignment must still end up with
+     * the daemon knowing where the window really is. */
+    Object.defineProperty(overlay, "noBorder", {
+        get: () => false,
+        set: () => { throw new Error("noBorder is read-only"); },
+    });
+    Object.defineProperty(overlay, "skipSwitcher", {
+        get: () => false,
+        set: () => { throw new Error("skipSwitcher is read-only"); },
+    });
+    let placed = { x: 0, y: 35, width: 2560, height: 1405 };
+    Object.defineProperty(overlay, "frameGeometry", {
+        get: () => placed,
+        set: () => { /* the compositor keeps the window in the work area */ },
+    });
+    harness.sandbox.workspace.windowList = () => [overlay];
+
+    const context = vm.createContext(harness.sandbox);
+    vm.runInContext(fs.readFileSync(SOURCE, "utf8"), context, { filename: SOURCE });
+    const tick = harness.timers[0].handlers[0];
+    const watch = harness.timers[1].handlers[0];
+
+    for (const step of shake(3, 200, 1000, 4, 30)) {
+        harness.moveTo(step.x, step.y);
+        harness.setNow(step.t);
+        tick();
+    }
+    harness.setNow(2000);
+    watch();
+
+    console.log(`${overlay.fullScreen ? "PASS" : "FAIL"}  the overlay is asked to go full screen`);
+    if (!overlay.fullScreen) failures += 1;
+    console.log(`${overlay.keepAbove ? "PASS" : "FAIL"}  the overlay is kept above the panel`);
+    if (!overlay.keepAbove) failures += 1;
+
+    /* The window did not move, so its real position has to reach the daemon. */
+    const reports = harness.calls.filter((c) => c[3] === "OverlayGeometry");
+    const ok = reports.length > 0
+        && reports[reports.length - 1][4] === 0
+        && reports[reports.length - 1][5] === 35;
+    console.log(`${ok ? "PASS" : "FAIL"}  the real geometry is reported: ` +
+                JSON.stringify(reports.map((c) => c.slice(4))));
+    if (!ok) failures += 1;
+
+    /* Repeats must not spam the bus while nothing changes. */
+    const before = harness.calls.length;
+    harness.setNow(2300); watch();
+    harness.setNow(2600); watch();
+    const quiet = harness.calls.length === before;
+    console.log(`${quiet ? "PASS" : "FAIL"}  an unchanged geometry is not re-sent`);
+    if (!quiet) failures += 1;
+
+    /* When the compositor finally moves it, the daemon hears about that too. */
+    placed = { x: 0, y: 0, width: 2560, height: 1440 };
+    harness.setNow(2900); watch();
+    const last = harness.calls.filter((c) => c[3] === "OverlayGeometry").pop();
+    const corrected = last[4] === 0 && last[5] === 0 && last[7] === 1440;
+    console.log(`${corrected ? "PASS" : "FAIL"}  a later move is reported: ` +
+                JSON.stringify(last.slice(4)));
+    if (!corrected) failures += 1;
+}
+
 console.log(failures === 0 ? "\nall good" : `\n${failures} failure(s)`);
 process.exit(failures === 0 ? 0 : 1);

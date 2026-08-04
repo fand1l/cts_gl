@@ -273,7 +273,7 @@ package on disk changes nothing by itself — `reconfigure` only re-reads
 
 ```bash
 journalctl --user -u plasma-kwin_wayland | grep "script started"
-#  circle-to-search: KWin script started (v1.2.0)
+#  circle-to-search: KWin script started (v1.3.0)
 grep SCRIPT_VERSION kwinscript/contents/code/main.js
 ```
 
@@ -438,14 +438,25 @@ The overlay is showing the screenshot from its own top-left corner, but the
 window was left in the *work area* — below the panel. You then see the live
 panel at the top and, right under it, the panel that was in the screenshot.
 
-Promoting the overlay to full screen is the KWin script's job, and it is tried
-three ways: `fullScreen = true` first, each window property set independently
-(a single unsettable one — `noBorder` and `skipSwitcher` are not writable for
-every window type — used to abort the whole promotion), and the frame geometry
-forced to the output as a fallback.
+Full screen is asked for four times over, because on Wayland a client can only
+*request* it:
 
-Because none of that is guaranteed, the script then *tells the daemon where the
-window actually landed* (`OverlayGeometry`). A Wayland client cannot ask for its
+1. The window picks its QScreen while it is still virtual and is shown with the
+   full-screen state already set. Creating the platform window first and then
+   moving it to another screen makes QtWayland rebuild the surface, and the
+   pending state does not always survive that — which is how the window ended up
+   an ordinary one inside the work area.
+2. If the first configure comes back smaller than the output, the daemon drops
+   the state and asks again, up to three times, a quarter of a second apart.
+3. The KWin script promotes it, and keeps doing so for six seconds rather than
+   once at map time, because `windowAdded` fires before the client has committed
+   its size. Promotion is tried `fullScreen = true` first, then each window property
+independently (a single unsettable one — `noBorder` and `skipSwitcher` are not
+writable for every window type — used to abort the whole promotion), then the
+frame geometry forced to the output.
+4. Because none of that is guaranteed, the script *tells the daemon where the
+   window actually landed* (`OverlayGeometry`), repeatedly, and only when it
+   changes. A Wayland client cannot ask for its
 own position, so this is the only way the overlay can know; with the offset in
 hand it draws the screenshot — and computes the crop — in screen coordinates, so
 the picture lines up even when the window was left in the work area. The journal

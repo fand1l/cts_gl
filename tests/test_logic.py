@@ -19,7 +19,7 @@ from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from PyQt6.QtCore import QPoint, QRect
+from PyQt6.QtCore import QPoint, QRect, Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import QApplication
 
@@ -429,6 +429,37 @@ check("offset lasso paints", True)
 # The crop lands where the user pointed, in physical pixels of the screenshot.
 shifted_crop = hidpi.logical_rect_to_physical(lasso_offset._selection_rect(), metrics)
 check("offset crop", shifted_crop == QRect(200, 270, 400, 400), str(shifted_crop))
+
+# --- the overlay insists on being full screen ------------------------------
+# The compositor sometimes hands the window the work area instead of the whole
+# output; asking again after the first configure round-trip usually fixes it.
+retry_overlay = make_overlay(MODE_RECTANGLE)
+retry_overlay.show()
+retry_overlay.resize(screen.geometry().width(), screen.geometry().height() - 35)
+check("smaller than the screen", retry_overlay.size() != screen.geometry().size())
+retry_overlay._ensure_fullscreen()
+check("a retry was attempted", retry_overlay._fullscreen_attempts == 1,
+      str(retry_overlay._fullscreen_attempts))
+check("full screen state requested",
+      bool(retry_overlay.windowState() & Qt.WindowState.WindowFullScreen))
+
+# The retry resized the widget, so a window that is right again is left alone —
+# that is what the previous check just proved.  Force it small once more to see
+# that it gives up after a few tries instead of looping forever.
+retry_overlay.resize(screen.geometry().width(), screen.geometry().height() - 35)
+retry_overlay._fullscreen_attempts = 3
+retry_overlay._ensure_fullscreen()
+check("stops retrying", retry_overlay._fullscreen_attempts == 4,
+      str(retry_overlay._fullscreen_attempts))
+
+# A window that is the right size must not be poked at all.
+good_overlay = make_overlay(MODE_RECTANGLE)
+good_overlay.show()
+good_overlay.resize(screen.geometry().size())
+good_overlay._ensure_fullscreen()
+check("no retry when correct", good_overlay._fullscreen_attempts == 0)
+good_overlay.close()
+retry_overlay.close()
 
 print()
 if failures:

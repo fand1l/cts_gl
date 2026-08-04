@@ -100,6 +100,7 @@ class SelectionOverlay(QWidget):
         self._mask_outside = mask_outside
         self._drag_mode = self._mode
         self._finished = False
+        self._fullscreen_attempts = 0
 
         #: Where this window sits inside its screen, in logical pixels.  It is
         #: (0, 0) for a proper full-screen overlay; when KWin leaves the window
@@ -187,17 +188,25 @@ class SelectionOverlay(QWidget):
         self.update()
 
     def show_on_screen(self) -> None:
-        """Map the overlay full-screen on the target output."""
+        """Map the overlay full-screen on the target output.
+
+        The order matters more than it looks.  Creating the platform window
+        first and *then* moving it to another QScreen makes QtWayland tear the
+        surface down and build a new one, and the pending full-screen state does
+        not always survive that — the window comes up as an ordinary one inside
+        the work area, below the panel.  So: pick the screen while the window is
+        still virtual, ask for the full-screen state, and only then show it.
+        """
         geometry = self._target_screen.geometry()
-        self.create()
-        handle = self.windowHandle()
-        if handle is not None:
-            # On Wayland a client cannot position itself; telling Qt which
-            # QScreen the window belongs to is what makes KWin full-screen it on
-            # the right output.
-            handle.setScreen(self._target_screen)
+
+        # Qt 6.3+; on anything older the window simply opens on the screen Qt
+        # picks, which is right in the single-monitor case.
+        if hasattr(self, "setScreen"):
+            self.setScreen(self._target_screen)
         self.setGeometry(geometry)
-        self.showFullScreen()
+        self.setWindowState(Qt.WindowState.WindowFullScreen)
+        self.show()
+
         self.raise_()
         self.activateWindow()
         self.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -208,6 +217,50 @@ class SelectionOverlay(QWidget):
             geometry,
             self._mode,
         )
+        self._fullscreen_attempts = 0
+        QTimer.singleShot(250, self._ensure_fullscreen)
+
+    def _ensure_fullscreen(self) -> None:
+        """Re-ask for full screen if the compositor gave us less than the output.
+
+        Some sequences leave the window sized to the work area; asking again
+        after the first configure round-trip is usually enough, and it costs
+        nothing when the window is already right.
+        """
+        if self._finished or not self.isVisible():
+            return
+        expected = self._target_screen.geometry().size()
+        if self.size() == expected:
+            if self._fullscreen_attempts:
+                log.info("the overlay is full screen after %d retries", self._fullscreen_attempts)
+            return
+
+        self._fullscreen_attempts += 1
+        if self._fullscreen_attempts > 3:
+            log.warning(
+                "the overlay is still %dx%d instead of %dx%d; the drawing is being "
+                "offset to compensate, but part of the screen cannot be selected",
+                self.size().width(),
+                self.size().height(),
+                expected.width(),
+                expected.height(),
+            )
+            return
+
+        log.info(
+            "the overlay came up %dx%d instead of %dx%d, asking for full screen again (%d)",
+            self.size().width(),
+            self.size().height(),
+            expected.width(),
+            expected.height(),
+            self._fullscreen_attempts,
+        )
+        # A plain repeat of the state request is ignored when Qt thinks the
+        # state is already set, so drop it and set it again.
+        self.setWindowState(Qt.WindowState.WindowNoState)
+        self.setGeometry(self._target_screen.geometry())
+        self.setWindowState(Qt.WindowState.WindowFullScreen)
+        QTimer.singleShot(250, self._ensure_fullscreen)
 
     # ---------------------------------------------------------------- events
 
