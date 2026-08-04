@@ -1,0 +1,168 @@
+# Everything that can be checked without a Plasma session, on every push.
+#
+# The suites are deliberately separate jobs: a Chromium that fails to start or a
+# Fedora mirror having a bad day must not hide a logic failure, and reading which
+# box is red should be enough to know what broke.
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  PYTHON_VERSION: "3.13"
+
+jobs:
+  lint:
+    name: ruff and syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: pip install ruff
+      - run: ruff check src tests
+      # The other languages in the tree get at least a parse.
+      - name: Parse the KWin script and the shell scripts
+        run: |
+          set -eux
+          node --check kwinscript/contents/code/main.js
+          node --check tests/test_detection.js
+          node --check tests/replay-trace.js
+          bash -n install.sh
+          bash -n uninstall.sh
+          bash -n tools/record-trace.sh
+      - name: Parse the JSON that ships
+        run: |
+          set -eux
+          python3 -m json.tool kwinscript/metadata.json > /dev/null
+          for trace in tests/traces/*.json; do
+            python3 -m json.tool "$trace" > /dev/null
+          done
+
+  detection:
+    name: gesture detection (node)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # Replays the real main.js against a fake KWin API, including every
+      # recorded trace in tests/traces/.
+      - run: node tests/test_detection.js
+
+  logic:
+    name: offscreen Qt
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      # PyQt6 wheels link against these even for the "offscreen" platform.
+      - name: System libraries for headless Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6
+      - run: pip install -r requirements.txt
+      - run: python3 tests/test_logic.py
+
+  dbus:
+    name: D-Bus surface
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: System libraries for headless Qt and a private bus
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6 \
+            dbus dbus-x11
+      - run: pip install -r requirements.txt
+      # Exports the real service on a private dbus-daemon and calls it with
+      # busctl: the only way an argument-type mismatch shows up at all.  The
+      # suite skips itself when the tools are missing, which is right on a
+      # developer's machine and useless here, so a skip is a failure.
+      - name: Run it, and refuse to be skipped
+        run: |
+          set -o pipefail
+          python3 tests/test_dbus_surface.py | tee /tmp/dbus.log
+          if grep -q '^SKIP' /tmp/dbus.log; then
+            echo "::error::the D-Bus suite skipped itself instead of running"
+            exit 1
+          fi
+
+  browser:
+    name: browser upload
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: System libraries for headless Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6
+      - run: pip install -r requirements.txt playwright
+      - run: playwright install --with-deps chromium
+      # Loads the generated launcher in a real Chromium and inspects the POST it
+      # makes: the one part that cannot be checked by reading the code.
+      - name: Run it, and refuse to be skipped
+        run: |
+          set -o pipefail
+          python3 tests/test_browser_upload.py | tee /tmp/browser.log
+          if grep -q '^SKIP' /tmp/browser.log; then
+            echo "::error::the browser suite skipped itself instead of running"
+            exit 1
+          fi
+
+  rpm:
+    name: rpm build
+    runs-on: ubuntu-latest
+    # The project targets the newest Fedora; the spec claims 41+.
+    container: fedora:latest
+    steps:
+      # git first: without it actions/checkout falls back to a tarball download
+      # and there is no repository left for `git archive` to read.
+      - name: Build tools
+        run: |
+          dnf install -y --setopt=install_weak_deps=False \
+            rpm-build rpmdevtools python3-devel systemd-rpm-macros \
+            desktop-file-utils libappstream-glib git-core
+      - uses: actions/checkout@v4
+      - name: Trust the checkout
+        run: git config --global --add safe.directory "$PWD"
+      - name: Build
+        run: |
+          set -eux
+          version=$(rpmspec -q --queryformat '%{version}\n' circle-to-search.spec | head -1)
+          rpmdev-setuptree
+          git archive --format=tar.gz \
+            --prefix="circle-to-search-${version}/" \
+            -o "$HOME/rpmbuild/SOURCES/circle-to-search-${version}.tar.gz" HEAD
+          rpmbuild -ba circle-to-search.spec
+      - name: What came out
+        run: find "$HOME/rpmbuild/RPMS" "$HOME/rpmbuild/SRPMS" -name '*.rpm' -print
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm
+          path: |
+            ~/rpmbuild/RPMS/**/*.rpm
+            ~/rpmbuild/SRPMS/*.rpm
+          if-no-files-found: error

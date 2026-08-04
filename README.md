@@ -1,5 +1,7 @@
 # Circle to Search for KDE Plasma 6 (Wayland)
 
+[![CI](https://github.com/fand1l/cts_gl/actions/workflows/ci.yml/badge.svg)](https://github.com/fand1l/cts_gl/actions/workflows/ci.yml)
+
 Shake the pointer, circle anything on screen with a freehand lasso, get Google
 Lens results in your browser. A Linux take on Android's "Circle to Search".
 
@@ -503,6 +505,14 @@ method with `busctl` using the exact signature the KWin script uses, and drives
 a stub notification server in a second process to check that an action button
 comes back to the callback that showed it. It skips itself when `busctl` or
 `dbus-run-session` is missing.
+
+`.github/workflows/ci.yml` runs all of that on every push, plus a `ruff` pass, a
+parse of the KWin script, the shell scripts and the shipped JSON, and an RPM
+build in a Fedora container whose output is attached to the run. Each suite is
+its own job: a Chromium that will not start must not be able to hide a logic
+failure. The two suites that skip themselves when their tools are missing —
+sensible on a laptop — are made to fail instead when they skip in CI, since a
+green tick for a test that never ran is worse than no test.
 
 Run the daemon in the foreground while hacking:
 

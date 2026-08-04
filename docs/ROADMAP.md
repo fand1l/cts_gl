@@ -114,7 +114,12 @@ A window rather than a notification, since a notification cannot hold the
 settings and the settings are half the point.  Shown once; `--welcome` brings it
 back.
 
-## 11. CI  ← next
+## 11. CI  ✅
 
 * GitHub Actions: `ruff`, the three test suites, and an RPM build on every
   push.
+
+Four suites by now, each its own job, plus a parse of the KWin script, the shell
+scripts and the shipped JSON.  The two suites that skip themselves when their
+tools are absent are made to fail when they do that in CI: a green tick for a
+test that never ran is worse than no test at all.
