@@ -119,8 +119,15 @@ _CURSORS = {
 _SCAN_TICK_MS = 130
 _SCAN_DOTS = 4
 
-#: Grabbing a word needs a little slack: text is small and pointers are not.
-_WORD_SLACK = 3
+#: Grabbing a word needs a lot more slack than the glyphs occupy: text is small,
+#: pointers are not, and being made to hit a five-pixel-tall word exactly is the
+#: difference between "I can take this text" and "it keeps dragging a box".
+_WORD_SLACK = 4
+
+#: A press anywhere on a line of text — including the gaps between its words —
+#: is a press on that line.  This is how every text field on the machine
+#: behaves, and the alternative is aiming at individual words.
+_LINE_SLACK = 5
 
 #: What the user asked to do with the selection.
 ACTION_SEARCH = "search"
@@ -229,6 +236,13 @@ class SelectionOverlay(QWidget):
         #: these arrive late; until then `_scanning` drives a small badge saying
         #: so, because several seconds of nothing looks like a hang.
         self._words: list[PlacedWord] = []
+        #: One rectangle per recognised line.  Both the lit-up backdrop and the
+        #: "am I over text?" test work on these: a line is what a person aims
+        #: at, and there are ten times fewer of them than there are words.
+        self._lines: list[tuple[tuple[int, int, int], QRect]] = []
+        #: Everything *except* the text, cached because it is filled on every
+        #: repaint and a drag repaints constantly.
+        self._text_dim_path: QPainterPath | None = None
         self._scanning = False
         self._scan_phase = 0
         self._scan_timer: QTimer | None = None
@@ -315,9 +329,35 @@ class SelectionOverlay(QWidget):
                 continue
             placed.append(PlacedWord(text=word.text, rect=rect, line=word.line))
         self._words = placed
+        self._rebuild_lines()
         self.set_scanning(False)
-        log.info("text layer: %d word(s)", len(placed))
+        log.info("text layer: %d word(s) on %d line(s)", len(placed), len(self._lines))
         self.update()
+
+    def _rebuild_lines(self) -> None:
+        """Group the words into the lines they were read from."""
+        lines: list[tuple[tuple[int, int, int], QRect]] = []
+        for word in self._words:
+            if lines and lines[-1][0] == word.line:
+                lines[-1] = (word.line, lines[-1][1].united(word.rect))
+            else:
+                lines.append((word.line, QRect(word.rect)))
+        self._lines = lines
+        self._text_dim_path = None
+
+    def _text_backdrop(self) -> QPainterPath:
+        """Everything the dimming still covers once the text is lit up."""
+        cached = self._text_dim_path
+        if cached is not None:
+            return cached
+        lit = QPainterPath()
+        for _key, rect in self._lines:
+            lit.addRoundedRect(QRectF(rect.adjusted(-3, -2, 3, 2)), 4, 4)
+        path = QPainterPath()
+        path.addRect(self._visible_area())
+        path = path.subtracted(lit)
+        self._text_dim_path = path
+        return path
 
     @property
     def has_words(self) -> bool:
@@ -349,12 +389,37 @@ class SelectionOverlay(QWidget):
         )
 
     def _word_at(self, position: QPoint) -> int | None:
-        """Index of the word under a point, with a little slack around it."""
+        """Index of the word a press lands on, generously.
+
+        A direct hit first, then anywhere on the *line* — including the spaces
+        between its words, where a press plainly still means "this text".
+        Without the second pass, taking text means aiming at glyphs a few pixels
+        tall and missing turns into dragging a rectangle instead.
+        """
         for index, word in enumerate(self._words):
             if word.rect.adjusted(-_WORD_SLACK, -_WORD_SLACK, _WORD_SLACK, _WORD_SLACK).contains(
                 position
             ):
                 return index
+
+        for key, rect in self._lines:
+            if not rect.adjusted(-_LINE_SLACK, -_LINE_SLACK, _LINE_SLACK, _LINE_SLACK).contains(
+                position
+            ):
+                continue
+            # The word on that line nearest the press, horizontally: on a line,
+            # left and right is the only direction that means anything.
+            best: int | None = None
+            best_distance = 0
+            for index, word in enumerate(self._words):
+                if word.line != key:
+                    continue
+                distance = abs(word.rect.center().x() - position.x())
+                if best is None or distance < best_distance:
+                    best = index
+                    best_distance = distance
+            if best is not None:
+                return best
         return None
 
     def _nearest_word(self, position: QPoint) -> int | None:
@@ -436,6 +501,7 @@ class SelectionOverlay(QWidget):
         if offset == self._offset:
             return
         self._offset = offset
+        self._text_dim_path = None
         if not offset.isNull():
             log.warning(
                 "the overlay is at +%d+%d inside its screen instead of the corner; "
@@ -491,6 +557,7 @@ class SelectionOverlay(QWidget):
         everything in the opposite direction, so the size decides.
         """
         super().resizeEvent(event)
+        self._text_dim_path = None
         if self.covers_screen() and not self._offset.isNull():
             log.info("the overlay now covers %s, dropping the offset", self._target_screen.name())
             self._offset = QPoint(0, 0)
@@ -560,8 +627,8 @@ class SelectionOverlay(QWidget):
             return
 
         if not self._has_selection and self._preview.isNull():
-            self._dim_everything(painter)
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            self._dim_around_text(painter)
             self._draw_word_hints(painter)
             self._draw_hint(painter)
             self._draw_badge(painter)
@@ -674,21 +741,45 @@ class SelectionOverlay(QWidget):
 
     # ------------------------------------------------------ the text layer
 
-    def _draw_word_hints(self, painter: QPainter) -> None:
-        """Barely-there marks under the recognised words.
+    def _dim_around_text(self, painter: QPainter) -> None:
+        """Dim the screen, but leave the readable text lit.
 
-        Enough to say "this can be taken", quiet enough not to turn the frozen
-        screen into a highlighter accident.  Only before anything is selected —
-        once there is a selection they would only add noise.
+        This is the whole affordance.  Everything else on the frozen screen goes
+        dark and the sentences stay bright, which says "these are live" before
+        the pointer has been anywhere near them — a faint tint under the words
+        said it far too quietly to notice.
         """
-        if not self._words:
+        if not self._dim.alpha():
             return
-        tint = QColor(self._accent)
-        tint.setAlpha(38)
+        if not self._lines:
+            self._dim_everything(painter)
+            return
+        painter.fillPath(self._text_backdrop(), self._dim)
+
+    def _draw_word_hints(self, painter: QPainter) -> None:
+        """Highlighter under the lines of text, and a rule beneath each.
+
+        Drawn per *line* rather than per word: that is the shape a person reads
+        and the shape they aim at, and there are ten times fewer of them.
+        """
+        if not self._lines:
+            return
+
+        wash = QColor(255, 255, 255, 26)
+        rule = QColor(self._accent)
+        rule.setAlpha(150)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(tint)
-        for word in self._words:
-            painter.drawRoundedRect(word.rect.adjusted(-1, -1, 1, 1), 2, 2)
+        painter.setBrush(wash)
+        for _key, rect in self._lines:
+            painter.drawRoundedRect(rect.adjusted(-3, -2, 3, 2), 4, 4)
+
+        pen = QPen(rule)
+        pen.setWidth(1)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        for _key, rect in self._lines:
+            baseline = rect.bottom() + 3
+            painter.drawLine(rect.left() - 2, baseline, rect.right() + 2, baseline)
 
     def _draw_text_selection(self, painter: QPainter) -> None:
         """The selected run: undimmed, so it reads, with the accent over it."""
@@ -826,21 +917,31 @@ class SelectionOverlay(QWidget):
 
         where = event.position().toPoint() + self._offset
 
+        # Text first, everywhere.  The one thing that outranks it is a resize
+        # handle, which is a few pixels at the edge of a box the user put there
+        # on purpose; everything else — including the inside of that box, which
+        # used to grab it and drag it — gives way to the words underneath.
+        word = self._word_at(where)
+
         if self._confirming:
             grab = self._handle_at(where)
-            if grab is not None:
+            if grab is not None and grab != "move":
                 self._grab = grab
                 self._grab_origin = where
                 self._grab_box = QRect(self._box)
                 return
-            # A press outside the selection means "no, that one" — start again.
-            self._confirming = False
-            self._reset_selection()
+            if word is None:
+                if grab == "move":
+                    self._grab = grab
+                    self._grab_origin = where
+                    self._grab_box = QRect(self._box)
+                    return
+                # A press on empty screen means "no, that one" — start again.
+                self._confirming = False
+                self._reset_selection()
 
-        # Pressing on a recognised word selects text instead of an area, the
-        # same way a browser tells text and image apart.  Everywhere else is
-        # still an ordinary drag, so nothing has to be switched on first.
-        word = self._word_at(where)
+        # A press on a word takes text instead of an area, the same way a
+        # browser tells text and image apart: nothing has to be switched on.
         if word is not None:
             self._reset_selection()
             self._selecting_text = True

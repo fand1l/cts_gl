@@ -832,6 +832,66 @@ check("paragraphs are kept apart",
       text_overlay3.selected_text() == "Hello there\nsecond\n\nelsewhere",
       repr(text_overlay3.selected_text()))
 
+# Reported from a real desktop: with an area already selected, pressing inside
+# it grabbed the rectangle and dragged it, and the text underneath never had a
+# chance.  Text outranks moving the box.
+priority = make_overlay(MODE_RECTANGLE)
+priority.set_words(sample_words)
+drag(priority, (80, 80), (260, 130))          # an area covering all the text
+check("the area is confirmed", priority._confirming and priority._has_selection)
+box_before = QRect(priority._selection_rect())
+drag(priority, (110, 105), (180, 108))        # now press on a word inside it
+check("text wins over moving the box", priority.has_text_selection(),
+      str(priority._selection_rect()))
+check("and the box is gone rather than moved",
+      not priority._has_selection or priority._selection_rect() == box_before,
+      str(priority._selection_rect()))
+
+# The corners still resize, or a box drawn over a paragraph could never be
+# adjusted again.
+handles = make_overlay(MODE_RECTANGLE)
+handles.set_words(sample_words)
+drag(handles, (80, 80), (260, 130))
+corner = handles._handle_rects()["se"].center()
+drag(handles, (corner.x(), corner.y()), (corner.x() + 20, corner.y() + 20))
+check("a corner handle still resizes", not handles.has_text_selection()
+      and handles._selection_rect().width() > box_before.width(),
+      str(handles._selection_rect()))
+
+# Aiming: the gap between two words on a line is still that line.
+aim = make_overlay(MODE_RECTANGLE)
+aim.set_words(sample_words)
+gap = QPoint(155, 107)                        # between "Hello" and "there"
+check("the gap between words is text", aim._word_at(gap) is not None, str(gap))
+below = QPoint(120, 190)                      # well away from any line
+check("empty screen is not text", aim._word_at(below) is None, str(below))
+
+# The affordance: recognised text stays lit while the rest of the screen dims,
+# which is the part that has to be visible before the pointer goes near it.
+lit_shot = Image.new("RGB", (screen.geometry().width() * 2,
+                            screen.geometry().height() * 2), (200, 200, 200))
+lit = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(lit_shot)),
+    hidpi.measure_screen(screen.name(), screen.geometry(), lit_shot.size, 2.0),
+    screen,
+    dim_percent=50,
+    mode=MODE_RECTANGLE,
+)
+lit.resize(screen.geometry().size())
+canvas = QPixmap(lit.size())
+lit.render(canvas)
+dark_everywhere = canvas.toImage().pixelColor(120, 105).red()
+lit.set_words(sample_words)
+canvas = QPixmap(lit.size())
+lit.render(canvas)
+shown = canvas.toImage()
+on_text = shown.pixelColor(120, 105).red()          # inside "Hello"
+off_text = shown.pixelColor(600, 600).red()         # nowhere near it
+check("text is lit once it is recognised", on_text > dark_everywhere + 30,
+      f"{dark_everywhere} -> {on_text}")
+check("and the rest of the screen is not", on_text > off_text + 30,
+      f"{on_text} vs {off_text}")
+
 # A drag that starts on empty screen is an ordinary area selection, even with a
 # text layer present — otherwise the feature would take the app over.
 text_overlay4 = make_overlay(MODE_RECTANGLE)

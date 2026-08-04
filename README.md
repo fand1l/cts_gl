@@ -421,13 +421,21 @@ Sometimes the answer is not "what is this" but "let me copy that". With text
 recognition on, the overlay **starts reading the screen the moment it opens**
 and the words become selectable where they are:
 
-* **drag across a word** and you get text instead of an area — the way a browser
-  tells text and pictures apart, so there is no mode to switch into;
+* **the recognised lines stay lit while the rest of the screen dims**, with a
+  soft highlighter wash and a rule under each one. That is the whole
+  affordance: you can see what can be taken before the pointer goes anywhere
+  near it;
+* **drag across a line** and you get text instead of an area — the way a browser
+  tells text and pictures apart, so there is no mode to switch into. Text has
+  priority: pressing on a line takes the text even when it lies inside an area
+  you already selected, and even the gaps between words count, because being
+  made to hit a five-pixel glyph exactly is how you end up dragging a rectangle
+  by mistake. Only the eight resize handles outrank it, so a box drawn over a
+  paragraph can still be adjusted;
 * **double-click** takes one word, **T** takes everything that was found;
 * **Enter** or **C** copies the selection, **Esc** lets go of it (a second
   **Esc** closes the overlay);
-* the pointer turns into an I-beam over anything that can be taken, and the
-  recognised words carry a faint tint so you can see there is something there.
+* the pointer turns into an I-beam over anything that can be taken.
 
 Reading a 4K screen takes a couple of seconds, so a small badge at the bottom
 says *Читаю текст на екрані…* while it works — the overlay is usable the whole
