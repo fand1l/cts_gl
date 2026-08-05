@@ -196,10 +196,11 @@ _EN: dict[str, str] = {
     "calibrate.after": "Suggested",
     "calibrate.restart": "Start over",
     "welcome.title": "Circle to Search",
-    "welcome.heading": (
-        "<h3>Circle to Search is running</h3>"
-        "<p>It lives in the system tray and waits for you to ask for it.</p>"
-    ),
+    # A headline and its supporting line, kept apart: MD3 gives each of the two
+    # a role of its own, and one label holding an <h3> and a <p> can only be
+    # given the size of whichever of them wins.
+    "welcome.heading": "Circle to Search is running",
+    "welcome.intro": "It lives in the system tray and waits for you to ask for it.",
     "welcome.gesture": (
         "<p><b>Shake the pointer diagonally</b> — down-right, up-left, "
         "down-right, briskly, in one place — or press <b>{shortcut}</b>.</p>"
@@ -615,10 +616,8 @@ _UK: dict[str, str] = {
     "calibrate.after": "Пропоную",
     "calibrate.restart": "Почати спочатку",
     "welcome.title": "Circle to Search",
-    "welcome.heading": (
-        "<h3>Circle to Search працює</h3>"
-        "<p>Живе в системному лотку й чекає, доки ви його покличете.</p>"
-    ),
+    "welcome.heading": "Circle to Search працює",
+    "welcome.intro": "Живе в системному лотку й чекає, доки ви його покличете.",
     "welcome.gesture": (
         "<p><b>Потрясіть курсором по діагоналі</b> — вниз-праворуч, "
         "вгору-ліворуч, вниз-праворуч, різко, на одному місці — або натисніть "

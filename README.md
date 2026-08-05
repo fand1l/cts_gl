@@ -26,6 +26,10 @@ Google Lens in your browser.
 
 That is the whole idea. Everything below is what happens around it.
 
+* **Drawn on Material 3**, in your accent colour. The gesture this imitates is
+  Google's own, and it is drawn in MD3 on the phone it came from — so the colour
+  roles, the type scale and the shape are that specification's, grown from the
+  accent you chose in System Settings and set in the font you chose there too.
 * **Circle it, or drag a box.** Freehand by default, like on a phone. Hold
   *Shift* for a rectangle, or click a window to take exactly that window.
 * **Nothing is sent until you say so.** The selection waits with handles you can

@@ -13,18 +13,18 @@ debugged on its own:
 
 from __future__ import annotations
 
-__version__ = "1.3.0"
+__version__ = "1.4.0"
 
 #: What this release is *called*.  The number says what changed in relation to
 #: the last one; the name says which one it is, which is the question somebody
 #: running `install.sh update` is actually asking.
 #:
 #: Kept beside the number rather than inside it, and joined only for display.
-#: "1.3.0-another-way" is not a version pip will take — under PEP 440
-#: a hyphen introduces a *pre-release*, so that string sorts *below* 1.3.0 — and
+#: "1.4.0-material" is not a version pip will take — under PEP 440
+#: a hyphen introduces a *pre-release*, so that string sorts *below* 1.4.0 — and
 #: RPM will not take it at all, because its Version field uses the hyphen to
 #: separate the version from the release.
-RELEASE_NAME = "another-way"
+RELEASE_NAME = "material"
 
 #: A parallel count, and the only one a machine compares.
 #:
@@ -37,11 +37,11 @@ RELEASE_NAME = "another-way"
 #: Deliberately not derived from ``__version__`` for that reason.  It starts at
 #: 10000 so it is five digits from the first one, and 89,999 of them is more
 #: pushes than this will ever see.
-BUILD = 10008
+BUILD = 10009
 
 
 def version_label() -> str:
-    """``1.3.0 “another-way” (build 10008)``, for people to read."""
+    """``1.4.0 “material” (build 10009)``, for people to read."""
     named = f"{__version__} “{RELEASE_NAME}”" if RELEASE_NAME else __version__
     return f"{named} (build {BUILD})"
 

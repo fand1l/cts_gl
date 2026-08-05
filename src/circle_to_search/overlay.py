@@ -76,7 +76,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QWidget
 
-from . import OVERLAY_WINDOW_TITLE
+from . import OVERLAY_WINDOW_TITLE, material
 from .colours import css_of, hex_of, readable_on
 from .hidpi import ScreenMetrics, logical_rect_to_physical, physical_rect_to_logical
 from .i18n import tr
@@ -212,12 +212,20 @@ _LINE_SLACK = 5
 #: offers also has a key, and the keys keep working — but a gesture that is mouse
 #: work from the shake to the release should not demand the keyboard at the end
 #: of it.
-_BAR_RADIUS = 11
-_BAR_MARGIN = 6          # inside the pill, around the row
-_BAR_GAP = 3             # between buttons
-_BUTTON_PAD_X = 13
-_BUTTON_PAD_Y = 8
-_KEY_GAP = 8             # between a label and its key
+#:
+#: The numbers are the 8 dp grid and the shape scale, not seven separate
+#: judgement calls — see :mod:`circle_to_search.material`.
+_BAR_RADIUS = material.SHAPE_FULL
+_BUTTON_RADIUS = material.SHAPE_FULL
+_BAR_MARGIN = material.space(0.75)   # inside the pill, around the row
+_BAR_GAP = material.space(0.5)       # between buttons
+_BUTTON_PAD_X = material.space(1.5)
+_BUTTON_PAD_Y = material.space(1)
+_KEY_GAP = material.space(1)         # between a label and its key
+
+#: The readouts and the badge: a container one step of tone above the dimming,
+#: which is what MD3 means by elevation once the dimming is the surface.
+_READOUT_RADIUS = material.SHAPE_SMALL
 
 #: Buttons only respond to a press *and* a release on the same one, the way
 #: buttons everywhere do, so sliding off one is a way to change your mind.
@@ -507,9 +515,31 @@ class SelectionOverlay(QWidget):
         # path subtraction per repaint, which is nothing.
         self._sharp = pixmap
         self._sharp.setDevicePixelRatio(metrics.scale)
-        self._dim = QColor(0, 0, 0, max(0, min(90, dim_percent)) * 255 // 100)
 
         self._accent = self._accent_colour()
+        # The *dark* scheme, always, and not because of anybody's theme: this
+        # window dims the screen, so what is drawn on it is drawn on a dark
+        # surface by construction.  The two dialogs follow the desktop instead.
+        self._scheme = material.scheme_for(material.seed_of(self._accent), dark=True)
+        # And a second one, because this window has *two* backgrounds and only
+        # one of them is ours.  Everything above is drawn on the dimming, which
+        # the line below turns into a dark MD3 surface; the handles, the grip,
+        # the selection outline and the loupe's crosshair are drawn on the part
+        # that is deliberately *not* dimmed — somebody's own window, most often a
+        # white one.  A dark scheme's primary is tone 80 because it expects a
+        # dark surface under it, and on a white document it is barely there.  So
+        # the things that touch the content take the light scheme's primary, a
+        # saturated mid-tone that shows on both, and keep their white rim for
+        # the times the content is darker than it is.
+        self._on_content = material.scheme_for(material.seed_of(self._accent), dark=False)
+        # And this is the answer to the one place MD3 had nothing to stand on.
+        # Tonal elevation replaces shadows with tinted surfaces, and everything
+        # here sits on a frozen screenshot of somebody else's screen, which is no
+        # surface at all — so the dimming becomes one.  It is the scheme's own
+        # `surface`, a near-black carrying the accent's hue, and every container
+        # above it is a lighter tone of the same neutral palette.
+        self._dim = QColor(self._scheme.surface)
+        self._dim.setAlpha(max(0, min(90, dim_percent)) * 255 // 100)
 
         # Wayland likes to send a spurious deactivation right after mapping the
         # surface; ignore "focus lost" for a moment so the overlay does not
@@ -533,12 +563,19 @@ class SelectionOverlay(QWidget):
     # ------------------------------------------------------------ action bar
 
     def _bar_fonts(self) -> tuple[QFont, QFont]:
-        """The label font and the smaller one the keys and the caption use."""
-        font = QFont(self.font())
-        font.setPointSizeF(max(10.0, font.pointSizeF() + 0.5))
-        small = QFont(font)
-        small.setPointSizeF(max(8.0, font.pointSizeF() - 1.5))
-        return font, small
+        """The label font and the smaller one the keys and the caption use.
+
+        MD3's two label roles rather than a pair of nudges off the desktop's
+        font: *label-large* is the role for the text on a button and
+        *label-medium* the one under it.  Both are ratios against the size the
+        user set in System Settings, so the bar grows with their desktop and the
+        typeface is still theirs.
+        """
+        base = self.font()
+        return (
+            material.typeface(base, "label-large"),
+            material.typeface(base, "label-medium"),
+        )
 
     def _showing_hint(self) -> bool:
         """Nothing taken yet: the bar offers the mode the next drag will use.
@@ -676,6 +713,19 @@ class SelectionOverlay(QWidget):
             ]
         return []
 
+    def _caption_band(self, metrics: QFontMetrics) -> int:
+        """How much taller the caption makes the pill: its line, and a gap.
+
+        One place, because :meth:`_layout_buttons` and :meth:`_bar_rect` both
+        need the answer and used to work it out separately — they agreed on the
+        pill's total height and disagreed about where the caption sat inside it,
+        which left the line hard against the bottom edge.  That was invisible
+        while the corners were 11 px and is not any more: on a pill with a full
+        radius the bottom corner curves straight through where the ends of a
+        centred line of text are.
+        """
+        return metrics.height() + _BAR_MARGIN if self._bar_caption() else 0
+
     def _layout_buttons(self) -> list[BarButton]:
         """Place the bar under the selection, in screen coordinates."""
         entries = self._bar_entries()
@@ -698,7 +748,7 @@ class SelectionOverlay(QWidget):
         # The whole pill, caption row included, because that is what has to fit
         # — and a caption can be wider than every button put together.
         caption = self._bar_caption()
-        caption_height = key_metrics.height() if caption else 0
+        caption_height = self._caption_band(key_metrics)
         pill_height = height + caption_height + 2 * _BAR_MARGIN
         pill_width = max(total, key_metrics.horizontalAdvance(caption) + 2 * _BUTTON_PAD_X)
 
@@ -769,7 +819,7 @@ class SelectionOverlay(QWidget):
         caption = self._bar_caption()
         if caption:
             metrics = QFontMetrics(self._bar_fonts()[1])
-            rect.setBottom(rect.bottom() + metrics.height())
+            rect.setBottom(rect.bottom() + self._caption_band(metrics))
             needed = metrics.horizontalAdvance(caption) + 2 * _BUTTON_PAD_X
             if needed > rect.width():
                 grow = (needed - rect.width() + 1) // 2
@@ -1214,7 +1264,7 @@ class SelectionOverlay(QWidget):
         if self._dim.alpha():
             wash = QColor(255, 255, 255, min(60, self._dim.alpha()))
             painter.fillRect(outline, wash)
-        pen = QPen(self._accent)
+        pen = QPen(self._on_content.primary)
         pen.setWidth(2)
         pen.setCosmetic(True)
         pen.setStyle(Qt.PenStyle.DashLine)
@@ -1474,7 +1524,7 @@ class SelectionOverlay(QWidget):
             # same fact, and next to a stroke this wide it is noise.
             self._draw_stroke(painter)
         elif self._outline_showing():
-            pen = QPen(self._accent)
+            pen = QPen(self._on_content.primary)
             pen.setWidth(1)
             pen.setCosmetic(True)
             painter.setBrush(Qt.BrushStyle.NoBrush)
@@ -1792,7 +1842,7 @@ class SelectionOverlay(QWidget):
             return
 
         wash = QColor(255, 255, 255, 26)
-        rule = QColor(self._accent)
+        rule = QColor(self._on_content.primary)
         rule.setAlpha(150)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(wash)
@@ -1833,11 +1883,11 @@ class SelectionOverlay(QWidget):
             outside.addRect(self._visible_area())
             painter.fillPath(outside.subtracted(area), self._dim)
 
-        tint = QColor(self._accent)
+        tint = QColor(self._on_content.primary)
         tint.setAlpha(90)
         painter.fillPath(area, tint)
 
-        pen = QPen(self._accent)
+        pen = QPen(self._on_content.primary)
         pen.setWidth(1)
         pen.setCosmetic(True)
         painter.setPen(pen)
@@ -1879,22 +1929,36 @@ class SelectionOverlay(QWidget):
         painter.setFont(self.font())
         box = self._badge_rect()
         if self._badge in (BADGE_SENDING, BADGE_OPENING):
-            # In the accent colour: this one is not a note about the screen, it
-            # is the last thing the overlay does before it goes away.
+            # Filled with the primary role: this one is not a note about the
+            # screen, it is the last thing the overlay does before it goes away,
+            # and MD3's loudest container is the one that says so.
+            radius = material.corner(material.SHAPE_FULL, box.height())
             painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(self._accent)
-            painter.drawRoundedRect(box, 4, 4)
-            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.setBrush(self._scheme.primary)
+            painter.drawRoundedRect(box, radius, radius)
+            self._draw_two_tone(painter, QRectF(box), radius, self._scheme.on_primary)
+            painter.setPen(QPen(self._scheme.on_primary))
             painter.drawText(box, int(Qt.AlignmentFlag.AlignCenter), self._badge_text() + dots)
             return
         self._draw_box(painter, box, self._badge_text() + dots)
 
     def _draw_handles(self, painter: QPainter) -> None:
         """The grab squares on the edges and corners of the confirmed box."""
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Rounded on the shape scale's smallest step rather than square, which
+        # is the one place MD3 reaches something this small, and filled with the
+        # primary role.  The white rim stays: these are the things most often
+        # dragged across a bright window.
         painter.setPen(QPen(QColor(255, 255, 255, 220), 1))
-        painter.setBrush(self._accent)
+        painter.setBrush(self._on_content.primary)
         for rect in self._handle_rects().values():
-            painter.drawRect(rect.adjusted(2, 2, -2, -2))
+            painter.drawRoundedRect(
+                QRectF(rect.adjusted(2, 2, -2, -2)),
+                material.SHAPE_EXTRA_SMALL,
+                material.SHAPE_EXTRA_SMALL,
+            )
+        painter.restore()
 
         # The move grip, in the middle.  It has to be visible, because pressing
         # anywhere else inside the box now starts a new selection and there
@@ -1905,13 +1969,16 @@ class SelectionOverlay(QWidget):
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         painter.setPen(Qt.PenStyle.NoPen)
-        fill = QColor(self._accent)
+        fill = QColor(self._on_content.primary)
         fill.setAlpha(180)
         painter.setBrush(fill)
         painter.drawEllipse(grip)
         # A four-way arrow — the move cursor's own shape.  A bare cross reads as
-        # "add", which is not what pressing this does.
-        ink = QColor(255, 255, 255, 235)
+        # "add", which is not what pressing this does.  Drawn in the primary's
+        # own partner, so it is legible on it by construction rather than by
+        # the accent happening to be dark.
+        ink = QColor(self._on_content.on_primary)
+        ink.setAlpha(235)
         pen = QPen(ink)
         pen.setWidth(2)
         pen.setCapStyle(Qt.PenCapStyle.FlatCap)
@@ -1948,12 +2015,26 @@ class SelectionOverlay(QWidget):
         if not buttons:
             return
 
+        scheme = self._scheme
         pill = self._bar_rect()
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+
+        # One step of tone above the dimming, which is the surface — that is
+        # elevation, in the only form this program can carry it.  Nearly opaque
+        # rather than opaque: a bar hanging over the frozen screen that admits
+        # what is behind it stays a thing on the screen rather than a hole in it.
+        body = QColor(scheme.surface_container_high)
+        body.setAlpha(238)
+        radius = material.corner(_BAR_RADIUS, pill.height())
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 205))
-        painter.drawRoundedRect(pill, _BAR_RADIUS, _BAR_RADIUS)
+        painter.setBrush(body)
+        painter.drawRoundedRect(pill, radius, radius)
+        # And the rim MD3 does not ask for and this program cannot do without:
+        # the pill is drawn over somebody else's wallpaper, and a dark container
+        # with no edge disappears into a dark one.  Tone alone is depth against a
+        # known background; against an unknown one it is nothing.
+        self._draw_two_tone(painter, QRectF(pill), radius, scheme.outline_variant)
 
         font, small = self._bar_fonts()
         key_metrics = QFontMetrics(small)
@@ -1963,21 +2044,35 @@ class SelectionOverlay(QWidget):
             # Armed but slid off: no longer drawn as held down, still armed, so
             # coming back and letting go works.
             pressed = hovered and button.action == self._pressed_button
-            if button.primary or hovered:
-                fill = QColor(self._accent)
-                if pressed:
-                    fill = fill.darker(120)
-                elif not button.primary:
-                    fill.setAlpha(95)
+            button_radius = material.corner(_BUTTON_RADIUS, button.rect.height())
+            if button.primary:
+                fill, ink = scheme.primary, scheme.on_primary
+            elif hovered:
+                fill, ink = scheme.secondary_container, scheme.on_secondary_container
+            else:
+                fill, ink = None, scheme.on_surface
+
+            if fill is not None:
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(fill)
-                painter.drawRoundedRect(button.rect, _BAR_RADIUS - 3, _BAR_RADIUS - 3)
+                painter.drawRoundedRect(button.rect, button_radius, button_radius)
+            if hovered or pressed:
+                # A state layer, not a darker fill: MD3 puts a film of the
+                # button's own ink over it, which is why it reads correctly on a
+                # filled button and on a bare one without either being special
+                # cased.
+                painter.setBrush(
+                    scheme.state_layer(
+                        ink, material.STATE_PRESSED if pressed else material.STATE_HOVER
+                    )
+                )
+                painter.drawRoundedRect(button.rect, button_radius, button_radius)
 
             key_width = key_metrics.horizontalAdvance(button.key) if button.key else 0
             trim = _BUTTON_PAD_X + (key_width + _KEY_GAP if button.key else 0)
             label_rect = button.rect.adjusted(_BUTTON_PAD_X, 0, -trim, 0)
             painter.setFont(font)
-            painter.setPen(QColor(255, 255, 255))
+            painter.setPen(ink)
             painter.drawText(
                 label_rect,
                 int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
@@ -1994,7 +2089,9 @@ class SelectionOverlay(QWidget):
                     button.rect.height(),
                 )
                 painter.setFont(small)
-                painter.setPen(QColor(255, 255, 255, 150))
+                # The quieter half of the pair rather than the same ink at an
+                # alpha: MD3 has a role for secondary text and it is this one.
+                painter.setPen(ink if fill is not None else scheme.on_surface_variant)
                 painter.drawText(
                     key_rect,
                     int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
@@ -2006,16 +2103,42 @@ class SelectionOverlay(QWidget):
             # Inside the pill, not under it: the same dim grey that reads as a
             # footnote on black is unreadable on whatever the screenshot has.
             painter.setFont(small)
-            painter.setPen(QColor(255, 255, 255, 140))
+            painter.setPen(scheme.on_surface_variant)
+            # Stops a margin short of the bottom, so the line is clear of the
+            # corner rather than tangent to it.
             row = QRect(
                 pill.left(),
                 buttons[0].rect.bottom(),
                 pill.width(),
-                pill.bottom() - buttons[0].rect.bottom(),
+                pill.bottom() - _BAR_MARGIN - buttons[0].rect.bottom(),
             )
             painter.drawText(row, int(Qt.AlignmentFlag.AlignCenter), caption)
 
         painter.restore()
+
+    def _draw_two_tone(
+        self, painter: QPainter, box: QRectF, radius: float, colour: QColor
+    ) -> None:
+        """The edge every container here needs and MD3 never had to think about.
+
+        Its containers sit on its own surfaces, so a change of tone is enough to
+        separate them.  These sit on a photograph of somebody else's desktop,
+        which may be any colour, so a single-tone edge is invisible against
+        something: a dark hairline outside a light one shows on both.  This is
+        the rule that survived contact with real use, and MD3 does not override
+        it — the two answer different questions.
+        """
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for inset, ink in ((0.5, QColor(0, 0, 0, 90)), (1.5, colour)):
+            pen = QPen(ink)
+            pen.setWidthF(1.0)
+            pen.setCosmetic(True)
+            painter.setPen(pen)
+            painter.drawRoundedRect(
+                box.adjusted(inset, inset, -inset, -inset),
+                max(0.0, radius - inset),
+                max(0.0, radius - inset),
+            )
 
     # --------------------------------------------------------------- the loupe
 
@@ -2116,7 +2239,7 @@ class SelectionOverlay(QWidget):
         )
         # A dark line under a light one: the loupe shows whatever the screen had
         # there, so a crosshair in one colour is invisible against something.
-        for width, colour in ((3, QColor(0, 0, 0, 110)), (1, self._accent)):
+        for width, colour in ((3, QColor(0, 0, 0, 110)), (1, self._on_content.primary)):
             pen = QPen(colour)
             pen.setWidth(width)
             painter.setPen(pen)
@@ -2181,7 +2304,7 @@ class SelectionOverlay(QWidget):
         if self._caret_anchor is not None:
             pinned = QPointF(self._caret_anchor)
             painter.setPen(QPen(QColor(0, 0, 0, 130), 3))
-            painter.setBrush(self._accent)
+            painter.setBrush(self._on_content.primary)
             painter.drawEllipse(pinned, 4.0, 4.0)
 
     def _upload_line(self, physical: QRect) -> str:
@@ -2269,10 +2392,16 @@ class SelectionOverlay(QWidget):
         self._draw_box(painter, box, text)
 
     def _draw_box(self, painter: QPainter, box: QRect, text: str) -> None:
+        """A readout: a container a step above the dimming, with its own ink."""
+        fill = QColor(self._scheme.surface_container_highest)
+        fill.setAlpha(232)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(0, 0, 0, 190))
-        painter.drawRoundedRect(box, 4, 4)
-        painter.setPen(QPen(QColor(255, 255, 255)))
+        painter.setBrush(fill)
+        painter.drawRoundedRect(box, _READOUT_RADIUS, _READOUT_RADIUS)
+        self._draw_two_tone(
+            painter, QRectF(box), float(_READOUT_RADIUS), self._scheme.outline_variant
+        )
+        painter.setPen(QPen(self._scheme.on_surface))
         painter.drawText(box, int(Qt.AlignmentFlag.AlignCenter), text)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
