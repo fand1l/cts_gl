@@ -109,6 +109,20 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
         log.info("ShowSettings()")
         self._service.settings_requested.emit()
 
+    @pyqtSlot(str)
+    def ScriptReady(self, version: str) -> None:
+        """The version of the KWin script KWin is *actually running*.
+
+        KWin loads a script once, at login, and ``reconfigure`` re-reads its
+        settings without re-reading its code, so after an upgrade the file on
+        disk and the code in the compositor can be two different things — and
+        every symptom of that looks like a setting that does not work.  The
+        script sends this at start-up and again on every configuration change,
+        which is what makes it reach a daemon that was restarted since login.
+        """
+        log.info("ScriptReady(%s)", version)
+        self._service.script_ready.emit(version)
+
     @pyqtSlot(result=str)
     def Ping(self) -> str:
         """Return the running version — the quickest liveness check."""
@@ -125,6 +139,8 @@ class ServiceObject(QObject):
     gesture_trace = pyqtSignal(str)
     triggered_current = pyqtSignal()
     settings_requested = pyqtSignal()
+    #: The version string of the KWin script now running inside KWin.
+    script_ready = pyqtSignal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)

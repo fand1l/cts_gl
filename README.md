@@ -401,6 +401,38 @@ It appears once. Whatever you do with it — answer it or close it unread —
 circle-to-search --welcome
 ```
 
+### The tray icon says whether it will work
+
+Hovering the icon answers "is this thing on?", because there are four quite
+different reasons a shake might do nothing and no way to tell them apart by
+shaking harder:
+
+| icon | |
+|---|---|
+| normal | detection is on, the script is installed and enabled — shaking works |
+| dimmed | *detect cursor shake* is switched off; the shortcut still works |
+| dimmed | the KWin script is not installed at all — run `install.sh` again |
+| dimmed | it is installed but switched off in *System Settings → Window Management → KWin Scripts* |
+| dimmed | **KWin is running an older copy of the script than the one on disk** |
+
+That last one is why this exists. KWin loads a script once, at login, and
+`reconfigure` re-reads its *settings* without re-reading its *code*, so after
+an upgrade the file on disk and the code in the compositor can be two different
+things — and every symptom of that looks like "the checkbox does not work". It
+cost two rounds of debugging during development, twice.
+
+So the script now announces its own version over D-Bus (`ScriptReady`) when it
+loads and again whenever the settings change, and the daemon compares it with
+the version it reads out of the installed `main.js`. If they differ the tooltip
+names both and says to log out. Nothing is claimed until the script has spoken:
+a daemon restarted mid-session has heard nothing yet, and silence is not
+evidence — but changing any setting, which is the first thing anyone does when
+a toggle appears to do nothing, makes KWin reconfigure and brings the answer
+with it.
+
+Everything above is read **fresh** every time the menu is opened. Caching it
+would reintroduce precisely the bug it is there to expose.
+
 ### Getting the keyboard back
 
 The overlay takes the focus while it is up — it has to, or *Enter* and *Esc*

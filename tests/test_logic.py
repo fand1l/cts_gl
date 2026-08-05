@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import itertools
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -1899,6 +1900,139 @@ for entry in corpus:
     check(f"corpus {entry.name}",
           data.get("expect") in {"fire", "no-fire"} and len(data.get("samples", [])) > 1,
           entry.name)
+
+# --- what the tray icon is saying ------------------------------------------
+# "The toggle does not work" came up twice while this was being built, and both
+# times the cause was KWin still running the script it loaded at login rather
+# than the one on disk.  Nothing on screen could have said so.
+from circle_to_search import config as _config  # noqa: E402
+from circle_to_search import traystate  # noqa: E402
+
+
+class _World:
+    """Stand in for the four things the state is read from."""
+
+    def __init__(self, installed=True, enabled=True, version="1.8.0", detect=True):
+        self.installed = installed
+        self.enabled = enabled
+        self.version = version
+        self.detect = detect
+
+    def __enter__(self):
+        self._saved = (
+            traystate.kwin_script_installed,
+            traystate.kwin_script_enabled,
+            traystate.kwin_script_version,
+            traystate.read_detection,
+        )
+        detection = DetectionSettings.defaults()
+        detection.enabled = self.detect
+        traystate.kwin_script_installed = lambda: Path("/tmp/x") if self.installed else None
+        traystate.kwin_script_enabled = lambda: self.enabled
+        traystate.kwin_script_version = lambda: self.version
+        traystate.read_detection = lambda: detection
+        return self
+
+    def __exit__(self, *_exc):
+        (
+            traystate.kwin_script_installed,
+            traystate.kwin_script_enabled,
+            traystate.kwin_script_version,
+            traystate.read_detection,
+        ) = self._saved
+        return False
+
+
+with _World() as _w:
+    state = traystate.read_tray_state("1.8.0")
+    check("everything working is working", state.state == traystate.STATE_OK, state.state)
+    check("and the icon is not dimmed for it", state.working)
+
+with _World(detect=False):
+    state = traystate.read_tray_state("1.8.0")
+    check("detection off is its own state", state.state == traystate.STATE_OFF, state.state)
+    check("and the icon says so", not state.working)
+    check("but the tooltip does not call it broken",
+          "shortcut" in state.tooltip or "клавіш" in state.tooltip, state.tooltip)
+
+with _World(installed=False):
+    state = traystate.read_tray_state("1.8.0")
+    check("no script at all", state.state == traystate.STATE_NO_SCRIPT, state.state)
+
+with _World(enabled=False):
+    state = traystate.read_tray_state("1.8.0")
+    check("installed but switched off in kwinrc",
+          state.state == traystate.STATE_DISABLED, state.state)
+
+# The one this was written for.
+with _World(version="1.8.0"):
+    state = traystate.read_tray_state("1.6.0")
+    check("a stale script is caught", state.state == traystate.STATE_STALE, state.state)
+    check("and both versions are named",
+          "1.6.0" in state.tooltip and "1.8.0" in state.tooltip, state.tooltip)
+    check("it is not treated as working", not state.working)
+
+# Silence is not evidence.  A daemon restarted mid-session has heard nothing,
+# and must not therefore claim anything is wrong.
+with _World():
+    state = traystate.read_tray_state("")
+    check("no news is not bad news", state.state == traystate.STATE_OK, state.state)
+with _World(version=""):
+    state = traystate.read_tray_state("1.6.0")
+    check("nor is an unreadable script", state.state == traystate.STATE_OK, state.state)
+
+# Being switched off outranks nothing: a missing script is the more useful
+# thing to say, because turning detection back on would not fix it.
+with _World(installed=False, detect=False):
+    check("the more actionable reason wins",
+          traystate.read_tray_state("").state == traystate.STATE_NO_SCRIPT)
+
+# Every state has to have words in both languages, or the tooltip is a key.
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    for name in (
+        traystate.STATE_OK,
+        traystate.STATE_OFF,
+        traystate.STATE_NO_SCRIPT,
+        traystate.STATE_DISABLED,
+    ):
+        text = traystate.TrayState(name).tooltip
+        check(f"{code}: {name} has words", text != f"tray.state.{name}", text)
+    stale = traystate.TrayState(traystate.STATE_STALE, running="1", installed="2").tooltip
+    check(f"{code}: stale has words", "1" in stale and "2" in stale, stale)
+i18n.set_language("en")
+
+# The version really is read out of the file the compositor loads, not out of
+# metadata.json — they are kept in step by hand and the code is what runs.
+shipped = Path(__file__).resolve().parent.parent / "kwinscript"
+check("the shipped script has a version",
+      re.search(r'SCRIPT_VERSION\s*=\s*"([^"]+)"',
+                (shipped / "contents/code/main.js").read_text()) is not None)
+with tempfile.TemporaryDirectory() as tmp:
+    package = Path(tmp) / "pkg"
+    (package / "contents/code").mkdir(parents=True)
+    (package / "contents/code/main.js").write_text('var SCRIPT_VERSION = "9.9.9";\n')
+    saved_installed = _config.kwin_script_installed
+    _config.kwin_script_installed = lambda: package
+    try:
+        check("the version comes out of main.js",
+              _config.kwin_script_version() == "9.9.9", _config.kwin_script_version())
+        (package / "contents/code/main.js").write_text("nothing in here\n")
+        check("a script without one is unknown, not a crash",
+              _config.kwin_script_version() == "")
+        _config.kwin_script_installed = lambda: None
+        check("no script, no version", _config.kwin_script_version() == "")
+    finally:
+        _config.kwin_script_installed = saved_installed
+
+# The script really does announce itself, and on both occasions that matter.
+source = (shipped / "contents/code/main.js").read_text()
+check("loadConfig is what announces",
+      "announce();" in source.split("function announce")[0], "no announce() in loadConfig")
+check("and it is the first thing init does",
+      re.search(r"function init\(\)\s*\{\s*\n\s*loadConfig\(\);", source) is not None)
+check("with the version it is really running",
+      '"ScriptReady", SCRIPT_VERSION' in source)
 
 print()
 if failures:

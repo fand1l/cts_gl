@@ -297,6 +297,17 @@ console.log(`${screenOk ? "PASS" : "FAIL"}  screen name: ${JSON.stringify(trigge
 if (!screenOk) failures += 1;
 
 /* A full screen window has the focus: the shake must be ignored entirely. */
+/*
+ * Everything the *pointer* caused.  ScriptReady is the version handshake: it
+ * goes out once when the script loads and again only when the configuration
+ * changes, never from the poll tick, so it is not what the "stays completely
+ * silent" assertions are about.  Filtering it here rather than counting raw
+ * calls keeps those assertions saying what they mean.
+ */
+function fromThePointer(harness) {
+    return harness.calls.filter((c) => c[3] !== "ScriptReady");
+}
+
 if (!run("fullscreen blocks the shake", defaults, shake(4, 200, 1000, 4, 40), 0,
          { fullScreen: true })) failures += 1;
 
@@ -308,7 +319,7 @@ if (!run("fullscreen allowed when configured", { disableInFullscreen: false },
 {
     const quiet = lastHarness;
     run("fullscreen stays silent", defaults, shake(4, 200, 1000, 4, 40), 0, { fullScreen: true });
-    const anyCall = lastHarness.calls.length;
+    const anyCall = fromThePointer(lastHarness).length;
     console.log(`${anyCall === 0 ? "PASS" : "FAIL"}  fullscreen sends no D-Bus at all: ${anyCall} call(s)`);
     if (anyCall !== 0) failures += 1;
     void quiet;
@@ -317,9 +328,21 @@ if (!run("fullscreen allowed when configured", { disableInFullscreen: false },
 /* Ordinary pointer use must stay completely silent on D-Bus. */
 run("straight move stays silent", defaults, straight(900, 1000, 12, 40), 0);
 {
-    const chatter = lastHarness.calls.length;
+    const chatter = fromThePointer(lastHarness).length;
     console.log(`${chatter === 0 ? "PASS" : "FAIL"}  normal movement sends nothing: ${chatter}`);
     if (chatter !== 0) failures += 1;
+}
+
+/* The version handshake is not pointer traffic: it goes out once when the
+ * script loads, and the whole point of the CPU budget is that nothing else
+ * does.  Both halves are worth pinning down — that it happens at all, and that
+ * moving the pointer for a second does not repeat it. */
+{
+    const ready = lastHarness.calls.filter((c) => c[3] === "ScriptReady");
+    const once = ready.length === 1 && typeof ready[0][4] === "string" && ready[0][4].length > 0;
+    console.log(`${once ? "PASS" : "FAIL"}  the script announces its version once at load: ` +
+                JSON.stringify(ready.map((c) => c[4])));
+    if (!once) failures += 1;
 }
 
 /* ---- false positives: none of these may open the overlay ---------------- */
@@ -732,7 +755,7 @@ function focusHarness(config) {
 {
     run("collecting stays silent without a trigger", { collectTraces: true },
         drawing(1000, 40, 40), 0);
-    const chatter = lastHarness.calls.length;
+    const chatter = fromThePointer(lastHarness).length;
     console.log(`${chatter === 0 ? "PASS" : "FAIL"}  drawing sends nothing while collecting: ` +
                 `${chatter}`);
     if (chatter !== 0) failures += 1;

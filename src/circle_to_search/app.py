@@ -25,6 +25,7 @@ from PyQt6.QtGui import (
     QCursor,
     QGuiApplication,
     QIcon,
+    QPainter,
     QPixmap,
     QPolygon,
     QScreen,
@@ -75,6 +76,7 @@ from .overlay import (
 )
 from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
+from .traystate import read_tray_state
 from .welcome import WelcomeDialog
 
 log = get_logger("app")
@@ -306,9 +308,17 @@ class CircleToSearchApp(QObject):
         self._recent = RecentCaptures()
 
         self._icon = self._load_icon()
+        #: The same icon greyed out, for every state in which shaking the
+        #: pointer will not open anything.  Built once; it is a repaint of a
+        #: 22-pixel picture, but it is asked for on every menu opening.
+        self._dim_icon = self._dimmed(self._icon)
         self._tray = QSystemTrayIcon(self._icon, self)
         self._detection_action: QAction | None = None
         self._recent_menu: QMenu | None = None
+        #: What the KWin script last said its version was.  Empty until it says
+        #: so, which is normal for a daemon started after the session.
+        self._script_version = ""
+        self._service.script_ready.connect(self._on_script_ready)
         self._build_tray()
 
     # -------------------------------------------------------------- start-up
@@ -393,8 +403,47 @@ class CircleToSearchApp(QObject):
         menu.addAction(quit_action)
 
         self._tray.setContextMenu(menu)
-        self._tray.setToolTip(tr("app.tooltip"))
         self._tray.activated.connect(self._on_tray_activated)
+        # Read again every time the menu is opened, which is the moment the
+        # user is asking "is this thing on?".  Anything cached here would be
+        # capable of the exact disagreement this is meant to expose.
+        menu.aboutToShow.connect(self.refresh_tray)
+        self.refresh_tray()
+
+    # ---------------------------------------------------------- what it says
+
+    @staticmethod
+    def _dimmed(icon: QIcon) -> QIcon:
+        """The same icon at a third of its opacity."""
+        source = icon.pixmap(64, 64)
+        if source.isNull():
+            return icon
+        faded = QPixmap(source.size())
+        faded.setDevicePixelRatio(source.devicePixelRatio())
+        faded.fill(Qt.GlobalColor.transparent)
+        painter = QPainter(faded)
+        painter.setOpacity(0.35)
+        painter.drawPixmap(0, 0, source)
+        painter.end()
+        return QIcon(faded)
+
+    @pyqtSlot(str)
+    def _on_script_ready(self, version: str) -> None:
+        """The KWin script said which version of itself is running."""
+        if version != self._script_version:
+            log.info("the KWin script running in the compositor is v%s", version)
+        self._script_version = version
+        self.refresh_tray()
+
+    @pyqtSlot()
+    def refresh_tray(self) -> None:
+        """Make the icon and its tooltip say what is actually the case."""
+        state = read_tray_state(self._script_version)
+        self._tray.setIcon(self._icon if state.working else self._dim_icon)
+        self._tray.setToolTip(state.tooltip)
+        if self._detection_action is not None:
+            self._detection_action.setChecked(read_detection().enabled)
+        log.debug("tray state: %s", state.state)
 
     # ------------------------------------------------------ recent captures
 
@@ -468,6 +517,11 @@ class CircleToSearchApp(QObject):
     def _on_detection_toggled(self, checked: bool) -> None:
         set_detection_enabled(checked)
         log.info("cursor-shake detection %s", "enabled" if checked else "disabled")
+        # Writing the key makes KWin reconfigure, which makes the running script
+        # re-read its settings and announce itself — so this is also the moment
+        # a stale one gives itself away, and it is the first thing anyone does
+        # when the toggle appears to do nothing.
+        self.refresh_tray()
 
     def _check_kwin_script(self) -> None:
         """Tell the user when the KWin half of the application is missing."""
@@ -480,6 +534,15 @@ class CircleToSearchApp(QObject):
             notify(tr("notify.kwin_missing"), tr("notify.kwin_missing_body"))
             return
         log.info("KWin script found in %s", path)
+        if not self._script_version:
+            # Normal for a daemon restarted mid-session: the script announces
+            # itself when it loads and whenever the settings change, and there
+            # is no way to ask it directly.  Nothing is claimed about the
+            # version until it does say, and the first settings change — which
+            # is what someone chasing "the toggle does nothing" will do
+            # immediately — brings the answer with it.
+            log.debug("the KWin script has not announced its version yet")
+        self.refresh_tray()
 
     # ---------------------------------------------------------------- events
 
@@ -1296,9 +1359,7 @@ class CircleToSearchApp(QObject):
 
     def _on_settings_applied(self) -> None:
         set_language(self._settings.language)
-        detection = read_detection()
-        if self._detection_action is not None:
-            self._detection_action.setChecked(detection.enabled)
+        self.refresh_tray()
         self._survey = self._load_survey()
         self._arm_trace_collection()
 
@@ -1351,8 +1412,7 @@ class CircleToSearchApp(QObject):
     def _on_calibration_applied(self) -> None:
         if self._dialog is not None:
             self._dialog.reload()
-        if self._detection_action is not None:
-            self._detection_action.setChecked(read_detection().enabled)
+        self.refresh_tray()
 
     def _on_calibration_closed(self) -> None:
         dialog = self._calibration

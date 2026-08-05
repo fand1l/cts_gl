@@ -14,6 +14,7 @@ There are two stores, on purpose:
 
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 from dataclasses import asdict, dataclass, fields
@@ -308,6 +309,25 @@ def kwin_script_enabled() -> bool:
     except (OSError, subprocess.SubprocessError):
         return False
     return _as_bool(result.stdout)
+
+
+def kwin_script_version() -> str:
+    """The version of the KWin script *file on disk*, or ``""``.
+
+    Read out of ``main.js`` rather than ``metadata.json``: the two are kept in
+    step by hand, and the one that decides how the compositor behaves is the
+    code.  Never raises — a missing or unreadable script is simply "unknown".
+    """
+    package = kwin_script_installed()
+    if package is None:
+        return ""
+    source = package / "contents/code/main.js"
+    try:
+        text = source.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    match = re.search(r'SCRIPT_VERSION\s*=\s*"([^"]+)"', text)
+    return match.group(1) if match else ""
 
 
 class AppSettings:

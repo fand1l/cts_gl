@@ -105,6 +105,7 @@ service.shake_triggered.connect(lambda x, y, name: seen.__setitem__("shake", (x,
 service.gesture_trace.connect(lambda points: seen.__setitem__("trace", points))
 service.calibration_sample.connect(lambda *values: seen.__setitem__("sample", values))
 service.overlay_geometry.connect(lambda *values: seen.__setitem__("geometry", values))
+service.script_ready.connect(lambda version: seen.__setitem__("version", version))
 
 introspection = bus_call(["introspect", DBUS_SERVICE, DBUS_PATH])
 
@@ -118,6 +119,7 @@ for method, signature in (
     ("GestureTrace", "s"),
     ("OverlayGeometry", "iiii"),
     ("ShowSettings", "-"),
+    ("ScriptReady", "s"),
     ("Ping", "-"),
 ):
     line = next(
@@ -156,6 +158,11 @@ check(
     seen.get("sample") == (354, 2946, 100, 0, -1, 120),
     str(seen.get("sample")),
 )
+
+# The version handshake: this is how the daemon learns that KWin is running
+# a different copy of the script than the one on disk.
+bus_call(["call", DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "ScriptReady", "s", "1.8.0"])
+check("ScriptReady arrives", seen.get("version") == "1.8.0", str(seen.get("version")))
 
 ping = bus_call(["call", DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "Ping"])
 check("Ping answers with the version", ping.strip().startswith('s "'), ping.strip())

@@ -10,7 +10,6 @@ from PyQt6.QtCore import QLocale
 
 _EN: dict[str, str] = {
     "app.name": "Circle to Search",
-    "app.tooltip": "Circle to Search — shake the cursor to select a region",
     "tray.detection": "Enable detection",
     "tray.capture": "Capture now",
     "tray.recent": "Recent captures",
@@ -22,6 +21,26 @@ _EN: dict[str, str] = {
     "tray.recent.text": "Read the text",
     "tray.recent.forget": "Forget this one",
     "tray.recent.clear": "Forget all of them",
+    "tray.state.ok": "Circle to Search — shake the cursor to select a region",
+    "tray.state.off": (
+        "Circle to Search — shake detection is off.\n"
+        "The global shortcut and “Capture now” still work."
+    ),
+    "tray.state.no-script": (
+        "Circle to Search — the KWin script is not installed, so the shake "
+        "cannot be detected.\nRun install.sh again. The global shortcut and "
+        "“Capture now” still work."
+    ),
+    "tray.state.disabled": (
+        "Circle to Search — the KWin script is installed but switched off in "
+        "System Settings → Window Management → KWin Scripts.\n"
+        "The global shortcut and “Capture now” still work."
+    ),
+    "tray.state.stale": (
+        "Circle to Search — KWin is running version {running} of the script "
+        "while {installed} is installed.\nSettings will not take effect until "
+        "you log out and back in."
+    ),
     "tray.settings": "Settings…",
     "tray.about": "About",
     "tray.quit": "Quit",
@@ -335,7 +354,6 @@ _EN: dict[str, str] = {
 
 _UK: dict[str, str] = {
     "app.name": "Обвести й знайти",
-    "app.tooltip": "Circle to Search — потрясіть курсором, щоб виділити ділянку",
     "tray.detection": "Увімкнути детекцію",
     "tray.capture": "Зняти зараз",
     "tray.recent": "Останні знімки",
@@ -347,6 +365,26 @@ _UK: dict[str, str] = {
     "tray.recent.text": "Розпізнати текст",
     "tray.recent.forget": "Забути цей",
     "tray.recent.clear": "Забути всі",
+    "tray.state.ok": "Circle to Search — потрясіть курсором, щоб виділити ділянку",
+    "tray.state.off": (
+        "Circle to Search — детекцію струшування вимкнено.\n"
+        "Глобальне сполучення клавіш і «Зняти зараз» працюють."
+    ),
+    "tray.state.no-script": (
+        "Circle to Search — скрипт KWin не встановлено, тому струшування не "
+        "розпізнається.\nЗапустіть install.sh ще раз. Глобальне сполучення "
+        "клавіш і «Зняти зараз» працюють."
+    ),
+    "tray.state.disabled": (
+        "Circle to Search — скрипт KWin установлено, але вимкнено в "
+        "Системних параметрах → Керування вікнами → Скрипти KWin.\n"
+        "Глобальне сполучення клавіш і «Зняти зараз» працюють."
+    ),
+    "tray.state.stale": (
+        "Circle to Search — KWin виконує версію скрипта {running}, а "
+        "встановлено {installed}.\nНалаштування не подіють, доки ви не вийдете "
+        "з сеансу і не зайдете знову."
+    ),
     "tray.settings": "Налаштування…",
     "tray.about": "Про програму",
     "tray.quit": "Вихід",

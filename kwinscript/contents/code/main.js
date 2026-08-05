@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.7.0";
+var SCRIPT_VERSION = "1.8.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -188,7 +188,31 @@ function loadConfig() {
     if (summary !== lastConfigSummary) {
         lastConfigSummary = summary;
         print("circle-to-search: config v" + SCRIPT_VERSION + " " + summary);
+        announce();
         resetDetector();
+    }
+}
+
+/*
+ * Tell the daemon which version of this file KWin is actually running.
+ *
+ * KWin loads a script once, at login, and `reconfigure` re-reads its settings
+ * without re-reading its code — so after an upgrade the file on disk and the
+ * code in the compositor can be different things, and every symptom of that
+ * looks like "the setting does not work".  It cost two rounds of debugging
+ * once.  The daemon compares this against the version of the installed file and
+ * says so in the tray.
+ *
+ * Sent at start-up and again whenever the configuration changes, because the
+ * daemon may well have been restarted since login and missed the first one —
+ * and writing any setting is what makes KWin reconfigure.
+ */
+function announce() {
+    try {
+        callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "ScriptReady", SCRIPT_VERSION);
+    } catch (error) {
+        /* The daemon is not running yet.  It will ask again by writing a
+         * setting, and nothing here depends on being heard. */
     }
 }
 
@@ -1140,6 +1164,8 @@ function init() {
         }
     );
 
+    /* No announce() here: init() calls loadConfig() as its first act, the
+     * summary always differs from the empty string, and that already sent it. */
     print("circle-to-search: KWin script started (v" + SCRIPT_VERSION + ")");
 }
 

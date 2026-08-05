@@ -96,7 +96,7 @@ recording:
 * **The pixel readout gave way to it.**  Both wanted the space below and right
   of the pointer; the loupe is the one that has to be there.
 
-## 4. A tray icon that shows the state  ← next
+## 4. A tray icon that shows the state  ← done
 
 Dimmed icon and a live tooltip when shake detection is off.
 
@@ -106,7 +106,27 @@ that showed the real state would have said so immediately.  Read the state
 fresh — the whole bug was a disagreement between what was written and what was
 running.
 
-## 5. The numbers behind "Advanced"
+**As built.**  Five states, not two, because "it does nothing" has four
+different causes and shaking harder tells them apart from none of them:
+working, switched off, no script, script not enabled, and *script running an
+older copy than the one on disk*.
+
+That last one needed something new: the script announces its own version over
+D-Bus (`ScriptReady`) when it loads and again on every configuration change,
+and the daemon compares it against the version it reads out of the installed
+`main.js`.  Two rules keep it honest:
+
+* **Silence proves nothing.**  A daemon restarted mid-session has never heard
+  from the script, and that is not a fault.  The version is only ever used to
+  *contradict* the file on disk.
+* **Changing any setting brings the answer.**  It makes KWin reconfigure, which
+  makes the running script re-read and re-announce — and it is the first thing
+  anyone does when a toggle appears to do nothing.
+
+Read fresh on every menu opening.  Anything cached would be capable of exactly
+the disagreement it exists to expose.
+
+## 5. The numbers behind "Advanced"  ← next
 
 Collapse the ten threshold spin boxes into a closed `QGroupBox`; leave the
 switches and the calibration button in the open.
