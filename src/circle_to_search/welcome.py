@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import ocr
+from . import material, ocr
 from .config import (
     AppSettings,
     autostart_enabled,
@@ -42,10 +42,16 @@ log = get_logger("welcome")
 
 
 def _quiet(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setWordWrap(True)
-    label.setEnabled(False)
-    return label
+    """A remark under the thing it is about.
+
+    On the type scale's *body-small* and in the ``on-surface-variant`` role,
+    rather than the disabled state it used to borrow.  Greying a label by
+    switching it off says "you may not touch this", which was never true of a
+    sentence — and it is the platform style, not this program, that decides how
+    far a disabled widget fades, so on some themes the hints were nearly gone
+    and on others barely quieter than the text above them.
+    """
+    return material.supporting(text)
 
 
 class WelcomeDialog(QDialog):
@@ -62,9 +68,18 @@ class WelcomeDialog(QDialog):
         self.setWindowTitle(tr("welcome.title"))
         self.setMinimumWidth(560)
 
+        scheme = material.scheme_for_palette()
+
+        # A headline and the line that supports it, which is MD3's own anatomy
+        # for the top of a window — and two labels rather than one, because a
+        # single one can only be given a single role.
         heading = QLabel(tr("welcome.heading"))
-        heading.setTextFormat(Qt.TextFormat.RichText)
         heading.setWordWrap(True)
+        material.restyle(heading, "headline-small", scheme.on_surface)
+
+        intro = QLabel(tr("welcome.intro"))
+        intro.setWordWrap(True)
+        material.restyle(intro, "body-medium", scheme.on_surface_variant)
 
         gesture = QLabel(
             tr(
@@ -77,6 +92,7 @@ class WelcomeDialog(QDialog):
         )
         gesture.setTextFormat(Qt.TextFormat.RichText)
         gesture.setWordWrap(True)
+        material.restyle(gesture, "body-medium", scheme.on_surface)
 
         # Three lines of prose about a physical movement, and then the movement.
         # This is the one thing a first-run window has to get across, and it is
@@ -85,6 +101,9 @@ class WelcomeDialog(QDialog):
 
         choices = QGroupBox(tr("welcome.choices"), self)
         form = QFormLayout(choices)
+        form.setContentsMargins(*(material.space(1.5),) * 4)
+        form.setHorizontalSpacing(material.space(2))
+        form.setVerticalSpacing(material.space(1))
 
         self.language_combo = QComboBox(choices)
         self.language_combo.addItem(tr("settings.language.auto"), "auto")
@@ -118,9 +137,7 @@ class WelcomeDialog(QDialog):
         calibrate = QPushButton(tr("welcome.calibrate"), self)
         calibrate.clicked.connect(self._on_calibrate)
 
-        hint = QLabel(tr("welcome.calibrate.hint"))
-        hint.setWordWrap(True)
-        hint.setEnabled(False)
+        hint = _quiet(tr("welcome.calibrate.hint"))
 
         buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok, self)
         ok = buttons.button(QDialogButtonBox.StandardButton.Ok)
@@ -129,7 +146,12 @@ class WelcomeDialog(QDialog):
         buttons.accepted.connect(self.accept)
 
         layout = QVBoxLayout(self)
+        # The 8 dp grid, rather than whatever the platform's default happened to
+        # be: it is the one part of MD3's spacing that is not tied to a phone.
+        layout.setContentsMargins(*(material.space(2),) * 4)
+        layout.setSpacing(material.space(1.5))
         layout.addWidget(heading)
+        layout.addWidget(intro)
         layout.addWidget(gesture)
         layout.addWidget(self.preview)
         layout.addWidget(choices)

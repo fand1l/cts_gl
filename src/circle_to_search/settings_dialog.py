@@ -13,16 +13,19 @@ import subprocess
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
+    QApplication,
     QCheckBox,
     QComboBox,
     QDialog,
     QDialogButtonBox,
     QFormLayout,
+    QFrame,
     QGroupBox,
     QHBoxLayout,
     QKeySequenceEdit,
     QLabel,
     QPushButton,
+    QScrollArea,
     QSlider,
     QSpinBox,
     QTabWidget,
@@ -30,7 +33,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import ocr, qr
+from . import material, ocr, qr
 from .config import (
     AppSettings,
     DetectionSettings,
@@ -50,10 +53,16 @@ log = get_logger("settings")
 
 
 def _hint(text: str) -> QLabel:
-    label = QLabel(text)
-    label.setWordWrap(True)
-    label.setEnabled(False)
-    return label
+    """The sentence under a setting that says what it is for.
+
+    MD3's *body-small* in the ``on-surface-variant`` role, rather than the
+    disabled state these used to borrow: switching a label off to grey it says
+    "you may not touch this", which was never true of a sentence, and how far a
+    disabled widget fades is the platform style's decision rather than this
+    program's — so the hints came out nearly invisible on some themes and barely
+    quieter than the text above them on others.
+    """
+    return material.supporting(text)
 
 
 class SettingsDialog(QDialog):
@@ -73,8 +82,8 @@ class SettingsDialog(QDialog):
         self.setMinimumWidth(520)
 
         tabs = QTabWidget(self)
-        tabs.addTab(self._build_detection_tab(), tr("settings.tab.detection"))
-        tabs.addTab(self._build_general_tab(), tr("settings.tab.general"))
+        tabs.addTab(self._scrollable(self._build_detection_tab()), tr("settings.tab.detection"))
+        tabs.addTab(self._scrollable(self._build_general_tab()), tr("settings.tab.general"))
 
         buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok
@@ -89,11 +98,49 @@ class SettingsDialog(QDialog):
             apply_button.clicked.connect(self.apply)
 
         layout = QVBoxLayout(self)
+        # The 8 dp grid.
+        layout.setContentsMargins(*(material.space(2),) * 4)
+        layout.setSpacing(material.space(1.5))
         layout.addWidget(tabs)
         layout.addWidget(_hint(tr("settings.restart_note")))
         layout.addWidget(buttons)
 
         self._load()
+        self._fit_to_screen()
+
+    @staticmethod
+    def _scrollable(page: QWidget) -> QScrollArea:
+        """Let a tab be taller than the window, instead of the other way round.
+
+        The hints in here are word-wrapped prose, and a wrapped label only knows
+        how tall it is once it knows how wide it is — which is why this window
+        used to open *shorter than its own contents* and lay the sentences over
+        the controls below them.  Now that the labels report an honest minimum
+        the window can no longer shrink into that state, and the same honesty
+        makes the General tab taller than a laptop screen.  Both are the same
+        fix: the content is as tall as it needs to be, and the part that gives
+        is the view onto it.
+        """
+        area = QScrollArea()
+        area.setWidget(page)
+        area.setWidgetResizable(True)
+        area.setFrameShape(QFrame.Shape.NoFrame)
+        # Never sideways: everything in here wraps or is a control, so a
+        # horizontal bar would only ever mean something had been mis-measured.
+        area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        return area
+
+    def _fit_to_screen(self) -> None:
+        """Open at the size the contents want, or the screen's, whichever is less."""
+        wanted = self.sizeHint()
+        screen = QApplication.primaryScreen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        self.resize(
+            min(wanted.width(), available.width()),
+            min(wanted.height(), round(available.height() * 0.9)),
+        )
 
     # ------------------------------------------------------------------ tabs
 

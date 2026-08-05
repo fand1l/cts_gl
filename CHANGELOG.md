@@ -21,6 +21,49 @@ the release.
 
 ---
 
+## 1.4.0 — “material”
+
+The look, on **Material Design 3** — because the gesture this program imitates
+is Google's own *Circle to Search*, which on the phone it came from is drawn in
+MD3, so anyone who has seen it arrives with an expectation. What is taken is the
+part of the specification that is platform-neutral; what is not taken is Roboto,
+the `dp` table, spring physics and every line of Compose.
+
+* **One set of colours, grown from the accent you already chose.** MD3 builds a
+  scheme from the wallpaper; this builds the same roles from the KDE accent in
+  System Settings, so it agrees with the rest of your desktop instead of
+  competing with it. Colours now only ever pair as *X* and *on-X*, which is why
+  the text on a button is legible whatever accent you picked rather than
+  whenever white happened to work.
+* **The dimming became a surface.** MD3 shows depth as tone rather than shadow,
+  and tone needs something to be a tone *of* — but everything here is drawn over
+  a frozen photograph of somebody else's screen. So the dim is no longer flat
+  black: it is the scheme's own near-black, carrying the accent's hue, and the
+  action bar and the readouts above it are lighter tones of the same palette.
+  That is the one reading under which elevation applies here at all.
+* **The bar is a pill, on the shape scale.** Seven separate corner radii became
+  one small set of them, the buttons pick up MD3's state layers instead of a
+  darker fill, and the keys and captions moved onto the role meant for secondary
+  text.
+* **The type scale, in your font.** Five roles at three sizes, applied as ratios
+  to whatever you set in System Settings — a KDE application that overrides your
+  font is a badly behaved KDE application, so the scale crosses over and the
+  typeface does not.
+* **Two schemes, because the overlay has two backgrounds.** Things drawn on the
+  dimming take the dark one; the handles, the grip and the loupe's crosshair are
+  drawn on the part deliberately left *un*-dimmed — your own window, most often a
+  white one — and take the light one. Everything drawn over an unknown screen
+  keeps its two-tone edge: that rule is older than this redesign and MD3 does not
+  override it.
+* **The settings window fits on the screen again.** Its tabs scroll. The hints
+  under each setting are wrapped prose, and a wrapped label does not know how
+  tall it is until it knows how wide it is — so the window used to open *shorter
+  than its own contents* and lay the sentences over the controls beneath them.
+  The labels report an honest height now, which fixed the overlap and made the
+  window too tall, and scrolling is what makes both right.
+
+---
+
 ## 1.3.0 — “another-way”
 
 * **A QR code wears its own button.** The whole screen is read as it freezes,

@@ -384,6 +384,11 @@ for language in ("en", "uk"):
 
     # 7. The settings, both tabs.
     dialog = SettingsDialog(AppSettings())
+    # Sized here rather than left to the window: the tabs scroll, so the window
+    # opens at whatever the *screen* allows, and the offscreen platform's screen
+    # is a few hundred pixels tall.  This is the size the Detection tab wants on
+    # a real display.
+    dialog.resize(560, 820)
     dialog.show()
     for _ in range(6):
         app.processEvents()

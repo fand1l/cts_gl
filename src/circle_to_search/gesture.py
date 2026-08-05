@@ -31,8 +31,9 @@ from dataclasses import dataclass
 
 from PyQt6.QtCore import QPointF, QRectF, Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QFontMetrics, QPainter, QPaintEvent, QPen
-from PyQt6.QtWidgets import QApplication, QSizePolicy, QWidget
+from PyQt6.QtWidgets import QSizePolicy, QWidget
 
+from . import material
 from .config import DetectionSettings
 from .i18n import tr
 
@@ -221,13 +222,23 @@ class GesturePreview(QWidget):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
 
-        palette = QApplication.palette()
-        accent = palette.highlight().color()
-        ink = palette.windowText().color()
+        # A real MD3 container rather than a wash of the text colour: a tone of
+        # the surface, a corner off the shape scale, and the outline role around
+        # it.  It follows the desktop into its dark theme because the scheme is
+        # read off the palette rather than assumed.
+        scheme = material.scheme_for_palette()
+        accent = scheme.primary
+        ink = scheme.on_surface_variant
 
+        panel = QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(ink.red(), ink.green(), ink.blue(), 14))
-        painter.drawRoundedRect(QRectF(self.rect()).adjusted(0.5, 0.5, -0.5, -0.5), 6, 6)
+        painter.setBrush(scheme.surface_container_low)
+        painter.drawRoundedRect(panel, material.SHAPE_MEDIUM, material.SHAPE_MEDIUM)
+        edge = QPen(scheme.outline_variant)
+        edge.setWidthF(1.0)
+        painter.setPen(edge)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(panel, material.SHAPE_MEDIUM, material.SHAPE_MEDIUM)
 
         points = self._placed()
         if len(points) < 2:
@@ -236,7 +247,7 @@ class GesturePreview(QWidget):
 
         # The whole path, faint: the shape is as much of the answer as the
         # movement is, and a dot on its own never shows a shape.
-        ghost = QPen(QColor(ink.red(), ink.green(), ink.blue(), 70))
+        ghost = QPen(QColor(ink.red(), ink.green(), ink.blue(), 120))
         ghost.setWidth(2)
         ghost.setStyle(Qt.PenStyle.DashLine)
         painter.setPen(ghost)
@@ -261,7 +272,7 @@ class GesturePreview(QWidget):
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(accent)
         painter.drawEllipse(head, 7, 7)
-        painter.setBrush(QColor(255, 255, 255, 210))
+        painter.setBrush(scheme.on_primary)
         painter.drawEllipse(head, 3, 3)
 
         if not self._gesture.fits_window:
@@ -270,10 +281,12 @@ class GesturePreview(QWidget):
             # shake has to be quicker than the speed threshold for the reversals
             # to land inside the window, which is worth knowing before you spend
             # ten minutes wondering why nothing opens.
-            warning = QFont(self.font())
-            warning.setBold(True)
-            painter.setFont(warning)
-            painter.setPen(QPen(QColor(176, 112, 20)))
+            # Still not red: nothing here is impossible.  MD3's tertiary is
+            # the role for a remark that is neither the main action nor a
+            # failure, and it is a turn away from the accent rather than a
+            # colour picked by hand.
+            painter.setFont(material.typeface(self.font(), "label-large"))
+            painter.setPen(QPen(scheme.tertiary))
             painter.drawText(
                 QRectF(self.rect()).adjusted(10, 6, -10, -10),
                 int(

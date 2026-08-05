@@ -1586,6 +1586,178 @@ check("and does not move the window", moved == [], str(moved))
 _press(carrier, Qt.KeyboardModifier.NoModifier)
 check("a plain press still moves it", dragged == ["out"], str(dragged))
 
+# --- Material 3 --------------------------------------------------------------
+# The gesture this program imitates is drawn in MD3 on the phone it came from,
+# so somebody who knows what that looks like arrives with an expectation.  What
+# is checked here is the part of the specification that is platform-neutral, and
+# — for the colours — the *property* the roles promise rather than a table of
+# Google's exact bytes, since the tones are built in CIELAB and not in HCT.
+from PyQt6.QtGui import QFont, QPalette  # noqa: E402
+from PyQt6.QtWidgets import QVBoxLayout, QWidget  # noqa: E402
+
+from circle_to_search import material  # noqa: E402
+
+check("the shape scale is the specification's",
+      (material.SHAPE_NONE, material.SHAPE_EXTRA_SMALL, material.SHAPE_SMALL,
+       material.SHAPE_MEDIUM, material.SHAPE_LARGE, material.SHAPE_EXTRA_LARGE)
+      == (0, 4, 8, 12, 16, 28))
+check("a full corner is half of what it is applied to",
+      material.corner(material.SHAPE_FULL, 40) == 20.0,
+      str(material.corner(material.SHAPE_FULL, 40)))
+check("and never more than the largest step, or a tall pill stops being a pill",
+      material.corner(material.SHAPE_FULL, 400) == 28.0,
+      str(material.corner(material.SHAPE_FULL, 400)))
+check("an ordinary token is itself", material.corner(material.SHAPE_MEDIUM, 40) == 12.0)
+check("the spacing grid is 8, and takes half steps",
+      (material.space(1), material.space(0.5), material.space(2)) == (8, 4, 16),
+      str((material.space(1), material.space(0.5), material.space(2))))
+
+# The type scale, as ratios: Roboto does not come across and neither does a
+# pixel size, because the font belongs to whoever set it in System Settings.
+for role, ratio in (("display-large", 57 / 14), ("headline-small", 24 / 14),
+                    ("title-medium", 16 / 14), ("body-medium", 1.0),
+                    ("label-large", 1.0), ("label-small", 11 / 14)):
+    check(f"{role} is {ratio:.3f}× the desktop's own font",
+          abs(material.type_ratio(role) - ratio) < 1e-9, str(material.type_ratio(role)))
+check("body-medium is the anchor, because it is the role a desktop font plays",
+      material.type_ratio("body-medium") == 1.0)
+check("every role in the specification is there", len(material.TYPE_ROLES) == 15,
+      str(len(material.TYPE_ROLES)))
+
+_base_font = QFont("Noto Sans", 10)
+scaled = material.typeface(_base_font, "headline-small")
+check("the typeface is never touched — only the size, weight and tracking",
+      scaled.family() == _base_font.family(), scaled.family())
+check("and the size follows the desktop's rather than Google's pixels",
+      abs(scaled.pointSizeF() - 10 * 24 / 14) < 0.01, str(scaled.pointSizeF()))
+check("a title is medium weight, a body is regular",
+      material.typeface(_base_font, "title-medium").weight() == QFont.Weight.Medium
+      and material.typeface(_base_font, "body-medium").weight() == QFont.Weight.Normal)
+pixel_based = QFont("Noto Sans")
+pixel_based.setPixelSize(13)
+check("a font measured in pixels stays measured in pixels, or Qt will not draw it",
+      material.typeface(pixel_based, "headline-small").pixelSize() == round(13 * 24 / 14),
+      str(material.typeface(pixel_based, "headline-small").pixelSize()))
+
+check("the easings are the specification's own control points",
+      material.EASING_EMPHASIZED_DECELERATE == (0.05, 0.7, 0.1, 1.0)
+      and material.EASING_STANDARD == (0.2, 0.0, 0.0, 1.0))
+check("an easing starts at 0 and ends at 1",
+      material.ease(material.EASING_STANDARD, 0) == 0.0
+      and material.ease(material.EASING_STANDARD, 1) == 1.0)
+_eased = [material.ease(material.EASING_EMPHASIZED, t / 20) for t in range(21)]
+check("and never goes backwards on the way",
+      all(b >= a - 1e-9 for a, b in itertools.pairwise(_eased)))
+check("emphasized is ahead of linear in its first half, which is what it is for",
+      material.ease(material.EASING_EMPHASIZED, 0.25) > 0.25)
+
+# Tone is the axis the whole thing hangs off: it is exactly CIE L*, which is why
+# building the palettes in CIELAB keeps every contrast the roles promise.
+for seed_hue in (0.0, 120.0, 252.0):
+    for wanted in (0, 10, 20, 40, 50, 60, 80, 90, 100):
+        got = material.tone_of(material.tonal(seed_hue, 48.0, wanted))
+        check(f"tone {wanted} at hue {seed_hue:.0f} comes back as itself",
+              abs(got - wanted) < 1.0, f"{got:.2f}")
+check("an impossible chroma is searched down rather than clipped, which would "
+      "come back a different hue",
+      material.tone_of(material.tonal(252.0, 200.0, 95)) > 93.0,
+      str(material.tone_of(material.tonal(252.0, 200.0, 95))))
+
+_SEEDS = [(61, 174, 233), (155, 89, 182), (246, 116, 0), (0, 121, 107),
+          (128, 128, 128), (0, 0, 0), (255, 255, 255)]
+_PAIRS = [("primary", "on_primary"), ("primary_container", "on_primary_container"),
+          ("secondary", "on_secondary"), ("secondary_container", "on_secondary_container"),
+          ("tertiary", "on_tertiary"), ("error", "on_error"),
+          ("surface", "on_surface"), ("surface_variant", "on_surface_variant"),
+          ("inverse_surface", "inverse_on_surface")]
+_worst = 21.0
+for _seed in _SEEDS:
+    for _dark in (True, False):
+        _scheme = material.scheme_for(_seed, dark=_dark)
+        for _on, _ink in _PAIRS:
+            _worst = min(_worst, material.contrast(getattr(_scheme, _on), getattr(_scheme, _ink)))
+check("every colour pairs only as X and on-X, and every pair is readable — which "
+      "is what the specification is really promising",
+      _worst >= 4.5, f"worst ratio {_worst:.2f}")
+
+# The one place MD3 had nothing to stand on here: elevation is tone, and tone
+# needs a surface, and everything the overlay draws sits on a photograph.
+_dark_scheme = material.scheme_for((61, 174, 233), dark=True)
+_tones = [material.tone_of((c.red(), c.green(), c.blue())) for c in (
+    _dark_scheme.surface, _dark_scheme.surface_container_low,
+    _dark_scheme.surface_container, _dark_scheme.surface_container_high,
+    _dark_scheme.surface_container_highest)]
+check("the surfaces climb in tone, so elevation is something to read off them",
+      all(b > a for a, b in itertools.pairwise(_tones)), str([round(t) for t in _tones]))
+check("and the surface is not grey — it carries the seed's own hue, which is what "
+      "makes a tinted surface tinted",
+      len({_dark_scheme.surface.red(), _dark_scheme.surface.green(),
+           _dark_scheme.surface.blue()}) > 1, _dark_scheme.surface.name())
+
+_grey = material.scheme_for((128, 128, 128), dark=True)
+_breeze = material.scheme_for((61, 174, 233), dark=True)
+check("a seed with no colour in it does not get a hue made of rounding noise",
+      _grey.primary.name() == _breeze.primary.name(),
+      f"{_grey.primary.name()} vs {_breeze.primary.name()}")
+
+_light_palette = QPalette()
+_light_palette.setColor(QPalette.ColorRole.Window, QColor("#fcfcfc"))
+_dark_palette = QPalette()
+_dark_palette.setColor(QPalette.ColorRole.Window, QColor("#1b1b1b"))
+check("a dialog follows the desktop into its dark theme rather than being told",
+      not material.scheme_for_palette(_light_palette).dark
+      and material.scheme_for_palette(_dark_palette).dark)
+
+# The overlay: two backgrounds, and only one of them is ours.
+_md = make_overlay(MODE_RECTANGLE)
+check("the dimming is no longer flat black but the scheme's surface — which is "
+      "the only reading under which tonal elevation applies here at all",
+      (_md._dim.red(), _md._dim.green(), _md._dim.blue())
+      == (_md._scheme.surface.red(), _md._scheme.surface.green(), _md._scheme.surface.blue()),
+      _md._dim.name())
+check("and it still dims by exactly as much as it was asked to",
+      _md._dim.alpha() == 40 * 255 // 100, str(_md._dim.alpha()))
+check("the overlay is drawn on a dark scheme, because it dims the screen no "
+      "matter what theme the desktop is in", _md._scheme.dark)
+check("and the things drawn on the un-dimmed selection take the light one, "
+      "because that is somebody's own window and most often a white one",
+      not _md._on_content.dark)
+check("so what touches the content is dark enough to show on it",
+      material.tone_of((_md._on_content.primary.red(), _md._on_content.primary.green(),
+                        _md._on_content.primary.blue())) < 60,
+      str(material.tone_of((_md._on_content.primary.red(), _md._on_content.primary.green(),
+                            _md._on_content.primary.blue()))))
+check("while what sits on the dimming is light enough to show on that",
+      material.tone_of((_md._scheme.primary.red(), _md._scheme.primary.green(),
+                        _md._scheme.primary.blue())) > 60)
+
+# The Qt trap the smaller supporting text turned from a squeeze into an overlap.
+_supporting = material.supporting(
+    "A sentence long enough to need more than one line once it is wrapped into "
+    "the width a settings dialog actually gives it, which is the whole point."
+)
+check("supporting text answers how tall it is at a given width",
+      _supporting.sizePolicy().hasHeightForWidth())
+check("more than one line of it, at the width a dialog gives it",
+      _supporting.heightForWidth(300) > _supporting.fontMetrics().height(),
+      str(_supporting.heightForWidth(300)))
+# Through a layout, which is the only way the widget ever gets a width.
+_holder = QWidget()
+QVBoxLayout(_holder).addWidget(_supporting)
+_holder.resize(300, 400)
+_holder.show()
+app.processEvents()
+check("and once it has been laid out it refuses to be shorter than its text — "
+      "which is what stopped the settings window shrinking until the sentences "
+      "lay on top of the controls",
+      _supporting.minimumHeight() >= _supporting.heightForWidth(_supporting.width()) > 0,
+      f"{_supporting.minimumHeight()} at {_supporting.width()} px wide")
+_holder.hide()
+check("its hint is a line of prose wide, not a narrow tall column — a window is "
+      "sized from that hint",
+      _supporting.sizeHint().width() > _supporting.sizeHint().height(),
+      str(_supporting.sizeHint()))
+
 # --- the same area as last time --------------------------------------------
 # Comparing a number that changes means taking the same rectangle twice, and a
 # rectangle drawn by hand is never quite the same twice — which is exactly what
