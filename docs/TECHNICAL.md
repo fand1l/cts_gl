@@ -123,6 +123,47 @@ assuming the guess worked. On a package manager it does not know it prints the
 requirements in words — PyQt6 with QtDBus, Pillow, requests, and the KConfig and
 KPackage command line tools — and carries on.
 
+### Versions, and what they are called
+
+Every release has a **number** and a **name**: `1.1.0 “screenshot-window”`. The
+number says what changed in relation to the last one; the name says *which* one
+it is, which is the question somebody about to update is actually asking, and
+three digits do not answer it.
+
+The two are kept apart and joined only for display. `1.1.0-screenshot-window`
+as a literal string breaks two toolchains: under **PEP 440** a hyphen introduces
+a *pre-release*, so pip would read it as sorting *below* `1.1.0`, and **RPM**
+will not take it at all, because its `Version` field uses the hyphen to separate
+the version from the release. So `__version__` stays a plain `MAJOR.MINOR.PATCH`
+and `RELEASE_NAME` sits beside it; `version_label()` joins them.
+
+The number is declared in four files that no single tool reads together —
+`src/circle_to_search/__init__.py`, `pyproject.toml`, `circle-to-search.spec`
+and `kwinscript/metadata.json` — so a test asserts they agree, along with the
+name being a word, the changelog having an entry for it, and both lines still
+being in the shape `install.sh` greps them out of.
+
+The name shows up in `--version`, in **About**, in `CHANGELOG.md`, and — the
+place it is for — in `./install.sh update`, which prints what you have installed
+now and what it is about to install:
+
+```
+==> Fetching deploy from origin
+==> Installed now: 1.0.0 “first-light”
+==> New commits:
+      48f2449 …
+==> About to install: 1.1.0 “screenshot-window”
+```
+
+The installer reads both **out of the source with grep**, never by importing:
+the daemon may not be running, and the installed copy may be a version whose
+imports this interpreter cannot satisfy.
+
+The **KWin script has a version of its own** (`SCRIPT_VERSION`, currently
+1.11.0) and it is deliberately not this one. It answers a different question —
+"is the code KWin is *running* the code on disk?" — and it only has to change
+when the script does.
+
 ### Updating
 
 ```bash

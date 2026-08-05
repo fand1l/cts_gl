@@ -33,7 +33,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import APP_ID, DBUS_SERVICE, __version__, ocr, websearch
+from . import APP_ID, DBUS_SERVICE, ocr, version_label, websearch
 from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
@@ -1748,7 +1748,7 @@ class CircleToSearchApp(QObject):
         box.setWindowTitle(tr("tray.about"))
         box.setIconPixmap(self._icon.pixmap(64, 64))
         box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText(tr("about.text", version=__version__, shortcut=shortcut))
+        box.setText(tr("about.text", version=version_label(), shortcut=shortcut))
         box.setInformativeText(f"D-Bus: {DBUS_SERVICE}")
         box.exec()
 

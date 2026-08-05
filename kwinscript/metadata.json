@@ -16,7 +16,7 @@
         "License": "MIT",
         "Name": "Circle to Search",
         "Name[uk]": "Обвести й знайти",
-        "Version": "1.0.0",
+        "Version": "1.1.0",
         "Website": "https://github.com/fand1l/cts_gl"
     },
     "X-KDE-ConfigModule": "kcm_kwin_scripts",

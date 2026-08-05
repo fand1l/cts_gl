@@ -3165,6 +3165,48 @@ check("and the values are still readable while shut",
       dialog.reversals_spin.value() > 0, str(dialog.reversals_spin.value()))
 dialog.deleteLater()
 
+# --- the version, and what the release is called ----------------------------
+# The number lives in four files that no single tool reads together, so the only
+# thing stopping a half-done bump is this.
+from circle_to_search import RELEASE_NAME, __version__, version_label  # noqa: E402
+
+_root = Path(__file__).resolve().parent.parent
+_declared = {
+    "pyproject.toml": re.search(
+        r'^version = "([^"]+)"', (_root / "pyproject.toml").read_text(), re.MULTILINE
+    ),
+    "circle-to-search.spec": re.search(
+        r"^Version:\s+(\S+)", (_root / "circle-to-search.spec").read_text(), re.MULTILINE
+    ),
+    "kwinscript/metadata.json": re.search(
+        r'"Version":\s*"([^"]+)"', (_root / "kwinscript/metadata.json").read_text()
+    ),
+}
+for where, found in _declared.items():
+    check(f"{where} agrees about the version",
+          found is not None and found.group(1) == __version__,
+          f"{found.group(1) if found else 'not found'} vs {__version__}")
+
+check("the version is a plain number, so pip and rpm will take it",
+      re.fullmatch(r"\d+\.\d+\.\d+", __version__) is not None, __version__)
+check("the release has a name", bool(RELEASE_NAME), repr(RELEASE_NAME))
+check("which is a word, not a sentence",
+      re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", RELEASE_NAME) is not None, RELEASE_NAME)
+check("and the two are only joined for display",
+      version_label() == f"{__version__} “{RELEASE_NAME}”", version_label())
+check("the changelog has an entry for it",
+      f"## {__version__} — “{RELEASE_NAME}”" in (_root / "CHANGELOG.md").read_text(),
+      f"no '## {__version__} — “{RELEASE_NAME}”' heading in CHANGELOG.md")
+
+# install.sh reads both out of the source with grep, because the daemon may not
+# be running and the installed copy may be a version this interpreter cannot
+# import.  That only works while the two lines look the way it expects.
+_init = (_root / "src/circle_to_search/__init__.py").read_text()
+for key, value in (("__version__", __version__), ("RELEASE_NAME", RELEASE_NAME)):
+    check(f"install.sh can still grep {key} out",
+          re.search(rf'^{key} = "{re.escape(value)}"$', _init, re.MULTILINE) is not None,
+          f"{key} is no longer on a line of its own in the form install.sh matches")
+
 # --- recent captures -------------------------------------------------------
 from circle_to_search.history import RecentCaptures  # noqa: E402
 

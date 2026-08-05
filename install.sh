@@ -351,6 +351,10 @@ update_checkout() {
           git push $REMOTE HEAD:refs/heads/$UPDATE_BRANCH
       Otherwise check the network and the remote, and try again."
 
+    local had
+    had="$(installed_version)"
+    [[ -n "$had" ]] && info "Installed now: $had"
+
     before="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
     here="$(git -C "$SOURCE_DIR" symbolic-ref --quiet --short HEAD || echo "a detached HEAD")"
     if [[ "$here" != "$UPDATE_BRANCH" ]]; then
@@ -380,6 +384,18 @@ update_checkout() {
         info "New commits:"
         git -C "$SOURCE_DIR" --no-pager log --oneline --no-decorate "$before..$after" \
             | sed 's/^/      /'
+    fi
+
+    # The name, not just the number: "am I updating to the one I actually
+    # need" is answerable from a word and not from three digits.
+    local coming
+    coming="$(packaged_version)"
+    if [[ -n "$coming" ]]; then
+        if [[ "$coming" == "$had" ]]; then
+            info "Staying on $coming."
+        else
+            info "About to install: $coming"
+        fi
     fi
 }
 
@@ -564,6 +580,32 @@ packaged_script_version() {
         | head -1 | sed -e 's/.*"\(.*\)"/\1/'
 }
 
+# --------------------------------------------------------------------------- #
+# The application's own version, and what that release is called.
+#
+# Read out of the source rather than kept here, and read the same way out of the
+# *installed* copy — so an update can say what you were on and what you are on
+# now, which is the question somebody running it is actually asking.  Nothing
+# imports anything for this: the daemon may not be running, and the installed
+# copy may be a version whose imports this interpreter cannot satisfy.
+# --------------------------------------------------------------------------- #
+version_in() {
+    local file="$1" key="$2"
+    [[ -r "$file" ]] || return 0
+    grep -o "^$key = \"[^\"]*\"" "$file" | head -1 | sed -e 's/.*"\(.*\)"/\1/'
+}
+
+describe_version() {
+    local init="$1" number name
+    number="$(version_in "$init" "__version__")"
+    [[ -n "$number" ]] || return 0
+    name="$(version_in "$init" "RELEASE_NAME")"
+    printf '%s' "$number${name:+ “$name”}"
+}
+
+packaged_version()  { describe_version "$SOURCE_DIR/src/circle_to_search/__init__.py"; }
+installed_version() { describe_version "$APPDIR/circle_to_search/__init__.py"; }
+
 # One list, used both to seed the defaults and to erase them again, so a key
 # added to the script cannot end up seeded but never cleaned up.
 detection_defaults() {
@@ -710,7 +752,7 @@ main() {
 
     cat <<EOF
 
-${GREEN}${BOLD}Done.${RESET}
+${GREEN}${BOLD}Done — $(packaged_version) is installed.${RESET}
 
   Try it:   shake the pointer diagonally (down-up-down-up, twice), or press
             ${BOLD}Meta+Shift+L${RESET}, then drag a rectangle. Esc or right-click cancels.

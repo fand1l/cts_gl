@@ -153,6 +153,27 @@ check "an unpacked tarball is told to use reinstall" \
 output="$(UPDATE_BRANCH=main attempt "$WORKSPACE/work")"
 check "--branch picks a different one" "$(yes_no "$(branch_of)" "main")" "$output"
 
+# --- it says which release you are getting ----------------------------------
+# The whole reason to name a release: "am I updating to the one I actually
+# need" is answerable from a word and not from three digits.
+mkdir -p "$WORKSPACE/work/src/circle_to_search"
+printf '__version__ = "9.9.9"\n\nRELEASE_NAME = "a-named-one"\n' \
+    > "$WORKSPACE/work/src/circle_to_search/__init__.py"
+check "the packaged version is read straight out of the source" \
+      "$(yes_no "$(SOURCE_DIR="$WORKSPACE/work" packaged_version)" '9.9.9 “a-named-one”')" \
+      "$(SOURCE_DIR="$WORKSPACE/work" packaged_version)"
+printf '__version__ = "9.9.9"\n' > "$WORKSPACE/work/src/circle_to_search/__init__.py"
+check "a release with no name is just its number" \
+      "$(yes_no "$(SOURCE_DIR="$WORKSPACE/work" packaged_version)" "9.9.9")" \
+      "$(SOURCE_DIR="$WORKSPACE/work" packaged_version)"
+rm -rf "$WORKSPACE/work/src"
+check "and nothing at all where there is no source to read" \
+      "$(yes_no "$(SOURCE_DIR="$WORKSPACE/work" packaged_version)" "")" \
+      "$(SOURCE_DIR="$WORKSPACE/work" packaged_version)"
+check "the real tree names its own release" \
+      "$(says "$(SOURCE_DIR="$HERE/.." packaged_version)" '“')" \
+      "$(SOURCE_DIR="$HERE/.." packaged_version)"
+
 # --- argument handling ------------------------------------------------------
 output="$("$HERE/../install.sh" update --config 2>&1)"
 check "update --config is refused before anything happens" \

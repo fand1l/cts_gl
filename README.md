@@ -86,6 +86,10 @@ Later, one command keeps it current — it follows the `deploy` branch:
 ./install.sh update
 ```
 
+It tells you what you have and what it is about to install — every release has a
+name as well as a number, so `1.1.0 “screenshot-window”` says which one it is.
+[What changed in each](CHANGELOG.md).
+
 <details>
 <summary>Other commands</summary>
 
