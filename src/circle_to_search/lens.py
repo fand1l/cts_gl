@@ -658,7 +658,7 @@ def write_browser_launcher(
     are tidier: a Flatpak or Snap browser runs in its own mount namespace and
     cannot read either of those, and the page has to be opened by *the browser*
     for any of this to work.  The file is created 0600 in a 0700 directory and
-    the application deletes it two minutes later.
+    the application deletes it ten minutes later (``LAUNCHER_LIFETIME_MS``).
     """
     if directory is None:
         cache = os.environ.get("XDG_CACHE_HOME") or str(Path.home() / ".cache")

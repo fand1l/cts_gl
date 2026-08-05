@@ -23,6 +23,19 @@ the release.
 
 ## 1.3.0 — “another-way”
 
+* **A crop can be dragged out of a pinned window.** Hold *Ctrl* and drag a pin
+  and the picture goes straight into a chat, a document or an image editor —
+  one gesture where copy, switch, click, paste is four. It carries a file *and*
+  the raw bytes, because a chat and a file manager want the first and an editor
+  or anything sandboxed wants the second, and neither is a fallback for the
+  other. The file is named like a saved capture, kept in the same private
+  directory as the browser launcher, and deleted on the same argument. A plain
+  drag still moves the pin: on a window with no title bar the whole of it is
+  one, so the crop needed a press of its own, and the cursor says so while
+  *Ctrl* is held. This was meant to be a drag out of the *overlay*, which turns
+  out to be the one window it cannot be done from — a fullscreen surface covers
+  every window the picture could be dropped into, so the drop lands on the
+  overlay itself.
 * **A QR code is read instead of uploaded.** When the confirmed selection
   holds one, the bar leads with **Open the link** — and takes *Enter* with it —
   rather than offering to send Google a picture of a thing that decodes locally

@@ -1548,6 +1548,251 @@ check("it has a rim", edge.pixelColor(0, 0) != QColor("#336699"), edge.pixelColo
 check("and the crop is inside it", edge.pixelColor(100, 50) == QColor("#336699"),
       edge.pixelColor(100, 50).name())
 
+# --- dragging the crop out of a pin -----------------------------------------
+# The idea was to drag it out of the *overlay*, and the overlay turned out to be
+# the one window it cannot be done from: a QDrag has to be started while the
+# button is still down, which is while a fullscreen surface still covers every
+# window the picture could land in, so the drop lands on the overlay.  A pin is
+# a small ordinary window with nothing underneath it.
+import tempfile  # noqa: E402
+import time  # noqa: E402
+from datetime import datetime  # noqa: E402
+
+from PyQt6.QtGui import QImage  # noqa: E402
+
+from circle_to_search import pinned as pinned_module  # noqa: E402
+from circle_to_search.dragout import (  # noqa: E402
+    DRAG_LIFETIME_MS,
+    PNG_FORMAT,
+    URI_FORMAT,
+    drag_filename,
+    drag_payload,
+    png_bytes,
+    sweep,
+    write_drag_file,
+)
+from circle_to_search.pinned import DRAG_PIXMAP_MAX  # noqa: E402
+
+crop_png = png_bytes(crop)
+check("the crop encodes as a real PNG", crop_png[:8] == b"\x89PNG\r\n\x1a\n", str(crop_png[:8]))
+check("carrying the whole thing", QImage.fromData(crop_png, "PNG").size() == QSize(320, 120),
+      str(QImage.fromData(crop_png, "PNG").size()))
+check("the file is named like a saved capture, because the name is not ours — it is "
+      "what lands in the chat",
+      drag_filename(datetime(2026, 8, 5, 14, 30, 12)) == "circle-to-search-20260805-143012.png",
+      drag_filename(datetime(2026, 8, 5, 14, 30, 12)))
+
+with tempfile.TemporaryDirectory() as tmp:
+    first = write_drag_file(crop_png, Path(tmp))
+    check("the drop points at a real file", first is not None and first.exists())
+    check("with the crop in it", first.read_bytes() == crop_png)
+    check("and readable by nobody else", first.stat().st_mode & 0o777 == 0o600,
+          oct(first.stat().st_mode & 0o777))
+    second = write_drag_file(crop_png, Path(tmp))
+    check("a second drag in the same second does not overwrite a file the first "
+          "drop may still be reading",
+          second != first and first.exists() and second.exists(), f"{first} {second}")
+
+with tempfile.TemporaryDirectory() as tmp:
+    not_a_directory = Path(tmp) / "in-the-way"
+    not_a_directory.write_text("a file where the directory should be")
+    check("a file that cannot be written is not an error, it is half a payload",
+          write_drag_file(crop_png, not_a_directory / "cache") is None)
+check("and neither is nothing to write", write_drag_file(b"", Path(tmp)) is None)
+
+# Two answers about what a picture is, and neither is a fallback: a chat and a
+# file manager want a file, an editor and anything sandboxed away from ~/.cache
+# want the bytes.
+with tempfile.TemporaryDirectory() as tmp:
+    path = write_drag_file(crop_png, Path(tmp))
+    both = drag_payload(crop, path, crop_png)
+    check("the drop is offered as a file",
+          both.hasUrls() and both.urls()[0].toLocalFile() == str(path),
+          str([url.toLocalFile() for url in both.urls()]))
+    check("and as PNG bytes under a name a non-Qt client can ask for",
+          both.data(PNG_FORMAT) == crop_png)
+    check("and in Qt's own flavour, which a Qt target reads without decoding",
+          both.hasImage())
+    check("the file leads, because it is the half that works nearly everywhere",
+          both.formats()[0] == URI_FORMAT, str(both.formats()))
+    without = drag_payload(crop, None, crop_png)
+    check("with no file written the picture still travels",
+          not without.hasUrls() and without.data(PNG_FORMAT) == crop_png and without.hasImage())
+
+with tempfile.TemporaryDirectory() as tmp:
+    where = Path(tmp)
+    kept = write_drag_file(crop_png, where)
+    left = write_drag_file(crop_png, where)
+    stale = time.time() - DRAG_LIFETIME_MS / 1000 - 60
+    os.utime(left, (stale, stale))
+    launcher = where / "lens-8f21c3.html"
+    launcher.write_text("<html></html>")
+    os.utime(launcher, (stale, stale))
+    check("the sweep collects a file whose timer died with the process",
+          sweep(where) == 1 and not left.exists())
+    check("and leaves one that is still in date", kept.exists())
+    check("and does not touch the browser launcher's, which looks after its own",
+          launcher.exists())
+    check("a directory that is not there is not an error", sweep(where / "gone") == 0)
+
+# The drag itself.  Everything except the one line that hands it to the
+# compositor: `offscreen` has no drag and drop, so a suite that called that
+# would either hang or prove nothing.
+_real_run_drag = pinned_module.run_drag
+_cache_was = os.environ.get("XDG_CACHE_HOME")
+dragged: list[dict] = []
+
+
+def catch_drag(drag):
+    mime = drag.mimeData()
+    dragged.append({
+        "formats": list(mime.formats()),
+        "urls": [url.toLocalFile() for url in mime.urls()],
+        "png": bytes(mime.data(PNG_FORMAT)),
+        "thumbnail": drag.pixmap().size(),
+        "hotspot": drag.hotSpot(),
+        "busy": drag.source()._dragging_out,
+    })
+    return Qt.DropAction.CopyAction
+
+
+def press_pin(widget, modifiers=Qt.KeyboardModifier.NoModifier,
+              button=Qt.MouseButton.LeftButton) -> None:
+    widget.mousePressEvent(
+        QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5), QPointF(5, 5),
+                    button, button, modifiers)
+    )
+
+
+def move_on_pin(widget, modifiers=Qt.KeyboardModifier.NoModifier) -> None:
+    widget.mouseMoveEvent(
+        QMouseEvent(QEvent.Type.MouseMove, QPointF(5, 5), QPointF(5, 5),
+                    Qt.MouseButton.NoButton, Qt.MouseButton.NoButton, modifiers)
+    )
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    os.environ["XDG_CACHE_HOME"] = tmp
+    pinned_module.run_drag = catch_drag
+
+    out = PinnedCrop(crop)
+    press_pin(out)
+    check("a plain press still moves the window rather than the picture — the "
+          "whole surface of a frameless window is its title bar", dragged == [])
+    press_pin(out, button=Qt.MouseButton.MiddleButton)
+    check("and a middle click still closes it", dragged == [])
+
+    press_pin(out, Qt.KeyboardModifier.ControlModifier)
+    check("Ctrl and a press takes the crop out", len(dragged) == 1, str(len(dragged)))
+    carried = dragged[0]
+    check("the drop carries a file", carried["urls"] and carried["urls"][0].endswith(".png"),
+          str(carried["urls"]))
+    check("in the cache directory this program keeps, not in /tmp where a "
+          "sandboxed target cannot look",
+          carried["urls"][0].startswith(str(Path(tmp) / "circle-to-search")),
+          carried["urls"][0])
+    check("and the bytes beside it", carried["png"] == crop_png)
+    check("the pin knows it is in the middle of a drag while it is in one",
+          carried["busy"])
+    check("with the file offered first", carried["formats"][0] == URI_FORMAT,
+          str(carried["formats"]))
+    check("the picture under the cursor keeps the crop's shape",
+          abs(carried["thumbnail"].width() / carried["thumbnail"].height() - 320 / 120) < 0.05,
+          str(carried["thumbnail"]))
+    check("and is not big enough to cover the window being aimed at",
+          max(carried["thumbnail"].width(), carried["thumbnail"].height()) == DRAG_PIXMAP_MAX,
+          str(carried["thumbnail"]))
+    check("held by its middle, so the cursor is not carrying it by a corner",
+          carried["hotspot"] == QPoint(carried["thumbnail"].width() // 2,
+                                       carried["thumbnail"].height() // 2),
+          str(carried["hotspot"]))
+
+    written = Path(carried["urls"][0])
+    press_pin(out, Qt.KeyboardModifier.ControlModifier)
+    check("dropping the same pin twice leaves one file, not two",
+          dragged[1]["urls"] == [str(written)], str(dragged[1]["urls"]))
+
+    # The same argument as Ctrl+C: what travels is the crop, not the view of it.
+    wheel(out, 5)
+    press_pin(out, Qt.KeyboardModifier.ControlModifier)
+    check("what is dropped is the crop, not what is on screen at this zoom",
+          QImage.fromData(dragged[2]["png"], "PNG").size() == QSize(320, 120),
+          str(QImage.fromData(dragged[2]["png"], "PNG").size()))
+
+    # A tiny crop is carried at its own size rather than blown up to the limit.
+    speck = QPixmap(20, 20)
+    speck.fill(QColor("#c81e1e"))
+    dragged.clear()
+    press_pin(PinnedCrop(speck), Qt.KeyboardModifier.ControlModifier)
+    check("a small crop travels sharp rather than enlarged into a blur",
+          dragged[0]["thumbnail"] == QSize(20, 20), str(dragged[0]["thumbnail"]))
+
+    # Nothing else on the pin may stack a second drag on top of a live one.
+    nested: list = []
+
+    def reenter(drag):
+        nested.append(drag.source().drag_out())
+        return Qt.DropAction.CopyAction
+
+    pinned_module.run_drag = reenter
+    reentrant = PinnedCrop(crop)
+    reentrant.drag_out()
+    check("a drag cannot be started on top of one already running",
+          nested == [Qt.DropAction.IgnoreAction], str(nested))
+    check("and the pin is free again once the real one is over",
+          not reentrant._dragging_out)
+
+    def explode(_drag):
+        raise RuntimeError("the compositor said no")
+
+    pinned_module.run_drag = explode
+    fragile = PinnedCrop(crop)
+    blew_up = False
+    try:
+        fragile.drag_out()
+    except RuntimeError:
+        blew_up = True
+    check("a drag that blows up leaves the pin usable rather than dead, and does "
+          "not swallow what went wrong",
+          blew_up
+          and not fragile._dragging_out
+          and fragile.cursor().shape() == Qt.CursorShape.OpenHandCursor,
+          str(fragile.cursor().shape()))
+
+pinned_module.run_drag = _real_run_drag
+if _cache_was is None:
+    os.environ.pop("XDG_CACHE_HOME", None)
+else:
+    os.environ["XDG_CACHE_HOME"] = _cache_was
+
+# The only thing that says the crop can be taken out at all: a pin has no bar,
+# no caption and no menu.
+cued = PinnedCrop(crop)
+move_on_pin(cued, Qt.KeyboardModifier.ControlModifier)
+check("holding Ctrl over a pin says the crop can be taken out of it",
+      cued.cursor().shape() == Qt.CursorShape.DragCopyCursor, str(cued.cursor().shape()))
+move_on_pin(cued)
+check("and letting go of it goes back to the hand that moves the window",
+      cued.cursor().shape() == Qt.CursorShape.OpenHandCursor, str(cued.cursor().shape()))
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    check(f"{code}: the pin writes its gestures down somewhere",
+          i18n.tr("pin.tooltip") != "pin.tooltip", i18n.tr("pin.tooltip")[:40])
+    check(f"{code}: including the modifier nobody would guess at",
+          "Ctrl" in i18n.tr("pin.tooltip"))
+i18n.set_language("en")
+check("and the pin really carries it", PinnedCrop(crop).toolTip() == i18n.tr("pin.tooltip"))
+
+# QDrag.exec() is a nested event loop, and this program has a rule against
+# opening one from a slot that was bought with a SIGSEGV.  It is kept by
+# putting the drag in the widget's own event handler, where Qt's drag API is
+# meant to be called from, and out of app.py altogether — the check that
+# app.py opens no nested loop is further down and is untouched by any of this.
+check("app.py never learns that a drag happened",
+      "QDrag" not in (Path(__file__).resolve().parent.parent
+                      / "src/circle_to_search/app.py").read_text())
+
 # --- the same area as last time --------------------------------------------
 # Comparing a number that changes means taking the same rectangle twice, and a
 # rectangle drawn by hand is never quite the same twice — which is exactly what

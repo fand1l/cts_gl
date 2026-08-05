@@ -16,14 +16,32 @@ compositor with `startSystemMove()`, and the window has to be *born* wherever
 KWin decides.  And a client cannot make itself stay above other windows either;
 the KWin script does that, by caption, the same way it promotes the overlay.
 It follows that neither of the two things that make a pin a pin is done here.
+
+**And it is where a crop is dragged out of.**  The idea was to drag one out of
+the overlay, and the overlay turned out to be the one window it cannot be done
+from: a `QDrag` has to be started while the button is still down, which is
+while a *fullscreen* surface is still covering every window the picture could
+be dropped into, so the drop would land on the overlay itself.  A pin is a
+small ordinary window with nothing underneath it, which makes the same drag an
+ordinary one — *P* and then drag, rather than a gesture fighting the
+compositor.
+
+`QDrag.exec()` runs a nested event loop, and this program has a rule against
+opening one from a slot, bought with a SIGSEGV — see the message-box teardown
+in `app.py`.  The rule holds here: this is a widget's own event handler, which
+is where Qt's drag API is meant to be called from, and `app.py` never learns
+that any of it happened.
 """
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, pyqtSignal
+from pathlib import Path
+
+from PyQt6.QtCore import QEvent, QMimeData, QPoint, QRect, QSize, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
+    QDrag,
     QGuiApplication,
     QKeyEvent,
     QMouseEvent,
@@ -35,6 +53,14 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QWidget
 
 from . import PINNED_WINDOW_TITLE
+from .dragout import (
+    DRAG_LIFETIME_MS,
+    drag_payload,
+    png_bytes,
+    remove_drag_file,
+    write_drag_file,
+)
+from .i18n import tr
 from .logging_setup import get_logger
 
 log = get_logger("pinned")
@@ -57,6 +83,23 @@ MAX_SHARE = 0.8
 _RIM_LIGHT = QColor(255, 255, 255, 210)
 _RIM_DARK = QColor(0, 0, 0, 160)
 
+#: How big the picture that travels under the cursor may be.  It is a label on
+#: the gesture, not the payload, and a 4K crop dragged at its own size covers
+#: the window you are aiming at.
+DRAG_PIXMAP_MAX = 256
+
+
+def run_drag(drag: QDrag) -> Qt.DropAction:
+    """Hand the drag to the compositor and wait for it to end.
+
+    A function of its own, and the only thing in this module that cannot be
+    checked from a test: the ``offscreen`` platform has no drag and drop at all,
+    so a suite that called this would either hang or prove nothing.  Everything
+    that decides *whether* to drag and *what* it carries is either side of it
+    and is tested; this line is the part that needs a real compositor.
+    """
+    return drag.exec(Qt.DropAction.CopyAction)
+
 
 class PinnedCrop(QWidget):
     """One crop, frameless and above everything, until it is closed."""
@@ -71,6 +114,10 @@ class PinnedCrop(QWidget):
         super().__init__(parent)
         self._pixmap = pixmap
         self._scale = 1.0
+        #: Written on the first drag out and reused by every one after it, so a
+        #: crop dropped in three places leaves one file rather than three.
+        self._drag_file: Path | None = None
+        self._dragging_out = False
 
         self.setWindowTitle(PINNED_WINDOW_TITLE)
         self.setWindowFlags(
@@ -87,7 +134,10 @@ class PinnedCrop(QWidget):
         self.setCursor(Qt.CursorShape.OpenHandCursor)
         self.setMouseTracking(True)
         self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        self.setToolTip(PINNED_WINDOW_TITLE)
+        # The pin has no bar, no caption and no menu, so the tooltip is the only
+        # place its gestures can be written down — and one of them is a modifier
+        # nobody would guess at.
+        self.setToolTip(tr("pin.tooltip"))
 
         self.resize(self._wanted_size())
         log.info("pinned a %dx%d crop", pixmap.width(), pixmap.height())
@@ -174,6 +224,12 @@ class PinnedCrop(QWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            # Ctrl is the one press going spare: a plain one moves the window,
+            # and on a frameless window the whole surface *is* the title bar, so
+            # there is nowhere else for this to live.
+            self.drag_out()
+            return
         window = self.windowHandle()
         if window is None:
             return
@@ -184,8 +240,93 @@ class PinnedCrop(QWidget):
             log.debug("the compositor would not start a system move")
             self.setCursor(Qt.CursorShape.OpenHandCursor)
 
+    def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        # The only thing that says the crop can be taken out of here.  Read off
+        # the event rather than from key presses, because a pin opens without
+        # the focus and never receives any: it can spend its whole life being
+        # hovered by a pointer belonging to a window that is still typing.
+        self._show_modifier(event.modifiers())
+
+    def _show_modifier(self, modifiers: Qt.KeyboardModifier) -> None:
+        if self._dragging_out:
+            return
+        self.setCursor(
+            Qt.CursorShape.DragCopyCursor
+            if modifiers & Qt.KeyboardModifier.ControlModifier
+            else Qt.CursorShape.OpenHandCursor
+        )
+
     def mouseReleaseEvent(self, _event: QMouseEvent) -> None:
         self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    # ------------------------------------------------------------ dragging out
+
+    def drag_out(self) -> Qt.DropAction:
+        """Carry the crop to another window and let go of it there.
+
+        Started on the press rather than after a few pixels of travel, the way a
+        drag usually is.  A threshold exists to tell a drag from a click, and
+        with a modifier held there is nothing to tell apart — this window's
+        plain press has already been spoken for by the move.
+        """
+        if self._dragging_out:
+            return Qt.DropAction.IgnoreAction
+        # Encoded again on every drag rather than kept.  A pin already holds a
+        # full-size pixmap, and a second copy of the same picture living beside
+        # it for the pin's whole life is the memory this program spent an item
+        # getting rid of in the overlay — where dragging one out twice is rare
+        # and a re-encode is milliseconds.  The *file* is what is not redone.
+        payload = png_bytes(self._pixmap)
+        if self._drag_file is None or not self._drag_file.exists():
+            self._drag_file = write_drag_file(payload)
+            self._arm_removal(self._drag_file)
+        mime = drag_payload(self._pixmap, self._drag_file, payload)
+        return self._exec_drag(mime)
+
+    def _exec_drag(self, mime: QMimeData) -> Qt.DropAction:
+        drag = QDrag(self)
+        drag.setMimeData(mime)
+        thumbnail = self._pixmap
+        if thumbnail.width() > DRAG_PIXMAP_MAX or thumbnail.height() > DRAG_PIXMAP_MAX:
+            # Only ever down.  `scaled` would just as happily blow a 20-pixel
+            # crop up to the limit, and a blurred enlargement under the cursor
+            # is a worse label on the gesture than the small sharp thing itself.
+            thumbnail = thumbnail.scaled(
+                DRAG_PIXMAP_MAX,
+                DRAG_PIXMAP_MAX,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+        drag.setPixmap(thumbnail)
+        # Under the middle of what is being carried, which is where the pointer
+        # was: a hot spot at 0,0 hangs the picture off the cursor by its corner
+        # and hides the thing being aimed at.
+        drag.setHotSpot(QPoint(thumbnail.width() // 2, thumbnail.height() // 2))
+
+        self._dragging_out = True
+        self.setCursor(Qt.CursorShape.DragCopyCursor)
+        try:
+            action = run_drag(drag)
+        finally:
+            # Whatever the drop did, and whatever it raised, this window is
+            # still here and still has to be usable.
+            self._dragging_out = False
+            self.setCursor(Qt.CursorShape.OpenHandCursor)
+        log.info("a pinned crop was dragged out (%s)", action.name)
+        return action
+
+    @staticmethod
+    def _arm_removal(path: Path | None) -> None:
+        """Take the file back off the disk once its time is up.
+
+        The lambda closes over the *path* and not over the window, deliberately:
+        a pin can be shut a second after the drop while the target is still
+        reading the file, so the timer has to outlive it — and a timer holding a
+        reference to a dead widget is the other way this program has crashed.
+        """
+        if path is None:
+            return
+        QTimer.singleShot(DRAG_LIFETIME_MS, lambda: remove_drag_file(path))
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         # Proportional to how far the wheel actually turned, not one step per

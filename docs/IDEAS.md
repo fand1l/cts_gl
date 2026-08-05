@@ -12,8 +12,7 @@ afterwards as a placeholder and now has an answer.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** · **12 QR** |
-| agreed, in this order | 10 drag out — see the note under it |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** · **12 QR** · **10 drag out** — by the other route, see below |
 | last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
 
@@ -21,12 +20,14 @@ The four that were left unordered were ordered on the same rule as before.  11
 went first and is done: it was wiring between three things that already existed
 and added no interface at all.  13 and 10 both change what a press does to a
 confirmed selection, so they were put adjacent, and 13 went first because half
-of it was already there.  10 has since moved *behind* 12: starting on it turned
-up a question the sketch had not asked — there is nowhere to drop a picture
-while a fullscreen overlay is on top of every window — and the answer decides
-what the feature is.  12 needs a decoder that is not installed, which makes it
-the only one carrying a dependency, the settings to make it optional, and three
-files of documentation, but none of that is a question.  15 comes after all of them
+of it was already there.  10 then moved *behind* 12: starting on it turned up a
+question the sketch had not asked — there is nowhere to drop a picture while a
+fullscreen overlay is on top of every window — and the answer decided what the
+feature is.  It has one now, and it is the second of the three routes below:
+the drag happens from the pin, where there is no fight with the compositor to
+have.  12 needed a decoder that is not installed, which made it the only one
+carrying a dependency, the settings to make it optional, and three files of
+documentation, but none of that was a question.  15 comes after all of them
 because it repaints whatever they leave behind.
 
 The order is not the ranking below.  It runs smallest-change-per-return first
@@ -344,7 +345,7 @@ outright when nothing of it is left there.  It appears as a third chip beside
 *Lasso* and *Rectangle* — the one moment it is wanted is before a new rectangle
 has been drawn over the old one by hand — and on **R**.
 
-## 10. Drag the crop out of the overlay
+## 10. Drag the crop out of the overlay — **done, out of the pin instead**
 
 Press on the confirmed selection and drag it into another window: a chat, a
 document, an image editor.
@@ -385,6 +386,44 @@ the feature.  Three ways out, none free:
 Not started, deliberately: the first option is a guess that only real hardware
 can settle, and the second may make the first unnecessary.  Worth ten minutes of
 conversation before it is worth an afternoon of code.
+
+*What shipped:* the second route, which is the one the argument above already
+pointed at — *Ctrl* and a drag on a pinned crop.  The third route is still the
+plan; this is its first half, and the half that can be finished and proved from
+here.  Whether the overlay ever needs the first route is now a question that can
+be answered by *using* this one, which is exactly what could not be done while
+neither existed.
+
+Four things came out of building it that the sketch had not asked:
+
+* **The payload carries the crop twice, and neither half is a fallback.**  The
+  sketch said "one `QDrag` with `image/png`" and that would have dropped into
+  almost nothing: a chat window, a file manager and a mail composer want a
+  *file*, and most of them will not look at image bytes at all.  So the drop
+  offers `text/uri-list` pointing at a real PNG **and** the bytes, and the
+  target picks.  It is not belt and braces — each half serves targets the other
+  cannot, and the bytes are also all that is left when the file cannot be
+  written, so a full disk costs the feature nothing rather than all of it.
+* **The file it points at is named like a saved capture**, not like a temporary
+  file, because that name is not ours: it is what lands in somebody else's chat
+  window.  It is deleted on a timer for the same reason the browser launcher is,
+  and swept on the way past the next time one is written — which is what
+  collects the files of a session that was killed before its timers ran.
+* **`Ctrl` was going spare on the pin too, and for a better reason.**  The
+  sketch reserved it against the overlay's *new selection*; on a pin it is
+  against the *move*, and a frameless window has no title bar to move it by, so
+  the whole surface is one.  There was nowhere else for this to live.  The
+  cursor changes while `Ctrl` is held, since a pin has no bar, no caption and no
+  menu — the only other place its gestures are written down is its tooltip.
+* **It has no key, and cannot have one.**  Everything else in this program has
+  one.  A drop is a *place*, and the keyboard has no way to point at one.
+
+And one thing that had already been decided and turned out to decide this too:
+`QDrag.exec()` runs a nested event loop, and there is a rule here against
+opening one from a slot that was bought with a SIGSEGV.  That rule is why the
+drag lives in the pin's own event handler — where Qt's drag API is meant to be
+called from — and why `app.py` never learns any of it happened.  Had this been
+built on the overlay's side it would have been `app.py` holding the loop.
 
 ## 11. "Try another way" when the upload fails — **done**
 

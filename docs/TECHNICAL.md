@@ -841,6 +841,45 @@ not. **Esc** closes it, a **middle click** closes it without needing the focus
 first, and **Ctrl+C** turns it into the copy action without the screen being
 captured again.
 
+### Dragging the crop out
+
+**Ctrl** and a drag on a pin drops the crop into another window. The plan was to
+drag it out of the *overlay*, and the overlay is the one window it cannot be
+done from: a `QDrag` has to be started while the button is still down, which is
+while a fullscreen surface still covers every window the picture could land in —
+so the drop would land on the overlay. A pin has nothing underneath it, which
+makes the same drag an ordinary one.
+
+`dragout.py` decides what travels; `pinned.py` decides when. Three things in it
+are load-bearing:
+
+* **Both flavours go, and neither is a fallback.** `text/uri-list` points at a
+  real PNG, which is what a chat window, a file manager and a mail composer
+  want — most of them will not take image bytes at all. `image/png` and Qt's
+  `application/x-qt-image` carry the bytes, which is what an editor takes and
+  the only thing a target sandboxed away from `~/.cache` can reach. `image/png`
+  is named explicitly rather than left to Qt's conversion of `setImageData`,
+  because what a non-Qt client sees over the Wayland data device is the list of
+  format names, and an unnamed format is an absent one. The file is offered
+  first, so a target taking the first thing it recognises gets the useful one.
+* **The file does not stay.** It goes in the same `~/.cache/circle-to-search`
+  the browser launcher uses, for the same reason (a sandboxed target can read
+  neither `$XDG_RUNTIME_DIR` nor `/tmp`), is named like a saved capture because
+  that name lands in somebody else's chat, and is removed on a timer. A sweep on
+  the way past the next write is the backstop for a session killed before its
+  timers ran.
+* **`QDrag.exec()` runs a nested event loop**, and this program has a rule
+  against opening one from a slot — see the message-box teardown below. The rule
+  holds because the drag lives in the pin's own event handler, which is where
+  Qt's drag API is meant to be called from, and `app.py` never learns any of it
+  happened. `run_drag()` is a function of its own because it is the single line
+  no test can execute: the `offscreen` platform has no drag and drop, so a suite
+  that called it would either hang or prove nothing. Everything either side of
+  it is tested.
+
+There is no key for it. Everything else here has one; a drop is a *place*, and
+the keyboard has no way to point at one.
+
 **Searching does not make the overlay vanish.** Preparing the image and writing
 the launcher page take a moment, and the browser takes longer still, so the
 frozen screen stays up with the selection still lit and a badge saying
@@ -1626,7 +1665,7 @@ self-contained page holding the JPEG as base64, and opens it. The page fills a
 file input through the `DataTransfer` API and submits a normal cross-origin
 form, so the browser performs the upload with its own Google session and follows
 the redirect to a result page that works — including `authuser=` when you are
-signed in. The file is 0600, in a 0700 directory, and is deleted two minutes
+signed in. The file is 0600, in a 0700 directory, and is deleted ten minutes
 later.
 
 If that page stays blank or the browser shows a file-not-found error, your

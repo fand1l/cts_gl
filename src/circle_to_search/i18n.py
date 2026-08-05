@@ -419,6 +419,12 @@ _EN: dict[str, str] = {
     "bar.mode.rect": "Rectangle",
     "bar.mode.colour": "Colour",
     "bar.last_area": "The same area",
+    # A pin has no bar, no caption and no menu; this is the only place its
+    # gestures are written down, and the drag out is a modifier nobody guesses.
+    "pin.tooltip": (
+        "Drag to move it · Ctrl-drag to drop it into another window\n"
+        "Ctrl+C copies it · the wheel zooms · Esc or a middle click closes it"
+    ),
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
 }
@@ -833,6 +839,10 @@ _UK: dict[str, str] = {
     "bar.mode.rect": "Прямокутник",
     "bar.mode.colour": "Колір",
     "bar.last_area": "Те саме місце",
+    "pin.tooltip": (
+        "Тягніть, щоб пересунути · Ctrl+тягнути, щоб кинути в інше вікно\n"
+        "Ctrl+C — копіювати · колесо — масштаб · Esc або клац середньою — закрити"
+    ),
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",
 }

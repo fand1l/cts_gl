@@ -37,7 +37,8 @@ That is the whole idea. Everything below is what happens around it.
 * **Copy or save instead of searching.** The same selection, three other places
   to send it.
 * **Or pin it to the screen** and keep it there while you work — for when what
-  you need to read is behind the window you have to type into.
+  you need to read is behind the window you have to type into. *Ctrl* and a drag
+  takes the crop off the pin and drops it into another window.
 * **The same area as last time**, to the pixel — for watching a number that
   changes, where a rectangle redrawn by hand is never quite the same one.
 * **A QR code is read here, not sent anywhere.** Circle one and the bar offers
@@ -187,6 +188,13 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 as a small window above everything else, which you can drag around, scroll to
 zoom, and close with *Esc* or a middle click. *Ctrl+C* on it copies it. Useful
 whenever the thing you have to read is behind the window you have to type into.
+
+And **hold *Ctrl* and drag a pin** to drop the crop straight into another
+window — a chat, a document, an image editor. A plain drag moves the pin, since
+on a window with no title bar the whole of it is the title bar, so the crop
+needs a press of its own; the cursor changes while *Ctrl* is held to say so.
+There is no key for this one — a drop is a place, and the keyboard has no way
+to point at one.
 
 ![A pinned crop floating over another window](docs/images/pinned.png)
 
