@@ -58,8 +58,11 @@ jobs:
           test -f _site/images/overlay-drawing-uk.png
           # A directory listing is not a page; a missing index would publish one.
           test -f _site/index.html
-          test -f _site/en/index.html
           test -f _site/404.html
+          # One page per page, and the text beside it: a page whose strings
+          # did not ship is a blank page.
+          test -f _site/i18n/en_US.json
+          test -f _site/i18n/uk_UA.json
 
       - uses: actions/upload-pages-artifact@v3
         with:
