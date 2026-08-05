@@ -21,6 +21,18 @@ the release.
 
 ---
 
+## 1.3.0 — “another-way”
+
+* **“Try another way” when an upload fails.** The notification gets a button
+  that sends the same picture by the *other* mechanism — if your browser was
+  posting it, the daemon uploads; if the daemon was, your browser gets the
+  page. They fail for unrelated reasons, so swapping them is a real second
+  attempt, where retrying a different endpoint would not be: the automatic mode
+  already walked all of them before it gave up. Offered once, and only when the
+  notification server has buttons to press.
+
+---
+
 ## 1.2.0 — “better-version-control”
 
 What 1.1.0 started, finished: it gave releases names, this makes them

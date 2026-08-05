@@ -8,15 +8,23 @@ usually already sitting in the code or in a screenshot.
 Ordered by what I think they are worth, not by how hard they are.
 
 **Where each stands.**  Fourteen were read through and decided; 15 was added
-afterwards and is deliberately still a placeholder.
+afterwards as a placeholder and now has an answer.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** |
-| agreed, in this order | — everything ordered is done |
-| agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
-| to be discussed | 15 a new design — after 5, 6 and 4, and not before |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** |
+| agreed, in this order | 13 no-mouse · 10 drag out · 12 QR |
+| last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
+
+The four that were left unordered were ordered on the same rule as before.  11
+went first and is done: it was wiring between three things that already existed
+and added no interface at all.  13 and 10 both change what a press does to a
+confirmed selection, so they are adjacent, and 13 goes first because half of it
+is already there.  12 is last of the four because it needs a decoder that is not
+installed, which makes it the only one carrying a dependency, the settings to
+make it optional, and three files of documentation.  15 comes after all of them
+because it repaints whatever they leave behind.
 
 The order is not the ranking below.  It runs smallest-change-per-return first
 and keeps anything that touches the same code adjacent, so each one lands on a
@@ -346,7 +354,7 @@ is four, and the overlay is already holding the image.
 *What to watch:* the inside of the box now starts a new selection, so this needs
 its own affordance — most likely the move grip doing double duty, or a modifier.
 
-## 11. "Try another way" when the upload fails
+## 11. "Try another way" when the upload fails — **done**
 
 The failure notification gets a button that retries through a different variant.
 
@@ -392,12 +400,60 @@ editor does it better.
 
 ---
 
-## 15. A new design — **to be discussed, after 5, 6 and 4**
+## 15. A new design, on Material 3 — **decided, last**
 
-A placeholder, on purpose.  What it should look like has not been decided yet,
-and guessing at it here would turn a conversation into a fait accompli.  Written
-down so it is not forgotten, and so the discussion starts from what is actually
-on screen today rather than from memory.
+The placeholder that was here has an answer now: **Material Design 3**.
+
+*How I knew:* it was picked rather than deduced, and the reason given was that
+this program is already tied to Google — it opens Google Lens, in a gesture
+Google shipped on Android — so Google's own interface rules are the ones with a
+claim on it.  That is a better reason than it sounds: the gesture this imitates
+is *Circle to Search*, which on a phone is drawn in MD3, and somebody who knows
+what that looks like already has an expectation this can either meet or not.
+
+**What actually transfers, and what does not.**  The MD3 reference is
+Compose-first: Jetpack Compose is the primary target, Flutter second, and the
+web components are explicitly in maintenance mode.  This is PyQt6 on Plasma, so
+**none of the three implementation targets apply** and not one line of the
+example code will move across.  What moves is the part that is platform-neutral:
+
+| transfers | does not |
+|---|---|
+| the colour roles, and the rule that colours only pair as `X` + `on-X` | `MaterialTheme`, `@material/web`, every `md-*` element |
+| the type scale — display / headline / title / body / label | Roboto as the typeface (see below) |
+| the shape corners, as one small set of radii instead of the seven this uses now | `MaterialTheme.shapes` |
+| elevation as *tone* rather than shadow | the dp table, mostly (see below) |
+| the motion easings and durations, which are plain cubic-béziers | spring physics; Qt has no equivalent worth faking |
+| the 8 dp spacing grid | adaptive scaffolds, window size classes — there is one window and it is the screen |
+
+**Three places where MD3 and this program actually disagree**, and each needs an
+answer before any of it is drawn:
+
+* **Dynamic colour is already done, differently.** MD3 generates a scheme from
+  the wallpaper; `_accent` already comes from the Qt palette's Highlight, which
+  is the KDE accent colour the user chose.  Same idea, and the Plasma answer is
+  the better one here — it agrees with the rest of their desktop.  So: take the
+  MD3 *roles*, keep the KDE *seed*.
+* **Tonal elevation needs a surface, and there is not one.**  MD3 replaces
+  shadows with tinted surfaces — but everything this program draws sits on a
+  frozen screenshot of somebody else's screen, which is any colour at all.  The
+  dimming layer is the only surface there is.  Either the dimming becomes the
+  MD3 surface and everything above it is toned against that, or the elevation
+  system does not apply and shadows stay.  The first is more interesting and
+  more work.
+* **Roboto is the MD3 typeface, and using it would be wrong here.**  A KDE
+  application that overrides the font the user set in System Settings is a
+  badly behaved KDE application.  Take the *scale* — five roles, three sizes —
+  and apply it to whatever `QFont` the desktop hands over.
+
+**Where the work actually lands.**  The two plain dialogs are where MD3 would be
+most visible and most of the effort, because they are currently whatever the
+platform style gives; the overlay is already a designed thing and would be
+re-tuned rather than rebuilt.  The table below is unchanged and is still the
+inventory.
+
+Everything under it still holds — in particular the three constraints, which
+MD3 does not override.
 
 **What a redesign would be touching.**  The look is not in a stylesheet — there
 is no QSS in the project — so every one of these is a decision already made in

@@ -300,6 +300,12 @@ Scripts*.
 program, so a browser that blocks the request is the usual cause. Try it in a
 window without content blocking.
 
+**The upload failed.** The notification now has a **Try another way** button.
+There are two ways this can send a picture — your browser posts it, or this
+program does — and they fail for unrelated reasons, so the button swaps them
+rather than trying the same one again. Your selection is still in memory; it
+is offered once, and then it reports plainly.
+
 Longer answers, and about twenty other failure modes with the reasoning behind
 each, are in the [technical documentation](docs/TECHNICAL.md#what-can-break-and-how-to-debug-it).
 

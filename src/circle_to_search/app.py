@@ -60,6 +60,7 @@ from .lastarea import EVERY_SCREEN, format_area, parse_area
 from .lens import (
     BACKEND_BROWSER,
     LensError,
+    other_way,
     prepare_image,
     upload,
     write_browser_launcher,
@@ -75,7 +76,7 @@ from .misfires import (
     still_learning,
 )
 from .multiscreen import OverlayGroup, ScreenShot, VirtualDesktop
-from .notify import notify, notify_error, supports_actions
+from .notify import URGENCY_CRITICAL, notify, notify_error, supports_actions
 from .overlay import (
     ACTION_COPY,
     ACTION_PIN,
@@ -133,6 +134,7 @@ class _UploadTask(QRunnable):
         backend: str,
         language: str,
         launcher_strings: dict[str, str] | None = None,
+        retry: bool = False,
     ) -> None:
         super().__init__()
         # QThreadPool deletes an auto-delete runnable as soon as run() returns,
@@ -141,18 +143,22 @@ class _UploadTask(QRunnable):
         # instead and drops it once the result has been handled.
         self.setAutoDelete(False)
         self.signals = _UploadSignals()
-        self._image = image
+        #: Public, and the two below with it, because the failure path offers to
+        #: try again: it needs the picture that did not arrive, the route that
+        #: did not work, and whether this *was* the second attempt.
+        self.image = image
+        self.backend = backend
+        self.retry = retry
         self._max_side = max_side
         self._quality = quality
-        self._backend = backend
         self._language = language
         self._launcher_strings = launcher_strings or {}
 
     @pyqtSlot()
     def run(self) -> None:
         try:
-            prepared = prepare_image(self._image, max_side=self._max_side, quality=self._quality)
-            if self._backend == BACKEND_BROWSER:
+            prepared = prepare_image(self.image, max_side=self._max_side, quality=self._quality)
+            if self.backend == BACKEND_BROWSER:
                 # Nothing is uploaded from here: the browser posts the image
                 # itself, so the session that uploads is the session that shows
                 # the result.  See the long comment in lens.py.
@@ -163,7 +169,7 @@ class _UploadTask(QRunnable):
                 )
                 target = path.as_uri()
             else:
-                target = upload(prepared, backend=self._backend, language=self._language)
+                target = upload(prepared, backend=self.backend, language=self._language)
         except LensError as exc:
             self.signals.failed.emit(str(exc))
         except OSError as exc:
@@ -1157,13 +1163,17 @@ class CircleToSearchApp(QObject):
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
 
+        self._start_upload(cropped, self._settings.lens_backend)
+
+    def _start_upload(self, image: Image.Image, backend: str, *, retry: bool = False) -> None:
+        """Send one crop by one route.  Called again, once, if that route fails."""
         notify(tr("notify.uploading"), transient=True, timeout_ms=3000)
 
         task = _UploadTask(
-            cropped,
+            image,
             self._settings.max_side,
             self._settings.jpeg_quality,
-            self._settings.lens_backend,
+            backend,
             current_language(),
             launcher_strings={
                 "title": tr("app.name"),
@@ -1172,6 +1182,7 @@ class CircleToSearchApp(QObject):
                 "failed": tr("launcher.failed"),
                 "retry": tr("launcher.retry"),
             },
+            retry=retry,
         )
         task.signals.finished.connect(lambda url, ref=task: self._finish_upload(ref, url=url))
         task.signals.failed.connect(lambda error, ref=task: self._finish_upload(ref, error=error))
@@ -1188,7 +1199,7 @@ class CircleToSearchApp(QObject):
         # front of it.
         self._stop_sending()
         if error is not None:
-            notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=error))
+            self._offer_another_way(task, error)
             return
         if not url:
             return
@@ -1199,6 +1210,44 @@ class CircleToSearchApp(QObject):
             # screenshot does not sit on disk.
             path = Path(QUrl(url).toLocalFile())
             QTimer.singleShot(LAUNCHER_LIFETIME_MS, lambda: self._remove_launcher(path))
+
+    def _offer_another_way(self, task: _UploadTask, error: str) -> None:
+        """Report the failure, and offer the other route if there is one left.
+
+        There are two mechanisms — this program uploads, or the browser does —
+        and they fail for unrelated reasons, so the second attempt swaps them
+        rather than retrying the same one.  The picture is still here; the only
+        thing that was ever missing at this moment was somewhere to put it.
+
+        Offered once.  A button that reappears after failing is a loop with a
+        person in it.
+        """
+        instead = other_way(task.backend)
+        if task.retry or not supports_actions():
+            # Either this *was* the second attempt, or the notification server
+            # has no buttons to press — the misfire question is skipped for the
+            # same reason, since a question nobody can answer is not one.
+            notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=error))
+            return
+
+        notify(
+            tr("notify.lens_failed"),
+            tr(
+                "notify.lens_failed_retry",
+                error=error,
+                how=tr(f"notify.lens_way.{instead}"),
+            ),
+            urgency=URGENCY_CRITICAL,
+            timeout_ms=30000,
+            actions=(("retry", tr("notify.lens_retry")),),
+            on_action=lambda key, ref=task, way=instead: self._retry_upload(key, ref, way),
+        )
+
+    def _retry_upload(self, key: str, task: _UploadTask, backend: str) -> None:
+        if key != "retry":
+            return
+        log.info("retrying the upload through %s after %s failed", backend, task.backend)
+        self._start_upload(task.image, backend, retry=True)
 
     @staticmethod
     def _remove_launcher(path: Path) -> None:

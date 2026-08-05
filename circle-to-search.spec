@@ -18,7 +18,7 @@
 %global appdir   %{_datadir}/circle-to-search
 
 Name:           circle-to-search
-Version:        1.2.0
+Version:        1.3.0
 Release:        1%{?dist}
 Summary:        Shake the cursor to search a screen region with Google Lens
 Summary(uk):    Потрясіть курсором, щоб знайти ділянку екрана через Google Lens

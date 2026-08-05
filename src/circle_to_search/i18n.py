@@ -65,6 +65,12 @@ _EN: dict[str, str] = {
     "notify.open_failed_body": "{error}",
     "notify.lens_failed": "Google Lens request failed",
     "notify.lens_failed_body": "{error}",
+    "notify.lens_failed_retry": "{error}\nThe selection is still here — it can go {how}.",
+    "notify.lens_retry": "Try another way",
+    # How the *other* route works, in the words of what it does rather than of
+    # what it is called in the settings.
+    "notify.lens_way.browser": "through your browser instead",
+    "notify.lens_way.auto": "from here instead, without the browser",
     "notify.no_screen": "Cannot find the screen",
     "notify.no_screen_body": "KWin reported the screen “{name}”, but Qt does not know it.",
     "notify.kwin_missing": "The KWin script is not installed",
@@ -458,6 +464,10 @@ _UK: dict[str, str] = {
     "notify.open_failed_body": "{error}",
     "notify.lens_failed": "Помилка запиту до Google Lens",
     "notify.lens_failed_body": "{error}",
+    "notify.lens_failed_retry": "{error}\nВиділення нікуди не зникло — його можна надіслати {how}.",
+    "notify.lens_retry": "Спробувати інакше",
+    "notify.lens_way.browser": "натомість через ваш браузер",
+    "notify.lens_way.auto": "натомість звідси, без браузера",
     "notify.no_screen": "Не знайдено екран",
     "notify.no_screen_body": "KWin повідомив про екран «{name}», але Qt його не бачить.",
     "notify.kwin_missing": "KWin-скрипт не встановлено",

@@ -3816,6 +3816,108 @@ check("and it is the first thing init does",
 check("with the version it is really running",
       '"ScriptReady", SCRIPT_VERSION' in source)
 
+# --- trying another way when the upload fails -------------------------------
+# lens.py has known four upload variants for a long time and --backend has been
+# able to choose between them from the command line — but at the moment it
+# actually mattered, the notification said "Google Lens request failed" and
+# offered nothing, while notify.py's action buttons sat unused since the
+# misfire survey.
+import circle_to_search.app as app_module  # noqa: E402
+from circle_to_search.lens import BACKEND_AUTO, BACKEND_BROWSER, other_way  # noqa: E402
+
+check("the other way round from the browser is doing it here",
+      other_way(BACKEND_BROWSER) == BACKEND_AUTO, other_way(BACKEND_BROWSER))
+check("and from here it is the browser", other_way(BACKEND_AUTO) == BACKEND_BROWSER,
+      other_way(BACKEND_AUTO))
+# Trying a different *variant* would not be a second attempt: auto already
+# walked all five before it gave up.
+check("a named variant swaps mechanism too, not variant",
+      other_way("lens-ccm") == BACKEND_BROWSER, other_way("lens-ccm"))
+check("and it is an involution", other_way(other_way(BACKEND_BROWSER)) == BACKEND_BROWSER)
+
+
+class _FakeUpload:
+    def __init__(self, backend: str, retry: bool = False) -> None:
+        self.backend = backend
+        self.retry = retry
+        self.image = "the crop that did not arrive"
+
+
+class _UploadHost:
+    """Just enough of the application to fail an upload and be offered another."""
+
+    _offer_another_way = CircleToSearchApp._offer_another_way
+    _retry_upload = CircleToSearchApp._retry_upload
+
+    def __init__(self) -> None:
+        self.started: list[tuple[object, str, bool]] = []
+
+    def _start_upload(self, image: object, backend: str, *, retry: bool = False) -> None:
+        self.started.append((image, backend, retry))
+
+
+_shown: list[dict] = []
+_plain: list[tuple[str, str]] = []
+_saved_notify = (app_module.notify, app_module.notify_error, app_module.supports_actions)
+try:
+    app_module.notify = lambda summary, body="", **kw: (
+        _shown.append({"summary": summary, "body": body, **kw}) or 1
+    )
+    app_module.notify_error = lambda summary, body="": _plain.append((summary, body))
+    app_module.supports_actions = lambda: True
+
+    host = _UploadHost()
+    host._offer_another_way(_FakeUpload(BACKEND_BROWSER), "the browser never posted it")
+    check("a failure offers a button", bool(_shown) and bool(_shown[0].get("actions")),
+          str(_shown))
+    check("labelled in words, not in a key",
+          _shown[0]["actions"][0][1] == "Try another way", str(_shown[0]["actions"]))
+    check("and the body says which way that is",
+          "through your browser" not in _shown[0]["body"]
+          and "without the browser" in _shown[0]["body"], _shown[0]["body"])
+    check("with the error still in it",
+          "the browser never posted it" in _shown[0]["body"], _shown[0]["body"])
+    check("nothing has been sent yet — it is an offer", host.started == [])
+
+    # Pressing it sends the same picture the other way.
+    _shown[0]["on_action"]("retry")
+    check("pressing it retries with the crop that failed",
+          host.started == [("the crop that did not arrive", BACKEND_AUTO, True)],
+          str(host.started))
+    check("and marks it as the second attempt", host.started[0][2])
+
+    # Anything else coming back from the notification is not a press.
+    host.started.clear()
+    _shown[0]["on_action"]("default")
+    check("a dismissal is not a press", host.started == [], str(host.started))
+
+    # Offered once.  A button that comes back after failing is a loop with a
+    # person in it.
+    _shown.clear()
+    host._offer_another_way(_FakeUpload(BACKEND_AUTO, retry=True), "that did not work either")
+    check("the second failure offers nothing", _shown == [], str(_shown))
+    check("and reports plainly instead",
+          len(_plain) == 1 and "that did not work either" in _plain[0][1], str(_plain))
+
+    # A notification server with no buttons cannot be asked a question — the
+    # misfire survey is skipped for the same reason.
+    _shown.clear()
+    _plain.clear()
+    app_module.supports_actions = lambda: False
+    host._offer_another_way(_FakeUpload(BACKEND_BROWSER), "no buttons here")
+    check("no action buttons, no offer", _shown == [] and len(_plain) == 1, str(_plain))
+finally:
+    (app_module.notify, app_module.notify_error, app_module.supports_actions) = _saved_notify
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    for key in ("notify.lens_retry", "notify.lens_way.browser", "notify.lens_way.auto"):
+        check(f"{code}: {key} has words", i18n.tr(key) != key, i18n.tr(key))
+    body = i18n.tr("notify.lens_failed_retry", error="E", how=i18n.tr("notify.lens_way.auto"))
+    check(f"{code}: the retry body reads as a sentence",
+          "E" in body and "{" not in body, body)
+i18n.set_language("en")
+
 # --- --doctor --------------------------------------------------------------
 # Six moving parts in four processes, and when one is wrong the symptom is
 # silence.  Every check here is a function of what it was told, so the whole

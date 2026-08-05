@@ -1574,6 +1574,32 @@ Each row is marked `usable` (no session id — it will work anywhere) or
 `lens_backend=<variant>` (`lens-ccm`, `lens-crs`, `lens-subb`, `lens-v1`,
 `searchbyimage`).
 
+#### “Try another way”
+
+When an upload fails the notification carries a button that sends the same
+picture by the **other mechanism** — if the browser was posting it, the daemon
+uploads; if the daemon was, the browser gets a launcher page. That is the only
+swap worth offering, because the two fail for unrelated reasons: a request from
+the daemon is refused by Google or blocked by the network, while the browser
+path is a local file that a content blocker or a sandboxed browser can decline
+to post. Retrying a different *variant* would not be a second attempt at all —
+`BACKEND_AUTO` already walked all five before it reported failure. `other_way()`
+in `lens.py` is that one line, and it is an involution.
+
+Two rules around it, and both are the interesting part:
+
+* **Offered once.** The retry task is marked, and a marked one that fails
+  reports plainly. A button that reappears after failing is a loop with a
+  person in it.
+* **Only when there is something to press.** `supports_actions()` gates it, the
+  same way it gates the misfire question — a question nobody can answer is not
+  a question, and a notification server without `actions` in its capabilities
+  would show the body with the offer in it and no way to take it up.
+
+The crop is still in memory at that point: `_UploadTask` keeps `image`,
+`backend` and `retry` public for exactly this, because the only thing missing
+at the moment of failure was somewhere to put the picture.
+
 ### It worked, then it did not, then it worked again
 
 Everything from the selection onwards now says something when it goes wrong, so
