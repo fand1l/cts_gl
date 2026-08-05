@@ -149,6 +149,7 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 | | |
 |---|---|
 | **Drag** | draw a loop, or hold *Shift* for a rectangle |
+| **Arrow keys** | aim without a mouse; *Space* for one corner, then the other |
 | **Click a window** | take exactly that window |
 | **Drag across text** | take the text instead of a picture |
 | **The same area**, or *R* | exactly where you selected last time |
@@ -158,6 +159,12 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 Then the selection waits. Drag the eight handles to resize, the grip in the
 middle to move it, the arrow keys to nudge it a pixel at a time — and press
 anywhere else to start again.
+
+**Without a mouse at all:** the arrow keys raise a crosshair and move it —
+*Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
+the arrows size the box from it, and *Space* again takes it. From there it is
+the same waiting selection, with the same keys on it. *Esc* lets go of the
+corner without letting go of the capture.
 
 Above it, two lines: the size of what you have selected, and under it what will
 actually leave — `→ 1000 × 400, ~30 KB JPEG`. They are not the same number, and

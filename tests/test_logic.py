@@ -3816,6 +3816,167 @@ check("and it is the first thing init does",
 check("with the version it is really running",
       '"ScriptReady", SCRIPT_VERSION' in source)
 
+# --- selecting without a mouse ----------------------------------------------
+# Half of this was already here: the arrows move and resize a box that has been
+# *taken*, and the bar says so.  The missing half was that there was no way to
+# take one without a pointer at all.
+
+
+def keying(mode: str = MODE_RECTANGLE) -> SelectionOverlay:
+    view = make_overlay(mode)
+    view._current = QPoint(400, 300)  # the pointer has been somewhere
+    return view
+
+
+keys = keying()
+check("no caret until an arrow key", keys._caret is None)
+check("and the hint is the ordinary one",
+      "arrow keys" in keys._bar_caption(), keys._bar_caption())
+press_key(keys, Qt.Key.Key_Right)
+check("an arrow raises one", keys._caret is not None, str(keys._caret))
+check("at the pointer, one step over",
+      keys._caret == QPoint(400 + 16, 300), str(keys._caret))
+check("the hint changes to what to press next",
+      "Space" in keys._bar_caption(), keys._bar_caption())
+check("and nothing is selected by pointing at it",
+      not keys._has_selection and keys._selection_rect().isEmpty())
+
+press_key(keys, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+check("Ctrl travels", keys._caret == QPoint(400 + 16 + 96, 300), str(keys._caret))
+press_key(keys, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+check("Shift lands", keys._caret == QPoint(400 + 16 + 96 - 1, 300), str(keys._caret))
+
+# Space pins one corner; the box appears and grows with the caret, and the mode
+# chips get out of its way exactly as they do during a drag.
+keys = keying()
+press_key(keys, Qt.Key.Key_Down)
+press_key(keys, Qt.Key.Key_Space)
+check("Space pins a corner", keys._caret_anchor == QPoint(400, 300 + 16),
+      str(keys._caret_anchor))
+check("which is a selection in progress, not a taken one",
+      not keys._has_selection and not keys._confirming)
+check("so the mode chips are out of the way", not keys._showing_hint())
+for _ in range(2):
+    press_key(keys, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+press_key(keys, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+check("and the box follows the caret",
+      keys._selection_rect() == QRect(400, 316, 192, 96), str(keys._selection_rect()))
+
+press_key(keys, Qt.Key.Key_Space)
+check("Space again takes it", keys._confirming and keys._has_selection)
+check("as exactly the box that was on screen",
+      keys._selection_rect() == QRect(400, 316, 192, 96), str(keys._selection_rect()))
+check("always a rectangle, whatever the mode chip said",
+      keys.selection_polygon().count() == 0)
+check("and the caret is put away", keys._caret is None and keys._caret_anchor is None)
+# Which lands in the state a finished drag lands in, arrow keys and all.
+press_key(keys, Qt.Key.Key_Right)
+check("the arrows go back to nudging the taken box",
+      keys._selection_rect() == QRect(401, 316, 192, 96), str(keys._selection_rect()))
+
+# A lasso overlay gives a rectangle too: there is no arrow-key drawing of a
+# lasso that would not be a worse rectangle.
+lasso_keys = keying(MODE_LASSO)
+press_key(lasso_keys, Qt.Key.Key_Right)
+press_key(lasso_keys, Qt.Key.Key_Space)
+for _ in range(2):
+    press_key(lasso_keys, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+    press_key(lasso_keys, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+press_key(lasso_keys, Qt.Key.Key_Space)
+check("a lasso overlay still hands over a rectangle",
+      lasso_keys._confirming and lasso_keys.selection_polygon().count() == 0)
+
+# Esc steps out of sizing without throwing the capture away — the same bargain
+# the redaction and colour modes make.
+stepping = keying()
+press_key(stepping, Qt.Key.Key_Right)
+press_key(stepping, Qt.Key.Key_Space)
+press_key(stepping, Qt.Key.Key_Escape)
+check("Esc drops the pinned corner", stepping._caret_anchor is None)
+check("and keeps the caret", stepping._caret is not None)
+check("and the overlay", not stepping._finished)
+press_key(stepping, Qt.Key.Key_Escape)
+check("the next Esc closes it", stepping._finished)
+
+# Too small is the same answer a stray click gets: not an error, not a
+# selection, and the overlay stays open to try again.
+tiny = keying()
+press_key(tiny, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+press_key(tiny, Qt.Key.Key_Space)
+press_key(tiny, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+press_key(tiny, Qt.Key.Key_Space)
+check("a one-pixel keyboard box is ignored",
+      not tiny._confirming and not tiny._finished)
+check("and the caret is still there to try again", tiny._caret is not None)
+
+# The caret cannot be pushed off the screen it belongs to.
+edging = keying()
+for _ in range(200):
+    press_key(edging, Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
+    press_key(edging, Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier)
+bounds = edging._clamp_bounds()
+check("the caret stops at the edge",
+      edging._caret.x() == bounds.left() and edging._caret.y() == bounds.top(),
+      f"{edging._caret} vs {bounds}")
+
+# A press is the mouse taking over: nothing keyboard-shaped is left behind.
+handing_over = keying()
+press_key(handing_over, Qt.Key.Key_Right)
+press_key(handing_over, Qt.Key.Key_Space)
+click(handing_over, (300, 200), release=(500, 340))
+check("a press clears the caret",
+      handing_over._caret is None and handing_over._caret_anchor is None)
+check("and the drag is the one that counts",
+      handing_over._selection_rect() == QRect(300, 200, 200, 140),
+      str(handing_over._selection_rect()))
+
+# Moving the pointer does not: the keyboard owns the box until it is taken.
+undisturbed = keying()
+press_key(undisturbed, Qt.Key.Key_Right)
+press_key(undisturbed, Qt.Key.Key_Space)
+for _ in range(2):
+    press_key(undisturbed, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+    press_key(undisturbed, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+before_move = QRect(undisturbed._selection_rect())
+hover(undisturbed, (100, 100))
+check("a stray pointer move leaves it alone",
+      undisturbed._selection_rect() == before_move, str(undisturbed._selection_rect()))
+
+# And the repaint knows about it.  The caret is drawn *near* nothing — it is a
+# floating thing in the middle of the screen, which is exactly the shape of the
+# bug that smeared the handles across the overlay.
+moving_caret = keying()
+press_key(moving_caret, Qt.Key.Key_Right)
+was_caret = QRect(moving_caret._caret_rect())
+check("the caret names itself to the repaint",
+      was_caret in moving_caret._floating_rects(), str(moving_caret._floating_rects()))
+was_box_k = QRect(moving_caret._selection_rect())
+was_floating_k = moving_caret._floating_rects()
+start_k = moving_caret._caret_point()
+moving_caret._caret = QPoint(start_k.x() + 1, start_k.y())
+damage_k = moving_caret._drag_damage(was_box_k, was_floating_k, start_k)
+check("so one step erases where it was",
+      repainted(damage_k, was_caret.translated(-moving_caret._offset)), str(was_caret))
+check("and paints where it now is",
+      repainted(damage_k, moving_caret._caret_rect().translated(-moving_caret._offset)),
+      str(moving_caret._caret_rect()))
+
+# It has to paint without a selection and with one being sized.
+painting = keying()
+press_key(painting, Qt.Key.Key_Right)
+painting.render(QPixmap(painting.size()))
+press_key(painting, Qt.Key.Key_Space)
+for _ in range(2):
+    press_key(painting, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+painting.render(QPixmap(painting.size()))
+check("it paints in both states", True)
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    check(f"{code}: the keyboard hint has words",
+          i18n.tr("overlay.hint.keys") != "overlay.hint.keys", i18n.tr("overlay.hint.keys"))
+i18n.set_language("en")
+
 # --- trying another way when the upload fails -------------------------------
 # lens.py has known four upload variants for a long time and --backend has been
 # able to choose between them from the command line — but at the moment it

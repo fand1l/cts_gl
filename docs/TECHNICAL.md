@@ -942,6 +942,41 @@ with it.
 Everything above is read **fresh** every time the menu is opened. Caching it
 would reintroduce precisely the bug it is there to expose.
 
+### Selecting without a mouse
+
+Half of this was already here — the arrow keys move and resize a box that has
+been *taken*, and the bar advertises them. What was missing was the half that
+makes the program usable with no pointer at all: there was no way to take one.
+
+Arrows raise a caret and move it, *Space* pins a corner, arrows size from it,
+*Space* again takes the box. *Esc* lets go of the corner without letting go of
+the capture, which is the bargain the redaction and colour modes already make.
+
+Three decisions in it are worth the words:
+
+* **Its own step sizes.** `_NUDGE` is 1 px and `_NUDGE_FAST` is 10, which is
+  right for correcting a finished box and useless for crossing a screen — at a
+  key-repeat rate, 1 px is four thousand presses to reach the far side of a 4K
+  display. The caret uses 16 plain, **96 with Ctrl** and **1 with Shift**:
+  Ctrl is how you travel, Shift is how you land.
+* **It is always a rectangle**, whatever the mode chip says. A lasso is a hand
+  gesture, and there is no arrow-key drawing of one that would not be a worse
+  rectangle. What it hands over goes through the same `_use_rect()` the "same
+  area as last time" chip uses, so everything downstream is code that already
+  ran — confirm-or-send, groups, badges and all.
+* **A press hands over; a move does not.** `mousePressEvent` drops the caret,
+  because a press is the mouse taking the job. A pointer that merely moves is
+  ignored while a corner is pinned — otherwise brushing the mouse would take
+  over a box half-sized by the keyboard.
+
+While a corner is pinned, `_selection_rect()` returns the caret box and
+`_showing_hint()` is false, so the state is exactly the one a rectangle drag is
+in between press and release: the box is drawn, the mode chips are out of the
+way, and the action bar has not appeared. And the caret is in
+`_floating_rects()` — it is a thing drawn in the middle of the screen with no
+outline near it, which is precisely the shape of the bug that once smeared the
+handles across the overlay.
+
 ### Getting the keyboard back
 
 The overlay takes the focus while it is up — it has to, or *Enter* and *Esc*

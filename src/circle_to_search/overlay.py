@@ -127,6 +127,19 @@ _STROKE_CHUNK = 48
 _NUDGE = 1
 _NUDGE_FAST = 10
 
+#: How far one arrow press moves the keyboard caret, and what the modifiers do
+#: to it.  Deliberately not the nudge above: that one corrects a finished box by
+#: a pixel, this one has to cross a screen, and 1 px at a key-repeat rate is
+#: four thousand presses to reach the far side of a 4K display.  Ctrl is how you
+#: travel, Shift is how you land.
+_CARET_STEP = 16
+_CARET_STEP_FAST = 96
+_CARET_STEP_FINE = 1
+#: Half the length of the caret's arms, and the gap left at its centre so the
+#: pixel it is actually pointing at is not covered by the thing pointing at it.
+_CARET_ARM = 13
+_CARET_GAP = 3
+
 #: The eight handles, as (name, x factor, y factor) of the box.
 _HANDLES = (
     ("nw", 0.0, 0.0),
@@ -384,6 +397,13 @@ class SelectionOverlay(QWidget):
         self._current = QPoint()
         self._points: list[QPoint] = []
 
+        #: Selecting with no mouse at all.  ``_caret`` is where the keyboard is
+        #: pointing and ``_caret_anchor`` is the corner it has pinned; both are
+        #: None until an arrow key is pressed, so nothing about the pointer path
+        #: changes for somebody who never uses this.
+        self._caret: QPoint | None = None
+        self._caret_anchor: QPoint | None = None
+
         #: Confirmation state.  ``_box`` is in *screen* coordinates, like
         #: everything the painter draws, and becomes the selection once the drag
         #: is over; ``_box_edited`` records that it no longer matches the lasso,
@@ -519,6 +539,9 @@ class SelectionOverlay(QWidget):
         return (
             not self._has_selection
             and not self._dragging
+            # A box being sized by the keyboard is a selection in progress, the
+            # same as a drag: the mode chips would be drawn over it.
+            and self._caret_anchor is None
             and not self.has_text_selection()
             and self._preview.isNull()
         )
@@ -539,6 +562,10 @@ class SelectionOverlay(QWidget):
         if self._confirming and self._has_selection:
             return tr("overlay.adjust")
         if self._showing_hint():
+            if self._caret is not None:
+                # The keyboard is in use, so the only line worth showing is the
+                # one about what to press next.
+                return tr("overlay.hint.keys")
             return tr("overlay.hint.lasso" if self._mode == MODE_LASSO else "overlay.hint.rect")
         return ""
 
@@ -1369,11 +1396,12 @@ class SelectionOverlay(QWidget):
             painter.end()
             return
 
-        if not self._has_selection and self._preview.isNull():
+        if not self._has_selection and self._preview.isNull() and self._caret_anchor is None:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._dim_around_text(painter)
             self._draw_window_outline(painter)
             self._draw_word_hints(painter)
+            self._draw_caret(painter)
             self._draw_action_bar(painter)
             self._draw_badge(painter)
             painter.end()
@@ -1433,6 +1461,7 @@ class SelectionOverlay(QWidget):
                 self._draw_handles(painter)
             self._draw_action_bar(painter)
         if not self._finished:
+            self._draw_caret(painter)
             self._draw_loupe(painter)
             self._draw_size_label(painter, selection)
         self._draw_badge(painter)
@@ -2073,6 +2102,56 @@ class SelectionOverlay(QWidget):
         if self._picking_colour:
             self._draw_swatch(painter)
 
+    def _draw_caret(self, painter: QPainter) -> None:
+        """The keyboard's crosshair, when the keyboard is what is aiming.
+
+        Two-tone for the reason everything drawn over a frozen screen is: what
+        is under it is somebody else's desktop and may be any colour, so a
+        single-colour crosshair looks better in a mock-up and disappears against
+        the wrong wallpaper.  Same treatment as the loupe's, and the same gap at
+        the middle so the pixel being pointed at is not covered by the thing
+        pointing at it.
+
+        A second, filled dot marks the corner that has been pinned, because two
+        crosshairs that look alike would say nothing about which is which.
+        """
+        if self._caret is None or self._finished:
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        centre = QPointF(self._caret_point())
+        arms = (
+            (
+                QPointF(centre.x() - _CARET_ARM, centre.y()),
+                QPointF(centre.x() - _CARET_GAP, centre.y()),
+            ),
+            (
+                QPointF(centre.x() + _CARET_GAP, centre.y()),
+                QPointF(centre.x() + _CARET_ARM, centre.y()),
+            ),
+            (
+                QPointF(centre.x(), centre.y() - _CARET_ARM),
+                QPointF(centre.x(), centre.y() - _CARET_GAP),
+            ),
+            (
+                QPointF(centre.x(), centre.y() + _CARET_GAP),
+                QPointF(centre.x(), centre.y() + _CARET_ARM),
+            ),
+        )
+        for width, colour in ((4, QColor(0, 0, 0, 130)), (2, QColor(255, 255, 255, 235))):
+            pen = QPen(colour)
+            pen.setWidth(width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            for start, end in arms:
+                painter.drawLine(start, end)
+
+        if self._caret_anchor is not None:
+            pinned = QPointF(self._caret_anchor)
+            painter.setPen(QPen(QColor(0, 0, 0, 130), 3))
+            painter.setBrush(self._accent)
+            painter.drawEllipse(pinned, 4.0, 4.0)
+
     def _upload_line(self, physical: QRect) -> str:
         """What will actually leave, under the crop size.  Empty when nothing will.
 
@@ -2176,6 +2255,11 @@ class SelectionOverlay(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
+        # A press is the mouse taking over.  Anything the keyboard had half-done
+        # goes with it, rather than leaving a crosshair and a pinned corner
+        # sitting on screen while a drag happens somewhere else.
+        self._drop_caret()
+
         where = event.position().toPoint() + self._offset
 
         # The bar is painted on top of everything, so it is hit-tested before
@@ -2263,6 +2347,11 @@ class SelectionOverlay(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._finished:
+            return
+        if self._caret_anchor is not None:
+            # The keyboard owns the box until it is taken or dropped.  A pointer
+            # that merely moves must not take it over half-sized; a *press*
+            # does, and that is the one above.
             return
         position = event.position().toPoint()
         # Snapshotted before anything moves, so the repaint can be told exactly
@@ -2483,6 +2572,13 @@ class SelectionOverlay(QWidget):
             if self._picking_colour:
                 self._set_picking_colour(False)
                 return
+            if self._caret_anchor is not None:
+                # And again: stepping out of sizing is not throwing the capture
+                # away.  The caret stays where it was, so the corner can be put
+                # somewhere else without starting over.
+                self._caret_anchor = None
+                self._changed()
+                return
             self._cancel()
             return
 
@@ -2523,7 +2619,32 @@ class SelectionOverlay(QWidget):
                 self._copy_text()
                 return
 
+        arrows = {
+            Qt.Key.Key_Left: (-1, 0),
+            Qt.Key.Key_Right: (1, 0),
+            Qt.Key.Key_Up: (0, -1),
+            Qt.Key.Key_Down: (0, 1),
+        }
+
         if not self._confirming:
+            # Nothing taken yet, and nothing else is going on: the arrows raise
+            # a caret and move it, Space pins a corner and then takes the box.
+            if self._keyboard_selecting():
+                if key in arrows:
+                    dx, dy = arrows[key]
+                    self._move_caret(dx, dy, self._caret_step(event.modifiers()))
+                    return
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                    if self._caret_anchor is not None:
+                        self._take_caret_box()
+                    elif self._caret is not None:
+                        self._pin_caret()
+                    else:
+                        # No caret yet: Space is not a way to start one, because
+                        # it would take a MIN_SELECTION box wherever the pointer
+                        # happens to be.  An arrow key shows where it would go.
+                        super().keyPressEvent(event)
+                    return
             super().keyPressEvent(event)
             return
 
@@ -2548,12 +2669,6 @@ class SelectionOverlay(QWidget):
             self._undo_redaction()
             return
 
-        arrows = {
-            Qt.Key.Key_Left: (-1, 0),
-            Qt.Key.Key_Right: (1, 0),
-            Qt.Key.Key_Up: (0, -1),
-            Qt.Key.Key_Down: (0, 1),
-        }
         if key in arrows:
             fast = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             step = _NUDGE_FAST if fast else _NUDGE
@@ -2638,6 +2753,8 @@ class SelectionOverlay(QWidget):
         the damage region was the outline's ring and none of this is on it.
         """
         rects = [self._trail.bounds()]
+        if self._caret is not None:
+            rects.append(self._caret_rect())
         if self._loupe_showing():
             rects.append(self._loupe_rect())
         selection = self._selection_rect()
@@ -2777,6 +2894,117 @@ class SelectionOverlay(QWidget):
             return self._group_bounds.translated(-self._origin)
         return self.rect().translated(self._offset)
 
+    # ------------------------------------------------ selecting with no mouse
+    #
+    # Half of this was already here: the arrow keys move and resize a box that
+    # has been *taken*, and the bar advertises them.  The half that was missing
+    # is the half that makes the program usable with no pointer at all — there
+    # was no way to take one in the first place.
+    #
+    # Arrows raise a caret and move it, Space pins a corner, arrows size from
+    # it, Space again takes the box.  What it hands over is the same rectangle
+    # a drag hands over, through the same _use_rect() the "same area as last
+    # time" chip uses, so everything after this point is code that already ran.
+    #
+    # It is always a rectangle, whatever the mode chip says.  A lasso is a hand
+    # gesture; there is no arrow-key drawing of one that would not be a worse
+    # rectangle.
+
+    def _keyboard_selecting(self) -> bool:
+        """True when the arrows belong to the caret rather than to anything else."""
+        return self._caret is not None or self._showing_hint()
+
+    def _caret_point(self) -> QPoint:
+        """Where the caret is, or where it would appear if it were raised now."""
+        if self._caret is not None:
+            return self._caret
+        # The pointer, if it has been anywhere: the shake happened under it and
+        # it is the one place on screen the user was already looking.
+        if not self._current.isNull():
+            return QPoint(self._current)
+        return self.rect().center() + self._offset
+
+    @staticmethod
+    def _caret_step(modifiers: Qt.KeyboardModifier) -> int:
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            return _CARET_STEP_FAST
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return _CARET_STEP_FINE
+        return _CARET_STEP
+
+    def _caret_rect(self, point: QPoint | None = None) -> QRect:
+        """What the caret covers, for the repaint to erase and redraw."""
+        if self._caret is None and point is None:
+            return QRect()
+        where = point if point is not None else self._caret_point()
+        reach = _CARET_ARM + 2
+        return QRect(where.x() - reach, where.y() - reach, reach * 2, reach * 2)
+
+    def _caret_box(self) -> QRect:
+        """The rectangle between the pinned corner and the caret.
+
+        Built from its corners by hand for the same reason
+        :meth:`_selection_rect` gives: ``QRect(topLeft, bottomRight)`` is
+        inclusive at both ends, and the size label would then disagree with the
+        crop by a pixel in each direction.
+        """
+        anchor = self._caret_anchor
+        if anchor is None:
+            return QRect()
+        caret = self._caret_point()
+        left, right = sorted((anchor.x(), caret.x()))
+        top, bottom = sorted((anchor.y(), caret.y()))
+        return QRect(left, top, right - left, bottom - top)
+
+    def _move_caret(self, dx: int, dy: int, step: int) -> None:
+        bounds = self._clamp_bounds()
+        start = self._caret_point()
+        point = QPoint(
+            min(max(start.x() + dx * step, bounds.left()), bounds.right()),
+            min(max(start.y() + dy * step, bounds.top()), bounds.bottom()),
+        )
+        if self._caret is not None and point == self._caret:
+            return
+        was_box = self._selection_rect()
+        was_floating = self._floating_rects()
+        self._caret = point
+        # The caret is in _floating_rects(), so the snapshot above and the
+        # recomputation inside cover both where it was and where it now is.
+        self._changed(self._drag_damage(was_box, was_floating, start))
+
+    def _pin_caret(self) -> None:
+        """Space, the first time: this corner."""
+        self._caret_anchor = QPoint(self._caret_point())
+        self._changed()
+
+    def _take_caret_box(self) -> None:
+        """Space, the second time: take what is between the two points.
+
+        Too small is not an error and not a selection either — the same answer
+        a stray click gets, which is to leave the overlay open so it can be
+        tried again rather than silently doing nothing.
+        """
+        box = self._caret_box()
+        self._caret_anchor = None
+        if box.width() < MIN_SELECTION or box.height() < MIN_SELECTION:
+            log.debug("ignoring a %dx%d keyboard selection", box.width(), box.height())
+            self._changed()
+            return
+        log.info("keyboard selection %dx%d at %d,%d", box.width(), box.height(), box.x(), box.y())
+        self._caret = None
+        self._use_rect(box)
+
+    def _drop_caret(self) -> None:
+        """Put the keyboard away — a press, or Esc with nothing pinned."""
+        if self._caret is None and self._caret_anchor is None:
+            return
+        was_box = self._selection_rect()
+        was_floating = self._floating_rects()
+        start = self._caret_point()
+        self._caret = None
+        self._caret_anchor = None
+        self._changed(self._drag_damage(was_box, was_floating, start))
+
     def _selection_rect(self) -> QRect:
         """Selection bounding box in widget-logical pixels.
 
@@ -2789,6 +3017,11 @@ class SelectionOverlay(QWidget):
         ends, so dragging from x=100 to x=300 would come out 201 px wide and the
         size label would disagree with the crop the user asked for.
         """
+        if self._caret_anchor is not None:
+            # Being sized by the keyboard.  Nothing has been *taken* yet, so
+            # _has_selection is still False and the action bar stays away —
+            # exactly where a rectangle drag is between press and release.
+            return self._caret_box()
         if not self._has_selection:
             # A group member showing someone else's selection: only the part
             # that lands on this screen, so the seam falls exactly on the edge.

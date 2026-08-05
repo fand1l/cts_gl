@@ -12,8 +12,8 @@ afterwards as a placeholder and now has an answer.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** |
-| agreed, in this order | 13 no-mouse · 10 drag out · 12 QR |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** |
+| agreed, in this order | 10 drag out · 12 QR |
 | last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
 
@@ -378,7 +378,7 @@ is a real dependency for a narrow feature, so it belongs behind the same
 treatment as the text recognition: optional, off unless the library is there, and
 never a hard requirement.
 
-## 13. Select without a mouse
+## 13. Select without a mouse — **done**
 
 *Space* starts a selection at the pointer, arrows size it, *Space* again
 finishes.
@@ -411,11 +411,20 @@ claim on it.  That is a better reason than it sounds: the gesture this imitates
 is *Circle to Search*, which on a phone is drawn in MD3, and somebody who knows
 what that looks like already has an expectation this can either meet or not.
 
+**The specification is the source; the skill is a convenience.**  The rules to
+follow are the ones at <https://m3.material.io/> — that is what "on Material 3"
+means here.  The `material-3` skill installed alongside is a condensed reference
+to reach for, not the authority: where the two differ, or where the skill is
+silent, the spec decides.  It is also Compose-shaped in places the spec is not,
+which is the next paragraph's problem.
+
 **What actually transfers, and what does not.**  The MD3 reference is
 Compose-first: Jetpack Compose is the primary target, Flutter second, and the
 web components are explicitly in maintenance mode.  This is PyQt6 on Plasma, so
 **none of the three implementation targets apply** and not one line of the
-example code will move across.  What moves is the part that is platform-neutral:
+example code will move across.  What moves is the part that is platform-neutral
+— which is also the part the spec states directly, independently of any
+implementation:
 
 | transfers | does not |
 |---|---|

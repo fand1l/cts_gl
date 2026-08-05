@@ -22,6 +22,7 @@ import shutil
 import sys
 import tempfile
 import time
+from datetime import datetime
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -65,6 +66,12 @@ W, H, SCALE = 1440, 900, 2
 #: fresh installation shows.
 MAX_SIDE = 1000
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
+
+#: A clock that does not move.  These pictures are generated rather than taken
+#: precisely so that a diff between two runs means the *look* changed — and a
+#: timestamp printed under a thumbnail would make every run differ from the last
+#: for no reason anybody wants to read.
+FROZEN_CLOCK = datetime(2026, 3, 14, 9, 0, 0)
 
 app = QApplication(sys.argv)
 screen = app.primaryScreen()
@@ -413,6 +420,18 @@ for language in ("en", "uk"):
         )
         shelf.add(qimage_to_pil(plate.copy(physical).toImage()), text=said)
         time.sleep(1.02)      # so the timestamps under the tiles differ
+
+    # And then put the clock back.  The tile captions are the time each capture
+    # was taken, read out of its file name, so leaving them as they fell would
+    # make every regeneration of this picture differ from the last — and the
+    # whole point of generating them is that a diff means the *look* changed.
+    # Renamed rather than faked upstream: the names are the storage format.
+    for index, path in enumerate(sorted(shelf_dir.glob("capture-*.png"))):
+        stamp = FROZEN_CLOCK.replace(minute=11 + index * 7).strftime("%Y%m%d-%H%M%S-%f")
+        for old in (path, path.with_suffix(".txt")):
+            if old.exists():
+                old.rename(old.with_name(f"capture-{stamp}{old.suffix}"))
+
     captures = HistoryWindow(shelf)
     captures.resize(780, 560)
     captures.show()

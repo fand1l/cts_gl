@@ -23,6 +23,12 @@ the release.
 
 ## 1.3.0 — “another-way”
 
+* **Select without a mouse.** The arrow keys raise a crosshair and move it —
+  *Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
+  the arrows size the box from it, *Space* again takes it, and from there it is
+  the same waiting selection with the same keys on it. *Esc* lets go of the
+  corner without letting go of the capture. Half of this existed: the arrows
+  already moved a box that had been taken, and there was no way to take one.
 * **“Try another way” when an upload fails.** The notification gets a button
   that sends the same picture by the *other* mechanism — if your browser was
   posting it, the daemon uploads; if the daemon was, your browser gets the

@@ -369,12 +369,18 @@ _EN: dict[str, str] = {
     "launcher.failed": "The browser could not start the upload.",
     "launcher.retry": "Try again",
     "overlay.hint.lasso": (
-        "Circle what you want · drag across text to take the text · "
+        "Circle what you want · arrow keys to aim without a mouse · "
         "Esc or right-click to cancel"
     ),
     "overlay.hint.rect": (
-        "Drag to select · drag across text to take the text · "
+        "Drag to select · arrow keys to aim without a mouse · "
         "Esc or right-click to cancel"
+    ),
+    # Shown the moment the caret is raised, in place of the line above: the
+    # next thing to press is the only thing worth saying at that point.
+    "overlay.hint.keys": (
+        "arrows to aim · Ctrl faster, Shift by the pixel · "
+        "Space for one corner, then the other"
     ),
     "overlay.hint.colour": (
         "click any pixel to copy its colour · Shift for rgb(…) · Esc to go back"
@@ -769,12 +775,16 @@ _UK: dict[str, str] = {
     "launcher.failed": "Браузер не зміг почати вивантаження.",
     "launcher.retry": "Спробувати ще раз",
     "overlay.hint.lasso": (
-        "Обведіть потрібне · проведіть по тексту, щоб узяти текст · "
+        "Обведіть потрібне · стрілки — навести без миші · "
         "Esc або права кнопка — скасувати"
     ),
     "overlay.hint.rect": (
-        "Потягніть, щоб виділити · проведіть по тексту, щоб узяти текст · "
+        "Потягніть, щоб виділити · стрілки — навести без миші · "
         "Esc або права кнопка — скасувати"
+    ),
+    "overlay.hint.keys": (
+        "стрілки — навести · Ctrl — швидше, Shift — по пікселю · "
+        "Пробіл — один кут, потім другий"
     ),
     "overlay.hint.colour": (
         "клацніть будь-який піксель, щоб скопіювати колір · Shift — rgb(…) · Esc — назад"
