@@ -484,14 +484,23 @@ removes is a lasso drawn laboriously around a rectangular panel that the
 compositor could have named in one number.
 
 It has to come from KWin: a Wayland client cannot see anybody else's geometry.
-The script already walks `workspace.windowList()`, so it sends the layout with
-the trigger as `WindowRects("x,y,w,h;…")` — global logical pixels, front-most
-first, our own overlay excluded — in the same encoding as the movement trace,
+The script reads `workspace.stackingOrder` — **not** `windowList()`, which
+returns everything in no particular order; reading that as a stack is what once
+made the overlay offer a window sitting behind the browser that you could not
+see at all — and sends the layout with the trigger as `WindowRects("x,y,w,h;…")`
+— global logical pixels, front-most first — in the same encoding as the trace,
 and immediately *before* the trigger, because D-Bus keeps the order of calls on
 one connection. It is sent once per trigger and never from the poll tick, so
 the CPU budget is untouched.
 
-Three things it gets right that are easy to get wrong:
+Only what is on the screen *right now* is offered. Being in the window list is
+not the same as being visible, and every one of these points at nothing you can
+see: minimised windows, windows on another virtual desktop or activity, the
+desktop background, KWin's own selection outline, the drag-and-drop surface, and
+our own overlay. Panels and docks are deliberately kept — circling one is exactly
+the kind of thing this is for.
+
+Three more things it gets right that are easy to get wrong:
 
 * **Windows partly off screen.** A window can hang off an edge or straddle two
   monitors, so each rectangle is clipped to the screen and moved into its

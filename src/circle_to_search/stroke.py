@@ -49,6 +49,9 @@ GLOW_RADIUS = 140
 TRAIL_LIFETIME_MS = 500
 TRAIL_MIN_GAP_MS = 1000 // 90
 
+#: How many of them are ever actually drawn.  See :meth:`Trail.alive`.
+MAX_DRAWN = 16
+
 #: Frames while a drag is in progress.  There is no fade *after* the button
 #: comes up: the stroke is part of the gesture, not part of the answer, so it
 #: ends with the gesture — a glow left behind on its own, with the line already
@@ -199,8 +202,15 @@ class Trail:
     def clear(self) -> None:
         self.blobs = []
 
-    def alive(self, now_ms: float) -> list[tuple[Blob, float]]:
-        """Every blob still glowing, with how much of it is left (1 → 0)."""
+    def alive(self, now_ms: float, limit: int = MAX_DRAWN) -> list[tuple[Blob, float]]:
+        """Every blob still glowing, with how much of it is left (1 → 0).
+
+        Thinned to ``limit`` of them, evenly, always keeping the two ends: a
+        full trail is forty-five blobs overlapping by nine tenths, and drawing
+        every third one is indistinguishable.  It is worth doing because this is
+        the one cost that does not care how big the screen is — forty-five blobs
+        is three and a half megapixels of alpha blending in every frame.
+        """
         cutoff = now_ms - self.lifetime_ms
         out: list[tuple[Blob, float]] = []
         for blob in self.blobs:
@@ -208,6 +218,11 @@ class Trail:
                 continue
             age = now_ms - blob.at_ms
             out.append((blob, max(0.0, 1.0 - age / self.lifetime_ms)))
+
+        if limit > 1 and len(out) > limit:
+            last = len(out) - 1
+            picked = sorted({round(i * last / (limit - 1)) for i in range(limit)})
+            out = [out[index] for index in picked]
         return out
 
     def bounds(self, radius: int = GLOW_RADIUS) -> QRect:

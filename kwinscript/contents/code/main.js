@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.9.0";
+var SCRIPT_VERSION = "1.10.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -848,22 +848,89 @@ function trigger(x, y, method) {
  *
  * Sent once per trigger, never from the poll tick.
  */
+/*
+ * Bottom to top.  `workspace.stackingOrder` is the one that has an order to it;
+ * `windowList()` returns everything in no particular order, and reading it as a
+ * stack is how the overlay came to offer a window that was behind the browser
+ * and could not be seen at all.
+ */
+function stackedWindows() {
+    try {
+        if (workspace.stackingOrder && workspace.stackingOrder.length) {
+            return workspace.stackingOrder;
+        }
+    } catch (error) {
+        /* Older KWin — fall through. */
+    }
+    return allWindows();
+}
+
+/* Every one of these is wrapped: a property this KWin does not have must mean
+ * "cannot tell, keep it" and never lose the whole list. */
+function isOnCurrentDesktop(window) {
+    try {
+        if (window.onAllDesktops) {
+            return true;
+        }
+        var here = workspace.currentDesktop;
+        var on = window.desktops;
+        if (!here || !on || typeof on.indexOf !== "function") {
+            return true;
+        }
+        return on.indexOf(here) !== -1;
+    } catch (error) {
+        return true;
+    }
+}
+
+function isOnCurrentActivity(window) {
+    try {
+        var mine = window.activities;
+        if (!mine || !mine.length) {
+            return true;      /* on all of them */
+        }
+        return mine.indexOf(workspace.currentActivity) !== -1;
+    } catch (error) {
+        return true;
+    }
+}
+
+/*
+ * Is this window actually on the screen right now?  Being in the window list is
+ * not the same thing: it may be minimised, on another virtual desktop, on
+ * another activity, or one of KWin's own internal surfaces.  Offering one of
+ * those as "click to take this window" points at nothing the user can see.
+ */
+function isShowingNow(window) {
+    if (!window || isOverlay(window)) {
+        return false;
+    }
+    try {
+        if (window.minimized || window.hidden || window.deleted) {
+            return false;
+        }
+        /* The desktop background, KWin's own selection outline, and the surface
+         * dragged during a drag-and-drop.  Panels and docks are *not* in this
+         * list: circling one is exactly the kind of thing this is for. */
+        if (window.desktopWindow || window.outline || window.dnd) {
+            return false;
+        }
+    } catch (error) {
+        /* Cannot tell — the desktop check below still applies. */
+    }
+    return isOnCurrentDesktop(window) && isOnCurrentActivity(window);
+}
+
 function windowRects() {
-    var windows = allWindows();
+    var windows = stackedWindows();
     var parts = [];
-    /* windowList() is bottom-to-top, and "which window is under the pointer"
-     * wants the top one first. */
+    /* Top first, because "which window is under the pointer" is the first hit. */
     for (var i = windows.length - 1; i >= 0; i -= 1) {
         var window = windows[i];
-        if (!window || isOverlay(window)) {
+        if (!isShowingNow(window)) {
             continue;
         }
         try {
-            if (window.minimized || window.deleted || window.desktopWindow) {
-                continue;
-            }
-            /* Panels and docks are windows too, and circling one is exactly the
-             * kind of thing this is for, so they stay in. */
             var frame = window.frameGeometry;
             var w = Math.round(frame.width);
             var h = Math.round(frame.height);

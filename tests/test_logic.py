@@ -2210,8 +2210,15 @@ script = (Path(__file__).resolve().parent.parent
 check("the script reports the window layout", '"WindowRects", encoded' in script)
 check("with the trigger, before it",
       re.search(r"sendWindowRects\(\);[\s\S]{0,400}?method \|\| \"Trigger\"", script) is not None)
-check("and it leaves out our own overlay", "isOverlay(window)" in
+check("and it walks the real stacking order",
+      "workspace.stackingOrder" in script.split("function stackedWindows")[1][:400])
+check("and only offers what is on screen right now",
+      "isShowingNow(window)" in
       script.split("function windowRects")[1].split("function sendWindowRects")[0])
+showing = script.split("function isShowingNow")[1].split("function windowRects")[0]
+for missing in ("minimized", "hidden", "isOverlay", "desktopWindow"):
+    check(f"a {missing} window is left out", missing in showing, missing)
+check("and so is one on another desktop", "isOnCurrentDesktop" in showing)
 
 # --- the gesture, animated from the settings -------------------------------
 # The welcome window explains a physical movement in three lines of prose, and

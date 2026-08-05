@@ -20,13 +20,24 @@ function makeSandbox(config, options) {
     const calls = [];
     const cursor = { x: 0, y: 0 };
     const active = { fullScreen: (options && options.fullScreen) || false };
-    /* A plausible desktop, bottom-to-top the way windowList() reports it: a
-     * maximised window, a dialog on top of it, and our own overlay, which must
-     * never be offered as something to circle. */
+    /* A plausible desktop, bottom to top the way stackingOrder reports it.  The
+     * last four must never be offered as something to circle: one is minimised,
+     * one is on another virtual desktop, one is the desktop background, and one
+     * is our own overlay. */
+    const here = { id: "desktop-1" };
+    const elsewhere = { id: "desktop-2" };
     const windows = (options && options.windows) || [
-        { caption: "Editor", frameGeometry: { x: 0, y: 0, width: 2560, height: 1400 } },
-        { caption: "Find", frameGeometry: { x: 400, y: 300, width: 600, height: 200 } },
-        { caption: "Circle to Search Overlay",
+        { caption: "Desktop", desktopWindow: true, desktops: [here],
+          frameGeometry: { x: 0, y: 0, width: 2560, height: 1440 } },
+        { caption: "Behind", minimized: true, desktops: [here],
+          frameGeometry: { x: 100, y: 100, width: 900, height: 700 } },
+        { caption: "Other desktop", desktops: [elsewhere],
+          frameGeometry: { x: 50, y: 50, width: 1500, height: 900 } },
+        { caption: "Editor", desktops: [here],
+          frameGeometry: { x: 0, y: 0, width: 2560, height: 1400 } },
+        { caption: "Find", desktops: [here],
+          frameGeometry: { x: 400, y: 300, width: 600, height: 200 } },
+        { caption: "Circle to Search Overlay", desktops: [here],
           frameGeometry: { x: 0, y: 0, width: 2560, height: 1440 } },
     ];
     let now = 0;
@@ -53,7 +64,13 @@ function makeSandbox(config, options) {
                 { name: "eDP-1", geometry: { x: 0, y: 0, width: 2560, height: 1440 } },
                 { name: "HDMI-A-1", geometry: { x: 2560, y: 0, width: 1920, height: 1080 } },
             ],
-            windowList: () => windows,
+            /* Deliberately shuffled: windowList() has no ordering guarantee,
+             * and reading it as a stack is the bug this pins down. */
+            windowList: () => [windows[4], windows[0], windows[3], windows[1],
+                               windows[5], windows[2]],
+            stackingOrder: windows,
+            currentDesktop: here,
+            currentActivity: "activity-1",
             windowAdded: { connect: () => {} },
             activeWindow: active,
         },
@@ -359,10 +376,22 @@ run("straight move stays silent", defaults, straight(900, 1000, 12, 40), 0);
     console.log(`${clean ? "PASS" : "FAIL"}  our own overlay is left out of it: ${encoded}`);
     if (!clean) failures += 1;
 
-    /* Front-most first, so "the window under the pointer" is the first hit. */
+    /* Front-most first, so "the window under the pointer" is the first hit.
+     * This is read off stackingOrder: windowList() has no ordering guarantee,
+     * and reading it as a stack is what made the overlay offer a window that
+     * was behind the browser and could not be seen at all. */
     const ordered = rects[0] === "400,300,600,200";
     console.log(`${ordered ? "PASS" : "FAIL"}  front-most window first: ${rects[0]}`);
     if (!ordered) failures += 1;
+
+    /* Nothing that is not on the screen right now.  Being in the window list
+     * is not the same as being visible: minimised, on another virtual desktop,
+     * or the desktop background itself all point at nothing the user can see. */
+    const hidden = encoded.indexOf("100,100,900,700") !== -1     /* minimised   */
+        || encoded.indexOf("50,50,1500,900") !== -1              /* other desktop */
+        || encoded.indexOf("0,0,2560,1440") !== -1;              /* the desktop */
+    console.log(`${hidden ? "FAIL" : "PASS"}  nothing you cannot see is offered: ${encoded}`);
+    if (hidden) failures += 1;
 
     /* And it goes out before the trigger it belongs to, because D-Bus keeps
      * the order of calls on one connection and the overlay is built from the

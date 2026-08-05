@@ -278,3 +278,31 @@ every pointer move.  Clipping is worth about 20 % now that the path is cheap,
 which is not enough to justify the stale-pixel risk of tracking damage across
 the dimming, the size readout and the loupe — and it is what the program did
 before the stroke existed.
+
+### And then the same thing on a bigger screen
+
+Fixed above, and still slow at 4K while FullHD was fine.  The raster side was
+not the problem there — a full frame measured 19.7 ms, about 50 fps — so what
+was left is the *upload*: repainting the whole overlay on every pointer move
+hands the compositor 33 MB of window sixty times a second on a 3840×2160 screen,
+and 8 MB on a 1920×1080 one.  Which is exactly why one lagged and the other did
+not, and exactly the partial repaint this file has been asking for since it was
+written.
+
+So a drag now says what changed instead of "everything".  The box contributes a
+*ring* and never its filled inside, or a loop already covering most of the screen
+would damage most of the screen each time it grew by five pixels.
+
+| | damaged per frame, 4K |
+|---|---|
+| rectangle drag | 1 % — 0.3 MB instead of 33 |
+| lasso drag | 33 % — 11 MB instead of 33 |
+
+The lasso keeps a large share because of the glow, and that is not waste: every
+blob's opacity changes on every frame, so the whole smear genuinely has to be
+redrawn.  Two things followed from that.  The trail is thinned to sixteen blobs
+when it draws — forty-five of them overlap by nine tenths and the difference is
+invisible, while the blending is three and a half megapixels a frame whatever
+the screen size.  And `lasso_mask` falls back to repainting everything, because
+closing a loop can light up a large region nowhere near the pointer and that is
+not worth tracking for a setting that is off by default.

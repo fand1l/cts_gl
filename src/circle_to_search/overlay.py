@@ -69,6 +69,7 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QPolygon,
+    QRegion,
     QResizeEvent,
     QScreen,
 )
@@ -1883,6 +1884,11 @@ class SelectionOverlay(QWidget):
         if self._finished:
             return
         position = event.position().toPoint()
+        # Snapshotted before anything moves, so the repaint can be told exactly
+        # what changed instead of the whole screen.
+        was_box = self._selection_rect() if self._dragging else QRect()
+        was_floating = self._floating_rects() if self._dragging else []
+        was_head = self._points[-1] if self._points else position
         self._current = position
 
         # Hovering is only ever asked while nothing is being dragged: during a
@@ -1942,7 +1948,7 @@ class SelectionOverlay(QWidget):
             # A pointer held still long enough for the trail to age out stopped
             # the frames; moving again is what starts them.
             self._start_stroke_animation()
-        self._changed()
+        self._changed(self._drag_damage(was_box, was_floating, was_head))
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if self._finished or event.button() != Qt.MouseButton.LeftButton:
@@ -2169,9 +2175,62 @@ class SelectionOverlay(QWidget):
             return QPolygon()
         return QPolygon(self._points).translated(self._offset)
 
-    def _changed(self) -> None:
+    def _floating_rects(self) -> list[QRect]:
+        """What moves with the pointer during a drag, apart from the box itself."""
+        rects = [self._trail.bounds()]
+        if self._loupe_showing():
+            rects.append(self._loupe_rect())
+        selection = self._selection_rect()
+        if selection.width() >= 1 and selection.height() >= 1:
+            rects.append(self._size_label(selection)[2])
+        return [rect for rect in rects if not rect.isNull()]
+
+    def _drag_damage(self, was_box: QRect, was_floating: list[QRect], was_head: QPoint) -> QRegion:
+        """What actually changed since the frame before, in widget coordinates.
+
+        On a 4K screen the whole overlay is thirty-three megabytes, and repainting
+        all of it on every pointer move means handing the compositor that much
+        again sixty times a second.  The raster cost is survivable; the upload is
+        what made a big screen crawl while a small one did not.
+
+        The box contributes a *ring*, never its filled inside: a loop that already
+        covers most of the screen would otherwise damage most of the screen every
+        time it grew by five pixels.
+        """
+        if self._mask_outside:
+            # The un-dimmed area is the loop itself, so closing the loop can
+            # light up a large region nowhere near the pointer.  Not worth
+            # tracking; this is off by default anyway.
+            return QRegion()
+
+        damage = QRegion()
+        box = self._selection_rect()
+        if not (box.isNull() and was_box.isNull()):
+            damage += QRegion(box.united(was_box).adjusted(-4, -4, 4, 4))
+            shared = box.intersected(was_box).adjusted(4, 4, -4, -4)
+            if shared.width() > 0 and shared.height() > 0:
+                damage -= QRegion(shared)
+
+        reach = (LINE_WIDTH + SHADOW_EXTRA) // 2 + 3
+        head = self._points[-1] if self._points else was_head
+        segment = QRect(was_head, head).normalized().adjusted(-reach, -reach, reach, reach)
+        damage += QRegion(segment)
+
+        for rect in (*was_floating, *self._floating_rects()):
+            damage += QRegion(rect.adjusted(-3, -3, 3, 3))
+
+        damage.translate(-self._offset)
+        # No guard on how big this can get: every piece of it is either a thin
+        # ring or a few hundred pixels square, and in the one case where the ring
+        # really is the whole window the region simply *is* a full repaint.
+        return damage.intersected(QRegion(self.rect()))
+
+    def _changed(self, damage: QRegion | None = None) -> None:
         """Repaint, and in a group tell the other overlays what to draw."""
-        self.update()
+        if damage is not None and not damage.isEmpty():
+            self.update(damage)
+        else:
+            self.update()
         if self.in_group:
             rect = self._selection_rect()
             self.preview_changed.emit(
@@ -2314,10 +2373,14 @@ class SelectionOverlay(QWidget):
             return
         if box == self._box:
             return
+        was_box = self._selection_rect()
+        was_floating = self._floating_rects()
         self._box = box
         if edited:
             self._box_edited = True
-        self._changed()
+        # Dragging a handle across a 4K screen repaints as much as drawing does.
+        head = self._points[-1] if self._points else self._current
+        self._changed(self._drag_damage(was_box, was_floating, head))
 
     def _commit(self, action: str) -> None:
         """Send the confirmed selection off as whatever the user asked for."""
