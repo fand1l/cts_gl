@@ -20,7 +20,8 @@ the ones a DTD knows about:
   into ``<head>`` — the ones scrapers read without running a script — have to
   say exactly what ``en_US.json`` says;
 * **the commands are the README's commands**, character for character, because a
-  command you cannot paste is worse than no command at all;
+  command you cannot paste is worse than no command at all — the ``#`` comments
+  beside them are prose and are translated, the commands themselves are not;
 * the ordinary accessibility floor: one ``h1``, no skipped heading levels, an
   ``alt`` and a size on every image, a language on every page.
 
@@ -401,8 +402,19 @@ def unescape(text: str) -> str:
     return html_module.unescape(re.sub(r"<[^>]+>", "", text))
 
 
+def command_of(line: str) -> str:
+    """The part of a line somebody pastes, without the comment beside it."""
+    return line.split("#", 1)[0].rstrip()
+
+
 def check_commands(strings: dict[str, dict[str, str]], problems: list[str]) -> None:
-    """Every line of every command block has to appear in the README."""
+    """Every command in every block has to appear in the README.
+
+    The command, not the whole line: the ``#`` comments beside them are prose
+    and are translated with the rest of the page, while the thing to the left
+    of the ``#`` is what gets pasted into a terminal and has to be the
+    README's own, character for character, in every language.
+    """
     readmes = {
         path: path.read_text(encoding="utf-8")
         for path in (ROOT / "README.md", ROOT / "README.uk.md")
@@ -416,12 +428,12 @@ def check_commands(strings: dict[str, dict[str, str]], problems: list[str]) -> N
                 problems.append(f"site/i18n/{locale}.json: no command block {key}")
                 continue
             for line in unescape(block).strip().splitlines():
-                line = line.rstrip()
-                if not line:
+                command = command_of(line.rstrip())
+                if not command:
                     continue
-                if not any(line in text for text in readmes.values()):
+                if not any(command in text for text in readmes.values()):
                     problems.append(
-                        f"site/i18n/{locale}.json {key}: {line!r} is in no README"
+                        f"site/i18n/{locale}.json {key}: {command!r} is in no README"
                     )
 
 
