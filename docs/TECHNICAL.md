@@ -1011,6 +1011,27 @@ Four details that are not obvious:
   screen with no outline near them and they vanish the moment a drag starts —
   exactly the shape of thing the damage ring does not cover on its own.
 
+### Dragging a crop out
+
+*Ctrl* and a press on a pinned crop starts a `QDrag` carrying the picture.
+`setImageData` and nothing else: Qt turns one `QImage` into every image format
+the target asks for, and a hand-rolled `image/png` beside it would be the same
+bytes twice under a name Qt already offers.
+
+**Out of the pin rather than out of the overlay**, and that is not a shortcut.
+A drag has to begin while the button is still down — which over the overlay is
+while a full-screen window is covering every window the picture could be
+dropped into, so the drop lands on the overlay itself. The ways around that are
+to hide a full-screen Wayland surface mid-gesture and hope the grab survives,
+which cannot be tested from here at all, or to drag out of a small ordinary
+window with nothing underneath it. A pin is exactly that, and *P* then drag is
+two gestures where copy-switch-paste is four — which was the whole argument for
+the feature.
+
+*Ctrl* because a plain press on a pin has meant "move me" since that window
+existed, and on Wayland that press is handed to the compositor
+(`startSystemMove`) and never comes back.
+
 ### Selecting without a mouse
 
 Half of this was already here — the arrow keys move and resize a box that has

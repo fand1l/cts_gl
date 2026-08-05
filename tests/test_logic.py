@@ -1548,6 +1548,44 @@ check("it has a rim", edge.pixelColor(0, 0) != QColor("#336699"), edge.pixelColo
 check("and the crop is inside it", edge.pixelColor(100, 50) == QColor("#336699"),
       edge.pixelColor(100, 50).name())
 
+# Dragging it out of the pin, which is where this can happen at all: the overlay
+# is full screen, so a drag started over there has every window it could be
+# dropped into underneath it.  A pin has nothing under it.
+carrier = PinnedCrop(small)
+_mime = carrier.mime()
+check("the drag carries the picture", _mime.hasImage(), str(_mime.formats()))
+check("which is the crop, not a thumbnail of it",
+      _mime.imageData().size() == QSize(200, 100), str(_mime.imageData().size()))
+
+# Ctrl is what tells it apart from moving the window, which a plain press has
+# meant since this window existed.
+dragged: list[str] = []
+moved: list[str] = []
+carrier.drag_out = lambda: dragged.append("out")
+_window = carrier.windowHandle()
+if _window is not None:
+    _window.startSystemMove = lambda: bool(moved.append("move")) or True
+
+
+def _press(widget, modifiers) -> None:
+    widget.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(10.0, 10.0),
+            QPointF(10.0, 10.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            modifiers,
+        )
+    )
+
+
+_press(carrier, Qt.KeyboardModifier.ControlModifier)
+check("Ctrl and a press carries it out", dragged == ["out"], str(dragged))
+check("and does not move the window", moved == [], str(moved))
+_press(carrier, Qt.KeyboardModifier.NoModifier)
+check("a plain press still moves it", dragged == ["out"], str(dragged))
+
 # --- the same area as last time --------------------------------------------
 # Comparing a number that changes means taking the same rectangle twice, and a
 # rectangle drawn by hand is never quite the same twice — which is exactly what

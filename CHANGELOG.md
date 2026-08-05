@@ -36,6 +36,13 @@ the release.
   nothing and its whole effect is to stop an upload. Pressing one is immediate:
   no badge, nothing queued in front of it, and the overlay out of the way
   before the browser arrives rather than on top of it.
+* **Drag a pinned crop out of the window.** *Ctrl* and a press on a pin
+  carries the picture into a chat, a document or an editor — the same image
+  the clipboard would have had, by a route that is one gesture where
+  copy-switch-paste is four. It is the pin rather than the overlay because the
+  overlay is full screen: a drag has to begin while the button is down, which
+  over there is while every window the picture could be dropped into is
+  underneath it.
 * **Select without a mouse.** The arrow keys raise a crosshair and move it —
   *Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
   the arrows size the box from it, *Space* again takes it, and from there it is

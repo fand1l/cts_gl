@@ -187,8 +187,9 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 
 **Pin** is the other one worth knowing about. It leaves that crop on your screen
 as a small window above everything else, which you can drag around, scroll to
-zoom, and close with *Esc* or a middle click. *Ctrl+C* on it copies it. Useful
-whenever the thing you have to read is behind the window you have to type into.
+zoom, and close with *Esc* or a middle click. *Ctrl+C* on it copies it, and *Ctrl* with a
+drag carries the picture straight into a chat or a document. Useful whenever
+the thing you have to read is behind the window you have to type into.
 
 ![A pinned crop floating over another window](docs/images/pinned.png)
 

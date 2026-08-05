@@ -12,8 +12,8 @@ afterwards as a placeholder and now has an answer.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** · **12 QR** |
-| agreed, in this order | 10 drag out — see the note under it |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** · **12 QR** · **10 drag out** |
+| agreed, in this order | — everything ordered is done |
 | last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
 
@@ -344,7 +344,7 @@ outright when nothing of it is left there.  It appears as a third chip beside
 *Lasso* and *Rectangle* — the one moment it is wanted is before a new rectangle
 has been drawn over the old one by hand — and on **R**.
 
-## 10. Drag the crop out of the overlay
+## 10. Drag the crop out — **done, out of the pin**
 
 Press on the confirmed selection and drag it into another window: a chat, a
 document, an image editor.
@@ -382,9 +382,16 @@ the feature.  Three ways out, none free:
   feature to where it is not fighting the compositor.
 * **Both**, with the pinned window first.
 
-Not started, deliberately: the first option is a guess that only real hardware
-can settle, and the second may make the first unnecessary.  Worth ten minutes of
-conversation before it is worth an afternoon of code.
+*What shipped:* the second one.  **Ctrl and a press on a pinned crop carries it
+out**, with the picture under the pointer and the same image the clipboard
+would have had.  Ctrl because a plain press on a pin has meant "move me" since
+that window existed.
+
+The first option is still not started, and now probably never needs to be: *P*
+then drag is two gestures where copy-switch-paste is four, which was the whole
+argument, and it costs no fight with the compositor.  If dragging straight off
+the overlay is still wanted, it is the same `mime()` and a hidden surface, and
+it can only be settled on real hardware.
 
 ## 11. "Try another way" when the upload fails — **done**
 
