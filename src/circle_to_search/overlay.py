@@ -3055,11 +3055,23 @@ class SelectionOverlay(QWidget):
         return None
 
     def _use_chip(self, chip: CodeChip) -> None:
+        """Press a chip: hand the payload over and get out of the way at once.
+
+        No badge, unlike every other way out of here — and the difference is
+        the point.  The badge exists because preparing an image and writing a
+        launcher page take a moment, and an overlay that vanishes before
+        anything appears is indistinguishable from one that threw the selection
+        away.  Here there is nothing to prepare: the URL was decoded before the
+        press, and all that is left is one xdg-open.
+
+        What remains after that is the browser's own cold start, which is the
+        browser's — and a full-screen window sitting in front of it with a
+        spinner is not reporting on that wait, it is *covering the window that
+        is arriving*.  Pressing a link and having the thing it was in go away
+        is what a link does everywhere else.
+        """
         log.info("taking the %s from the screen", "link" if chip.link else "code")
-        self._finish(
-            lambda: self.code_activated.emit(chip.payload, chip.link),
-            badge=BADGE_OPENING if chip.link else BADGE_NONE,
-        )
+        self._finish(lambda: self.code_activated.emit(chip.payload, chip.link))
 
     def _draw_chips(self, painter: QPainter) -> None:
         if not self._showing_chips():

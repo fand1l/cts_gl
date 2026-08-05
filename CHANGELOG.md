@@ -33,7 +33,9 @@ the release.
   press is not a thing to do on the strength of a colon. It needs `zbar`, which
   the installer now offers; unlike text recognition it is on by default and is
   not asked about first, because the trade is the other way round — it costs
-  nothing and its whole effect is to stop an upload.
+  nothing and its whole effect is to stop an upload. Pressing one is immediate:
+  no badge, nothing queued in front of it, and the overlay out of the way
+  before the browser arrives rather than on top of it.
 * **Select without a mouse.** The arrow keys raise a crosshair and move it —
   *Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
   the arrows size the box from it, *Space* again takes it, and from there it is

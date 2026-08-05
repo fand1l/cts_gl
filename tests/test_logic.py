@@ -3998,6 +3998,12 @@ click(pressed, (chip.pill.center().x(), chip.pill.center().y()))
 check("pressing a chip takes the code",
       taken == [("https://uk.m.wikipedia.org/", "https://uk.m.wikipedia.org/")], str(taken))
 check("and nothing was selected by pressing it", not pressed._has_selection)
+# No badge, unlike every other way out of here.  There is nothing to prepare —
+# the URL was decoded before the press — so an overlay left in front of the
+# browser would be covering the window it is waiting for rather than reporting
+# on it.
+check("and the overlay is gone at once, not waiting on anything",
+      not pressed.is_sending(), pressed._badge)
 
 # Enter takes the only one; with two it is ambiguous and means nothing here.
 alone = make_overlay(MODE_RECTANGLE)

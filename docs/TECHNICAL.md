@@ -976,6 +976,22 @@ different links. The chips stay pressable either way. They are drawn only while
 nothing has been taken: once a selection is being made, the bar is what is
 being read and buttons scattered behind it are noise.
 
+**Pressing a chip leaves no badge behind**, which is the one way out of the
+overlay that does not. Everywhere else the badge is earned: preparing an image
+and writing a launcher page take a moment, and a window that vanishes before
+anything appears is indistinguishable from one that threw the selection away.
+Here there is nothing to prepare — the URL was decoded before the press — so
+what is left is the browser's own cold start, and a full-screen window sitting
+in front of it with a spinner is not reporting on that wait, it is covering the
+window that is arriving.
+
+Two more things were between the press and `xdg-open`, and both are gone:
+`_finish_opening()` — which offers text recognition and asks about misfires, a
+synchronous D-Bus round trip apiece — now runs *after* the browser is started
+rather than in front of it; and the open task goes into the thread pool at a
+priority above the whole-screen reading, which takes seconds and is started the
+moment the overlay opens.
+
 Four details that are not obvious:
 
 * **`--polygon` changes the shape of the line, in the middle.** zbar prints

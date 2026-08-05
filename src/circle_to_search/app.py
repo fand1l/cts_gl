@@ -343,6 +343,10 @@ class _OpenSignals(QObject):
     failed = pyqtSignal(str)
 
 
+#: Ahead of the background reading and scanning, which are not being waited on.
+_OPEN_PRIORITY = 10
+
+
 class _OpenTask(QRunnable):
     """Run ``xdg-open`` and notice when it fails.
 
@@ -1328,11 +1332,19 @@ class CircleToSearchApp(QObject):
 
     @pyqtSlot(str, str)
     def _on_code_activated(self, payload: str, link: str) -> None:
-        """A chip on a code was pressed."""
+        """A chip on a code was pressed.
+
+        The browser is started *first* and the bookkeeping happens after it.
+        _finish_opening() offers text recognition and asks about misfires, and
+        both of those reach the notification server over D-Bus, synchronously,
+        on this thread — a round trip apiece in front of the one call the user
+        is actually waiting on.  Nothing in it is urgent and none of it is
+        about this press.
+        """
         self._release_overlay()
         self._release_group()
-        self._finish_opening()
         self._use_code(payload, link)
+        self._finish_opening()
 
     def _start_reading(self, overlay: SelectionOverlay, image: Image.Image) -> None:
         """Begin reading the frozen screen, if the user has allowed it.
@@ -1742,7 +1754,11 @@ class CircleToSearchApp(QObject):
         task = _OpenTask(url)
         task.signals.failed.connect(lambda error, ref=task: self._open_failed(ref, error))
         self._tasks.add(task)
-        QThreadPool.globalInstance().start(task)
+        # In front of whatever else is in the pool.  Reading a whole 4K screen
+        # with tesseract takes seconds and is started the moment the overlay
+        # opens; on a four-thread pool that is enough to leave the one task the
+        # user is waiting on queued behind work nobody asked to wait for.
+        QThreadPool.globalInstance().start(task, _OPEN_PRIORITY)
 
     def _open_failed(self, task: QRunnable, error: str) -> None:
         self._tasks.discard(task)
