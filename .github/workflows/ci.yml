@@ -85,6 +85,12 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6
       - run: pip install -r requirements.txt
+      # The build number has to be above the one on the deployed branch, and
+      # the checkout above fetched one ref.  Without this the check has nothing
+      # to compare against and quietly says so, which on a push is the one
+      # place it was meant to speak up.
+      - name: Fetch the deployed branch to compare the build number against
+        run: git fetch --depth=1 origin deploy || true
       - run: python3 tests/test_logic.py
 
   dbus:

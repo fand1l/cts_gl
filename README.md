@@ -87,24 +87,39 @@ Later, one command keeps it current — it follows the `deploy` branch:
 ```
 
 It tells you what you have and what it is about to install — every release has a
-name as well as a number, so `1.1.0 “screenshot-window”` says which one it is.
-[What changed in each](CHANGELOG.md).
+name as well as a number, so `1.2.0 “better-version-control”` says which one it
+is. [What changed in each](CHANGELOG.md).
+
+It will not quietly install something older than what you already have. Going
+back is allowed — it is the way out of a `--dev` build that broke — but it takes
+`--downgrade`, and it erases the settings with it, because the newer version
+wrote settings the older one cannot read. Your captures are kept, and it asks
+again first.
 
 <details>
 <summary>Other commands</summary>
 
 ```bash
 ./install.sh update               # fetch the deploy branch and reinstall
+./install.sh update --dev         # …fetch "dev" instead: the newest work, unreviewed
+./install.sh update --downgrade   # …even if it is older, settings and all
 ./install.sh reinstall            # reinstall this folder, whatever state it is in
 ./install.sh reinstall --config   # …and wipe the settings too (it asks twice)
 ./uninstall.sh                    # remove it, keep your captures
 ./uninstall.sh --purge            # remove it and the captures
 ```
 
+Any of them takes `--debug`, which prints everything each step did instead of a
+tick.
+
 `update` is the one to remember. It follows the **`deploy`** branch — the code
 that has been decided to be fit to run — and moves the checkout there if it is
 standing somewhere else. `reinstall` has nothing to do with git: it installs
 whatever is in the folder you are in.
+
+`--dev` follows **`dev`** instead, which is where work is pushed as it happens.
+Nothing on it has been looked at yet and it is expected to be broken sometimes,
+so it says so every time you use it. Plain `update` goes back to `deploy`.
 
 The order cannot leave you worse off: if the fetch fails, nothing has been moved
 or removed and the copy you had is still the one running. Your settings, your

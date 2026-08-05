@@ -42,6 +42,7 @@ set +e
 
 check "update follows a branch of its own by default" \
       "$(yes_no "$UPDATE_BRANCH" "deploy")" "$UPDATE_BRANCH"
+check "and --dev has one to switch to" "$(yes_no "$DEV_BRANCH" "dev")" "$DEV_BRANCH"
 
 WORKSPACE="$(mktemp -d)"
 trap 'rm -rf "$WORKSPACE"' EXIT
@@ -153,6 +154,28 @@ check "an unpacked tarball is told to use reinstall" \
 output="$(UPDATE_BRANCH=main attempt "$WORKSPACE/work")"
 check "--branch picks a different one" "$(yes_no "$(branch_of)" "main")" "$output"
 
+# --- --dev is the same command pointed one branch earlier -------------------
+# 'dev' is where the work is pushed as it happens; 'deploy' is what somebody
+# has decided is fit to run.  One flag between them, so it has to say which one
+# it took — installing the unreviewed branch by accident is not a thing you
+# notice until it breaks.
+git -C "$WORKSPACE/seed" checkout -q -b dev
+echo five > "$WORKSPACE/seed/marker"
+git -C "$WORKSPACE/seed" commit -qam "nobody has decided about this one yet"
+git -C "$WORKSPACE/seed" push -q origin dev
+
+output="$(UPDATE_BRANCH=dev attempt "$WORKSPACE/work")"
+check "--dev moves the checkout onto dev" "$(yes_no "$(branch_of)" "dev")" "$output"
+check "and the code on it arrives" "$(yes_no "$(cat "$WORKSPACE/work/marker")" "five")" \
+      "$(cat "$WORKSPACE/work/marker")"
+check "it says this is not the deployed branch" \
+      "$(says "$output" "Updating from 'dev', not 'deploy'")" "$output"
+check "and what that costs you" "$(says "$output" "expected to be broken")" "$output"
+check "the plain deploy update says none of that" \
+      "$(yes_no "$(UPDATE_BRANCH=deploy attempt "$WORKSPACE/work" | grep -c "not 'deploy'")" \
+                "0")" \
+      "$(UPDATE_BRANCH=deploy attempt "$WORKSPACE/work")"
+
 # --- it says which release you are getting ----------------------------------
 # The whole reason to name a release: "am I updating to the one I actually
 # need" is answerable from a word and not from three digits.
@@ -174,13 +197,205 @@ check "the real tree names its own release" \
       "$(says "$(SOURCE_DIR="$HERE/.." packaged_version)" '“')" \
       "$(SOURCE_DIR="$HERE/.." packaged_version)"
 
+# --- going backwards --------------------------------------------------------
+# Fetching the same branch twice only ever moves forwards, so a downgrade takes
+# a deliberate turn: back from dev to deploy, or --branch at something old.  The
+# first is the way out of a dev build that broke, so this can only ever be a
+# stop, never a wall — and the cost of going back is the settings, because the
+# newer build wrote settings the older one has never heard of.
+APPDIR="$WORKSPACE/installed"
+mkdir -p "$APPDIR/circle_to_search"
+
+installed_as() {
+    if [[ -n "$1" ]]; then
+        printf '__version__ = "9.9.9"\n\nBUILD = %s\n' "$1" \
+            > "$APPDIR/circle_to_search/__init__.py"
+    else
+        printf '__version__ = "9.9.9"\n' > "$APPDIR/circle_to_search/__init__.py"
+    fi
+}
+
+# A committed source tree on dev, which is what build_at_ref reads.
+dev_build_is() {
+    mkdir -p "$WORKSPACE/seed/src/circle_to_search"
+    printf '__version__ = "9.9.9"\n\nBUILD = %s\n' "$1" \
+        > "$WORKSPACE/seed/src/circle_to_search/__init__.py"
+    git -C "$WORKSPACE/seed" add -A
+    git -C "$WORKSPACE/seed" commit -qm "build $1"
+    git -C "$WORKSPACE/seed" push -q origin dev
+    git -C "$WORKSPACE/work" fetch -q origin dev
+}
+
+# BRANCH_FROM is what choose_branch sets, and it is how the refusal knows which
+# command to hand back.
+going() {
+    ( SOURCE_DIR="$WORKSPACE/work" UPDATE_BRANCH=dev BRANCH_FROM="${1---dev}" \
+        refuse_downgrade 2>&1 )
+}
+
+git -C "$WORKSPACE/seed" checkout -q dev
+dev_build_is 10005
+
+installed_as 10001
+output="$(going)"
+check "a newer build is simply reported" "$(says "$output" "Build 10001 → 10005")" "$output"
+
+installed_as 10005
+output="$(going)"
+check "the same build says so too" "$(says "$output" "the same one")" "$output"
+
+installed_as 10009
+output="$(going)"
+check "an older build is refused" "$(says "$output" "an older one")" "$output"
+check "and both numbers are named" \
+      "$([[ "$output" == *10009* && "$output" == *10005* ]] && echo 1 || echo 0)" "$output"
+check "and it says nothing has been touched" \
+      "$(says "$output" "Nothing has been touched")" "$output"
+check "it warns that the settings go with it" "$(says "$output" "takes the settings")" "$output"
+check "and says the captures do not" "$(says "$output" "captures are kept")" "$output"
+check "and hands over the exact command" \
+      "$(says "$output" "./install.sh update --dev --downgrade")" "$output"
+check "which follows how the branch was chosen" \
+      "$(says "$(going --branch)" "./install.sh update --branch dev --downgrade")" \
+      "$(going --branch)"
+check "and is bare when nothing chose it" \
+      "$(says "$(going "")" "./install.sh update --downgrade")" "$(going "")"
+
+# It permits, it does not instruct.
+PASSTHROUGH=()
+installed_as 10001
+SOURCE_DIR="$WORKSPACE/work" UPDATE_BRANCH=dev ALLOW_DOWNGRADE=1 refuse_downgrade > /dev/null 2>&1
+check "--downgrade on an upgrade erases nothing" \
+      "$(yes_no "${PASSTHROUGH[*]-}" "")" "${PASSTHROUGH[*]-}"
+
+PASSTHROUGH=()
+installed_as 10009
+output="$(SOURCE_DIR="$WORKSPACE/work" UPDATE_BRANCH=dev ALLOW_DOWNGRADE=1 refuse_downgrade 2>&1)"
+SOURCE_DIR="$WORKSPACE/work" UPDATE_BRANCH=dev ALLOW_DOWNGRADE=1 refuse_downgrade > /dev/null 2>&1
+check "--downgrade lets it through" "$(says "$output" "Going back from build 10009")" "$output"
+check "and the reinstall it hands over to is the one that erases" \
+      "$(yes_no "${PASSTHROUGH[*]-}" "--config")" "${PASSTHROUGH[*]-}"
+PASSTHROUGH=()
+
+# An installation from before any of this had a build number at all.  Unknown
+# is not "older", and refusing on a number that does not exist would block
+# every update from the version that shipped before it.
+installed_as ""
+output="$(going)"
+check "no build number installed is not a downgrade" \
+      "$(yes_no "$(says "$output" "older")" "0")" "$output"
+installed_as 10001
+output="$( ( SOURCE_DIR="$WORKSPACE/work" UPDATE_BRANCH=main refuse_downgrade 2>&1 ) )"
+check "nor is a branch with no build number on it" \
+      "$(yes_no "$(says "$output" "older")" "0")" "$output"
+
+# And what the version line says now.
+check "the version line carries the build" \
+      "$(says "$(SOURCE_DIR="$WORKSPACE/seed" packaged_version)" "9.9.9 (build 10005)")" \
+      "$(SOURCE_DIR="$WORKSPACE/seed" packaged_version)"
+
 # --- argument handling ------------------------------------------------------
+# The flags really do reach UPDATE_BRANCH.  Sourcing with arguments runs the
+# parsing and nothing else, since main is guarded.
+branch_for() {
+    ( source "$HERE/../install.sh" "$@" > /dev/null 2>&1; printf '%s' "$UPDATE_BRANCH" )
+}
+check "plain update follows deploy" "$(yes_no "$(branch_for update)" "deploy")" \
+      "$(branch_for update)"
+check "--dev follows dev" "$(yes_no "$(branch_for update --dev)" "dev")" \
+      "$(branch_for update --dev)"
+check "--branch still reaches anywhere else" \
+      "$(yes_no "$(branch_for update --branch wip)" "wip")" "$(branch_for update --branch wip)"
+check "--branch=NAME too" "$(yes_no "$(branch_for update --branch=wip)" "wip")" \
+      "$(branch_for update --branch=wip)"
+
+passthrough_for() {
+    ( source "$HERE/../install.sh" "$@" > /dev/null 2>&1; printf '%s' "${PASSTHROUGH[*]-}" )
+}
+check "--debug is handed on to the installer update pulls" \
+      "$(says "$(passthrough_for update --debug)" "--debug")" "$(passthrough_for update --debug)"
+check "and --verbose is the same flag" \
+      "$(says "$(passthrough_for update --verbose)" "--debug")" \
+      "$(passthrough_for update --verbose)"
+check "nothing is handed on by default" "$(yes_no "$(passthrough_for update)" "")" \
+      "$(passthrough_for update)"
+
+output="$("$HERE/../install.sh" reinstall --downgrade 2>&1)"
+check "--downgrade is refused without 'update'" \
+      "$(says "$output" "only means anything with it")" "$output"
+
 output="$("$HERE/../install.sh" update --config 2>&1)"
 check "update --config is refused before anything happens" \
       "$(says "$output" "only means anything with 'reinstall'")" "$output"
 output="$("$HERE/../install.sh" update --branch 2>&1)"
 check "--branch with nothing after it is refused" \
       "$(says "$output" "needs a branch name")" "$output"
+output="$("$HERE/../install.sh" update --branch= 2>&1)"
+check "and an empty one too" "$(says "$output" "needs a branch name")" "$output"
+
+# --dev and --branch answer the same question, so two different answers is a
+# typo, and the wrong one installs silently.
+output="$("$HERE/../install.sh" update --dev --branch other 2>&1)"
+check "two branches at once is refused" "$(says "$output" "Pick one")" "$output"
+check "but saying the same thing twice is not" \
+      "$(yes_no "$(branch_for update --dev --branch dev)" "dev")" \
+      "$(branch_for update --dev --branch dev)"
+
+# It chooses what 'update' fetches, so it means nothing anywhere else — and
+# "./install.sh --dev" quietly installing the checkout you are standing in is
+# exactly the surprise this is for.
+for command in "" "reinstall"; do
+    output="$("$HERE/../install.sh" $command --dev 2>&1)"
+    check "--dev with '${command:-no command}' is refused" \
+          "$(says "$output" "only means anything with 'update'")" "$output"
+done
+
+# --- what the installer says while it works ---------------------------------
+# Quiet by default, and the whole of that is what happens to a step's output:
+# kept back until it is needed, rather than printed at somebody who is not
+# reading it.  What must survive being quiet is a warning, and a failure.
+STEP_TOTAL=3
+STEP=0
+DEBUG=0
+quiet_chatter() { echo "cp: some file"; info "narration nobody asked for"; }
+quiet_warn()    { echo "more chatter"; warn "but this one you need"; }
+quiet_fail()    { echo "the context of it"; die "it did not work"; }
+
+output="$(run_step "Python package" quiet_chatter 2>&1)"
+check "a step that works is one line" "$(yes_no "$(printf '%s' "$output" | wc -l)" "0")" "$output"
+check "with its label" "$(says "$output" "Python package")" "$output"
+check "and a tick" "$(says "$output" "✓")" "$output"
+check "the commands it ran are not printed" \
+      "$(yes_no "$(says "$output" "cp: some file")" "0")" "$output"
+check "and neither is the narration" \
+      "$(yes_no "$(says "$output" "narration")" "0")" "$output"
+
+output="$(run_step "KWin script" quiet_warn 2>&1)"
+check "but a warning survives being quiet" "$(says "$output" "but this one you need")" "$output"
+check "and the step still counts as done" "$(says "$output" "✓")" "$output"
+
+output="$( ( run_step "systemd unit" quiet_fail ) 2>&1 )"
+check "a step that fails prints everything it had" \
+      "$(says "$output" "the context of it")" "$output"
+check "and says which step it was" "$(says "$output" "systemd unit failed")" "$output"
+check "and points at --debug for the rest" "$(says "$output" "--debug")" "$output"
+
+# Not a subshell: the flag it sets is read by the caller, so it has to be the
+# caller's shell that runs it.
+quiet_soft() { warn "  KWin is running the old script"; return 1; }
+run_step --soft "Checking it came up" quiet_soft > "$WORKSPACE/soft.txt" 2>&1
+output="$(cat "$WORKSPACE/soft.txt")"
+check "a soft step that is unhappy does not stop the install" \
+      "$(yes_no "$(says "$output" "failed")" "0")" "$output"
+check "and it is marked as needing a look" "$(says "$output" "⚠")" "$output"
+check "with everything it had to say" "$(says "$output" "running the old script")" "$output"
+check "which the ending knows about" "$(yes_no "$SOFT_FAILED" "1")" "$SOFT_FAILED"
+
+SOFT_FAILED=0
+STEP=0
+output="$(DEBUG=1 run_step "Python package" quiet_chatter 2>&1)"
+check "--debug prints what the commands said" "$(says "$output" "cp: some file")" "$output"
+check "and the narration with it" "$(says "$output" "narration")" "$output"
 
 echo
 if (( FAIL )); then

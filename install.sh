@@ -9,6 +9,8 @@
 #
 #   ./install.sh                     normal install
 #   ./install.sh update              fetch the deploy branch, then reinstall
+#   ./install.sh update --dev        ...fetch 'dev' instead: the newest work,
+#                                    before anybody has decided it is fit to run
 #   ./install.sh reinstall           remove what was installed, then install it again
 #   ./install.sh reinstall --config  ...and erase the settings as well (asks first)
 #
@@ -16,7 +18,11 @@
 #   --no-deps       never call the package manager
 #   --force         install even if the session checks fail, and update over a
 #                   checkout with local changes
-#   --branch NAME   update from this branch instead of 'deploy'
+#   --dev           update from 'dev' rather than 'deploy'
+#   --branch NAME   update from some other branch entirely
+#   --downgrade     allow update to install an older build — which erases the
+#                   settings, because a newer version wrote them
+#   --debug         print everything each step does, instead of a tick
 #
 # "reinstall" has nothing to do with git: it installs *this* checkout, whatever
 # state it is in.  "update" brings the deploy branch first, in the order that
@@ -45,21 +51,116 @@ SKIP_DEPS=0
 FORCE=0
 COMMAND="install"
 CLEAN_CONFIG=0
+DEBUG=0
+ALLOW_DOWNGRADE=0
 
 #: Where "update" takes its code from.  A branch of its own rather than
 #: whatever happens to be checked out: the machine running this is not the
 #: machine the work is done on, and "the code I have decided is fit to run" is
 #: a different question from "the code I was last editing".
-UPDATE_BRANCH="deploy"
+DEPLOY_BRANCH="deploy"
+#: And where the work lands on its way there.  --dev follows this one instead:
+#: same repository, same command, but nothing has been decided about it yet —
+#: it is "the code I was last editing", which is the other question.
+DEV_BRANCH="dev"
+UPDATE_BRANCH="$DEPLOY_BRANCH"
 REMOTE="origin"
 
 RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
-info()  { printf '%s==>%s %s\n' "$GREEN$BOLD" "$RESET" "$*"; }
+# Colour is for a terminal.  Piped into a file or a log it is noise wrapped
+# around every line, and this output is now short enough to be worth reading
+# there.
+if [[ ! -t 1 ]]; then
+    RED=""; GREEN=""; YELLOW=""; BOLD=""; RESET=""
+fi
+
+# Three levels, because they are three different questions.
+#
+#   say   what you asked to know — which version, which branch, what arrived
+#   info  narration of how it is going about it, which is --debug material
+#   warn  something you have to know whether you asked or not
+#
+# The split is the whole of the quiet mode: forty lines of narration nobody
+# reads is not more transparent than five, it is only louder, and it buries the
+# two lines that did matter.
+say()   { printf '%s==>%s %s\n' "$GREEN$BOLD" "$RESET" "$*"; }
+info()  { (( DEBUG )) && printf '%s  ·%s %s\n' "$BOLD" "$RESET" "$*"; return 0; }
 warn()  { printf '%s[!]%s %s\n' "$YELLOW$BOLD" "$RESET" "$*" >&2; }
 die()   { printf '%s[x]%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2; exit 1; }
 
 #: The flags to hand on when "update" re-execs the installer it just pulled.
 PASSTHROUGH=()
+
+# --------------------------------------------------------------------------- #
+# The steps, and how they report.
+#
+# Quiet by default: a numbered label and a tick.  Everything the commands inside
+# a step print goes to a buffer, and the buffer is shown only if the step failed
+# — with the exception of its warnings, which are shown either way, because a
+# step can succeed and still have something you need to know about.
+#
+# Each step runs in a subshell so that a die() inside one exits the step rather
+# than the installer, and the buffer it was writing to still gets printed.  No
+# step may set a variable the rest of the script reads; none needs to.
+# --------------------------------------------------------------------------- #
+STEP=0
+STEP_TOTAL=0
+#: Set when a --soft step (only 'verify') came back unhappy.  Not fatal — it
+#: reports on the session rather than on the install — but it decides whether
+#: the long "if nothing happens" list is worth printing at the end.
+SOFT_FAILED=0
+
+run_step() {
+    local soft=0
+    if [[ "${1:-}" == "--soft" ]]; then soft=1; shift; fi
+    local label="$1"; shift
+    local buffer status=0
+    STEP=$((STEP + 1))
+
+    if (( DEBUG )); then
+        printf '%s[%d/%d]%s %s\n' "$GREEN$BOLD" "$STEP" "$STEP_TOTAL" "$RESET" "$label"
+        ( "$@" ) || status=$?
+        (( status )) && (( ! soft )) && die "$label failed."
+        (( status )) && SOFT_FAILED=1
+        return 0
+    fi
+
+    buffer="$(mktemp)"
+    printf '%s[%d/%d]%s %-40s' "$GREEN$BOLD" "$STEP" "$STEP_TOTAL" "$RESET" "$label"
+    ( "$@" ) > "$buffer" 2>&1 || status=$?
+
+    if (( status == 0 )); then
+        printf '%s✓%s\n' "$GREEN" "$RESET"
+        # Warnings only.  They are marked, so they can be picked out of whatever
+        # else the commands had to say for themselves.
+        grep -F '[!]' "$buffer" || true
+    elif (( soft )); then
+        printf '%s⚠%s\n' "$YELLOW" "$RESET"
+        cat "$buffer"
+        SOFT_FAILED=1
+    else
+        printf '%s✗%s\n' "$RED" "$RESET"
+        echo
+        cat "$buffer"
+        rm -f "$buffer"
+        die "$label failed. Everything it printed is above; --debug shows the rest."
+    fi
+    rm -f "$buffer"
+    return 0
+}
+
+#: Which flag chose the branch, so a second one can be caught.  --dev and
+#: --branch answer the same question, and asking it twice with two different
+#: answers is a typo — one that installs the wrong code without saying so.
+BRANCH_FROM=""
+choose_branch() {
+    local wanted="$1" flag="$2"
+    if [[ -n "$BRANCH_FROM" && "$wanted" != "$UPDATE_BRANCH" ]]; then
+        die "$BRANCH_FROM asks for '$UPDATE_BRANCH' and $flag asks for '$wanted'. Pick one."
+    fi
+    UPDATE_BRANCH="$wanted"
+    BRANCH_FROM="$flag"
+}
 
 while (( $# )); do
     case "$1" in
@@ -68,10 +169,13 @@ while (( $# )); do
         -y|--yes)      ASSUME_YES=1; PASSTHROUGH+=("$1") ;;
         --no-deps)     SKIP_DEPS=1;  PASSTHROUGH+=("$1") ;;
         --force)       FORCE=1;      PASSTHROUGH+=("$1") ;;
+        --dev)         choose_branch "$DEV_BRANCH" "--dev" ;;
+        --downgrade)   ALLOW_DOWNGRADE=1 ;;
+        --debug|--verbose) DEBUG=1; PASSTHROUGH+=("--debug") ;;
         --branch)
             [[ -n "${2:-}" ]] || die "--branch needs a branch name."
-            UPDATE_BRANCH="$2"; shift ;;
-        --branch=*)    UPDATE_BRANCH="${1#--branch=}" ;;
+            choose_branch "$2" "--branch"; shift ;;
+        --branch=*)    choose_branch "${1#--branch=}" "--branch" ;;
         -h|--help)
             # Every comment line of the header, however long it grows.
             awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' \
@@ -84,6 +188,14 @@ done
 
 if [[ -z "$UPDATE_BRANCH" ]]; then
     die "--branch needs a branch name."
+fi
+
+if [[ -n "$BRANCH_FROM" && "$COMMAND" != "update" ]]; then
+    die "$BRANCH_FROM chooses what 'update' fetches, so it only means anything with 'update'."
+fi
+
+if (( ALLOW_DOWNGRADE )) && [[ "$COMMAND" != "update" ]]; then
+    die "--downgrade answers a question only 'update' asks, so it only means anything with it."
 fi
 
 if (( CLEAN_CONFIG )) && [[ "$COMMAND" != "reinstall" ]]; then
@@ -344,23 +456,36 @@ update_checkout() {
         fi
     fi
 
-    info "Fetching $UPDATE_BRANCH from $REMOTE"
+    if [[ "$UPDATE_BRANCH" != "$DEPLOY_BRANCH" ]]; then
+        warn "Updating from '$UPDATE_BRANCH', not '$DEPLOY_BRANCH'."
+        if [[ "$UPDATE_BRANCH" == "$DEV_BRANCH" ]]; then
+            warn "  That is where the work is pushed as it happens. Nothing on it has"
+            warn "  been decided to be fit to run, and it is expected to be broken"
+            warn "  sometimes. './install.sh update' goes back to $DEPLOY_BRANCH."
+        fi
+    fi
+
+    say "Fetching $UPDATE_BRANCH from $REMOTE"
     git -C "$SOURCE_DIR" fetch --quiet "$REMOTE" "$UPDATE_BRANCH" 2>/dev/null \
         || die "Could not fetch '$UPDATE_BRANCH' from $REMOTE. Nothing has been touched.
       If the branch does not exist yet, make it:
           git push $REMOTE HEAD:refs/heads/$UPDATE_BRANCH
+      If it is there but you cannot read it, this checkout needs credentials
+      that can — an SSH remote, or a git credential helper holding a token.
       Otherwise check the network and the remote, and try again."
 
     local had
     had="$(installed_version)"
-    [[ -n "$had" ]] && info "Installed now: $had"
+    [[ -n "$had" ]] && say "Installed now: $had"
+
+    refuse_downgrade
 
     before="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
     here="$(git -C "$SOURCE_DIR" symbolic-ref --quiet --short HEAD || echo "a detached HEAD")"
     if [[ "$here" != "$UPDATE_BRANCH" ]]; then
         # Moving off whatever was checked out.  Nothing is lost: the tree is
         # clean by now and the commits on the old branch stay on it.
-        info "Switching from $here to $UPDATE_BRANCH"
+        say "Switching from $here to $UPDATE_BRANCH"
         if git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/heads/$UPDATE_BRANCH"; then
             git -C "$SOURCE_DIR" checkout --quiet "$UPDATE_BRANCH"
         else
@@ -379,9 +504,9 @@ update_checkout() {
     after="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
 
     if [[ "$before" == "$after" ]]; then
-        info "Already up to date — reinstalling anyway, so nothing stale is left behind."
+        say "Already up to date — reinstalling anyway, so nothing stale is left behind."
     else
-        info "New commits:"
+        say "New commits:"
         git -C "$SOURCE_DIR" --no-pager log --oneline --no-decorate "$before..$after" \
             | sed 's/^/      /'
     fi
@@ -392,11 +517,80 @@ update_checkout() {
     coming="$(packaged_version)"
     if [[ -n "$coming" ]]; then
         if [[ "$coming" == "$had" ]]; then
-            info "Staying on $coming."
+            say "Staying on $coming."
         else
-            info "About to install: $coming"
+            say "About to install: $coming"
         fi
     fi
+}
+
+# --------------------------------------------------------------------------- #
+# Going backwards.
+#
+# Fetching the same branch twice can only move forwards — it is fast-forward
+# only — so a downgrade takes one of two deliberate turns: back from 'dev' to
+# 'deploy' after trying something, or --branch at something old.  Both are
+# legitimate, and the first one is the way out of a dev build that broke, so
+# this must never be a wall.  It is a stop.
+#
+# The cost is that the settings go with it.  A newer version writes settings an
+# older one has never heard of, and reads them back through code that was
+# written before they existed; the failure that comes of that looks like a bug
+# in the older version and is not one.  So --downgrade means "and erase the
+# configuration", and says so before it does anything.
+#
+# It permits, it does not instruct: --downgrade on an update that turns out to
+# move forwards erases nothing.
+# --------------------------------------------------------------------------- #
+refuse_downgrade() {
+    local have coming
+    have="$(installed_build)"
+    coming="$(build_at_ref "$REMOTE/$UPDATE_BRANCH")"
+
+    if [[ -z "$have" || -z "$coming" ]]; then
+        # One of them predates the build number.  Unknown is not "older", and
+        # refusing on a number that does not exist would block every update
+        # from a version installed before this one shipped.
+        info "No build number to compare (installed '${have:-none}', incoming '${coming:-none}')."
+        return 0
+    fi
+
+    if (( coming > have )); then
+        say "Build $have → $coming."
+        return 0
+    fi
+    if (( coming == have )); then
+        say "Build $have, the same one."
+        return 0
+    fi
+
+    if (( ! ALLOW_DOWNGRADE )); then
+        local how=""
+        if [[ "$BRANCH_FROM" == "--dev" ]]; then
+            how=" --dev"
+        elif [[ -n "$BRANCH_FROM" ]]; then
+            how=" --branch $UPDATE_BRANCH"
+        fi
+        die "That would install build $coming over build $have — an older one.
+      Nothing has been touched.
+
+      Going back is allowed, but it takes the settings with it: build $have
+      wrote settings that build $coming has never heard of, and reading them
+      back through older code fails in ways that look like a bug and are not.
+
+      To go back anyway:
+          ./install.sh update$how --downgrade
+      It asks again before erasing anything, and your captures are kept."
+    fi
+
+    warn "Going back from build $have to build $coming."
+    warn "  --downgrade was given, so the settings will be erased with it:"
+    warn "  every application setting, the gesture thresholds and anything the"
+    warn "  calibration measured. Captures and saved traces are kept."
+    # The wipe is done by the reinstall this hands over to, which already asks
+    # twice before erasing a configuration and has done since before any of
+    # this existed.  Nothing here erases anything.
+    PASSTHROUGH+=("--config")
 }
 
 # --------------------------------------------------------------------------- #
@@ -411,8 +605,6 @@ update_checkout() {
 # captures and the saved traces all survive unless --config is given.
 # --------------------------------------------------------------------------- #
 remove_installation() {
-    info "Removing the previous installation"
-
     systemctl --user disable --now "$SERVICE" >/dev/null 2>&1 || true
     rm -f "$UNITDIR/$SERVICE"
     systemctl --user daemon-reload >/dev/null 2>&1 || true
@@ -455,7 +647,6 @@ confirm_config_wipe() {
 }
 
 wipe_config() {
-    info "Erasing the configuration"
     local group="Script-$SCRIPT_ID"
     local key value
 
@@ -481,7 +672,7 @@ wipe_config() {
 # 5. Install
 # --------------------------------------------------------------------------- #
 install_python_package() {
-    info "Installing the Python package into $APPDIR"
+    info "into $APPDIR"
     rm -rf "${APPDIR:?}/circle_to_search"
     mkdir -p "$APPDIR"
     cp -r "$SOURCE_DIR/src/circle_to_search" "$APPDIR/"
@@ -502,7 +693,6 @@ EOF
 }
 
 install_data_files() {
-    info "Installing the desktop entry and the icon"
     mkdir -p "$DESKTOPDIR" "$ICONDIR"
     sed -e "s|@PYTHON@|$PYTHON|g" -e "s|@APPDIR@|$APPDIR|g" \
         "$SOURCE_DIR/data/$APP_ID.desktop.in" > "$DESKTOPDIR/$APP_ID.desktop"
@@ -519,7 +709,6 @@ install_data_files() {
 }
 
 install_kwin_script() {
-    info "Installing the KWin script"
     if command -v kpackagetool6 >/dev/null 2>&1; then
         local action="--install"
         if kpackagetool6 --type=KWin/Script --list 2>/dev/null | grep -qx "$SCRIPT_ID"; then
@@ -595,16 +784,38 @@ version_in() {
     grep -o "^$key = \"[^\"]*\"" "$file" | head -1 | sed -e 's/.*"\(.*\)"/\1/'
 }
 
+#: The build number is not quoted in the source, so it needs its own reader.
+build_in() {
+    local file="$1"
+    [[ -r "$file" ]] || return 0
+    grep -o '^BUILD = [0-9]\+' "$file" | head -1 | grep -o '[0-9]\+' || true
+}
+
 describe_version() {
-    local init="$1" number name
+    local init="$1" number name build
     number="$(version_in "$init" "__version__")"
     [[ -n "$number" ]] || return 0
     name="$(version_in "$init" "RELEASE_NAME")"
-    printf '%s' "$number${name:+ “$name”}"
+    build="$(build_in "$init")"
+    printf '%s' "$number${name:+ “$name”}${build:+ (build $build)}"
 }
 
-packaged_version()  { describe_version "$SOURCE_DIR/src/circle_to_search/__init__.py"; }
-installed_version() { describe_version "$APPDIR/circle_to_search/__init__.py"; }
+PACKAGED_INIT="src/circle_to_search/__init__.py"
+INSTALLED_INIT="circle_to_search/__init__.py"
+
+packaged_version()  { describe_version "$SOURCE_DIR/$PACKAGED_INIT"; }
+installed_version() { describe_version "$APPDIR/$INSTALLED_INIT"; }
+packaged_build()    { build_in "$SOURCE_DIR/$PACKAGED_INIT"; }
+installed_build()   { build_in "$APPDIR/$INSTALLED_INIT"; }
+
+#: The build number on a ref, without checking it out.  This is what makes the
+#: downgrade refusal safe: the comparison happens after the fetch and before
+#: anything in the working tree has been touched, so refusing leaves the machine
+#: exactly as it was found, like every other refusal in 'update'.
+build_at_ref() {
+    git -C "$SOURCE_DIR" show "$1:$PACKAGED_INIT" 2>/dev/null \
+        | grep -o '^BUILD = [0-9]\+' | head -1 | grep -o '[0-9]\+' || true
+}
 
 # One list, used both to seed the defaults and to erase them again, so a key
 # added to the script cannot end up seeded but never cleaned up.
@@ -663,7 +874,6 @@ reconfigure_kwin() {
 }
 
 install_service() {
-    info "Installing the systemd --user unit"
     mkdir -p "$UNITDIR"
     sed -e "s|@PYTHON@|$PYTHON|g" -e "s|@APPDIR@|$APPDIR|g" \
         "$SOURCE_DIR/data/$SERVICE.in" > "$UNITDIR/$SERVICE"
@@ -678,7 +888,6 @@ install_service() {
 }
 
 verify() {
-    info "Verifying"
     local ok=1
     if busctl --user list 2>/dev/null | grep -q "$APP_ID"; then
         info "  D-Bus name $APP_ID is claimed."
@@ -722,7 +931,7 @@ main() {
         # And bash reads a script as it runs it, so carrying on inside a file
         # that has changed underneath is a way to execute something nobody
         # wrote.
-        info "Handing over to the installer that was just pulled."
+        say "Handing over to the installer that was just pulled."
         echo
         exec "$SOURCE_DIR/install.sh" reinstall "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"
     fi
@@ -731,49 +940,68 @@ main() {
     pick_python
     info "Using interpreter: $PYTHON"
 
+    # Dependencies first and outside the count: this one is about the machine
+    # rather than about installing anything, it may have to ask a question, and
+    # a package manager asking for a password from behind a tick is the one
+    # thing a quiet installer must never do.
+    install_deps
+
+    # Five things get installed; a reinstall takes the old one out first, and
+    # --config erases the settings between the two.
+    STEP_TOTAL=5
+    [[ "$COMMAND" == "reinstall" ]] && STEP_TOTAL=$((STEP_TOTAL + 1))
+    (( CLEAN_CONFIG )) && STEP_TOTAL=$((STEP_TOTAL + 1))
+
     if [[ "$COMMAND" == "reinstall" ]]; then
         # Asked before anything is touched, so saying no leaves the working
         # installation exactly as it was.
         if (( CLEAN_CONFIG )); then
             confirm_config_wipe
         fi
-        remove_installation
+        run_step "Removing the previous install" remove_installation
         if (( CLEAN_CONFIG )); then
-            wipe_config
+            run_step "Erasing the configuration" wipe_config
         fi
     fi
 
-    install_deps
-    install_python_package
-    install_data_files
-    install_kwin_script
-    install_service
-    verify || true
+    run_step "Python package" install_python_package
+    run_step "Desktop entry and icon" install_data_files
+    run_step "KWin script" install_kwin_script
+    run_step "systemd --user service" install_service
+    run_step --soft "Checking it came up" verify
 
+    printf '\n%s✔  %s is installed.%s\n\n' "$GREEN$BOLD" "$(packaged_version)" "$RESET"
     cat <<EOF
+  Shake the pointer diagonally (down-up-down-up, twice), or press
+  ${BOLD}Meta+Shift+L${RESET}, then drag round something. Esc or right-click cancels.
 
-${GREEN}${BOLD}Done — $(packaged_version) is installed.${RESET}
-
-  Try it:   shake the pointer diagonally (down-up-down-up, twice), or press
-            ${BOLD}Meta+Shift+L${RESET}, then drag a rectangle. Esc or right-click cancels.
-
-  Tray:     the "Circle to Search" icon has "Capture now" and "Settings".
-
-  If nothing happens:
-    0. journalctl --user -u plasma-kwin_wayland | grep "script started"
-       — the version there must match $(packaged_script_version). If it does
-       not, KWin is still running the old code: toggle the script off and on in
-       System Settings → Window Management → KWin Scripts.
-    1. journalctl --user -u plasma-kwin_wayland -f | grep -i circle
-       (no "KWin script started" line → the script is not loaded: open
-        System Settings → Window Management → KWin Scripts and tick
-        "Circle to Search")
-    2. journalctl --user -u $SERVICE -f
-    3. busctl --user call $APP_ID \\
-           /io/github/fand1l/CircleToSearch $APP_ID Trigger iis 100 100 ""
-       should open the overlay straight away.
-    4. See "What can break" in docs/TECHNICAL.md.
+  The "Circle to Search" tray icon has "Capture now" and Settings.
 EOF
+
+    if (( SOFT_FAILED )); then
+        cat <<EOF
+
+${YELLOW}${BOLD}Something above is not right yet.${RESET} Usually it is KWin: it loads a script
+once, at login, and keeps running that copy. Logging out and back in fixes
+most of it. If it does not:
+
+  0. journalctl --user -u plasma-kwin_wayland | grep "script started"
+     — the version there must match $(packaged_script_version). If it does not,
+     KWin is still running the old code: toggle the script off and on in
+     System Settings → Window Management → KWin Scripts.
+  1. journalctl --user -u plasma-kwin_wayland -f | grep -i circle
+     (no "KWin script started" line → the script is not loaded: open
+      System Settings → Window Management → KWin Scripts and tick
+      "Circle to Search")
+  2. journalctl --user -u $SERVICE -f
+  3. busctl --user call $APP_ID \\
+         /io/github/fand1l/CircleToSearch $APP_ID Trigger iis 100 100 ""
+     should open the overlay straight away.
+  4. See "What can break" in docs/TECHNICAL.md.
+EOF
+    elif (( ! DEBUG )); then
+        printf '  %sRun it again with --debug to see everything it did.%s\n' "$BOLD" "$RESET"
+    fi
 }
 
 # Run when executed, stay quiet when sourced — tests/test_install.sh sources this

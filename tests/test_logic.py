@@ -3351,7 +3351,7 @@ dialog.deleteLater()
 # --- the version, and what the release is called ----------------------------
 # The number lives in four files that no single tool reads together, so the only
 # thing stopping a half-done bump is this.
-from circle_to_search import RELEASE_NAME, __version__, version_label  # noqa: E402
+from circle_to_search import BUILD, RELEASE_NAME, __version__, version_label  # noqa: E402
 
 _root = Path(__file__).resolve().parent.parent
 _declared = {
@@ -3375,20 +3375,64 @@ check("the version is a plain number, so pip and rpm will take it",
 check("the release has a name", bool(RELEASE_NAME), repr(RELEASE_NAME))
 check("which is a word, not a sentence",
       re.fullmatch(r"[a-z0-9]+(-[a-z0-9]+)*", RELEASE_NAME) is not None, RELEASE_NAME)
-check("and the two are only joined for display",
-      version_label() == f"{__version__} “{RELEASE_NAME}”", version_label())
+check("the three are only joined for display",
+      version_label() == f"{__version__} “{RELEASE_NAME}” (build {BUILD})", version_label())
 check("the changelog has an entry for it",
       f"## {__version__} — “{RELEASE_NAME}”" in (_root / "CHANGELOG.md").read_text(),
       f"no '## {__version__} — “{RELEASE_NAME}”' heading in CHANGELOG.md")
 
-# install.sh reads both out of the source with grep, because the daemon may not
-# be running and the installed copy may be a version this interpreter cannot
-# import.  That only works while the two lines look the way it expects.
+# The build number: five digits, so it is one thing to compare and never a
+# string comparison that puts 9 above 10.
+check("the build is a whole number", isinstance(BUILD, int) and not isinstance(BUILD, bool),
+      repr(BUILD))
+check("of five digits", 10000 <= BUILD <= 99999, str(BUILD))
+_digits_of_version = int(__version__.replace(".", ""))
+check("and it is not the version in disguise",
+      _digits_of_version != BUILD, f"{BUILD} vs {__version__}")
+
+# install.sh reads all three out of the source with grep, because the daemon may
+# not be running and the installed copy may be a version this interpreter cannot
+# import.  That only works while the lines look the way it expects.
 _init = (_root / "src/circle_to_search/__init__.py").read_text()
 for key, value in (("__version__", __version__), ("RELEASE_NAME", RELEASE_NAME)):
     check(f"install.sh can still grep {key} out",
           re.search(rf'^{key} = "{re.escape(value)}"$', _init, re.MULTILINE) is not None,
           f"{key} is no longer on a line of its own in the form install.sh matches")
+check("install.sh can still grep BUILD out",
+      re.search(rf"^BUILD = {BUILD}$", _init, re.MULTILINE) is not None,
+      "BUILD is no longer a bare integer on a line of its own")
+
+
+def _git(*args: str) -> str | None:
+    """Read-only git, or None when there is nothing to read."""
+    import subprocess
+
+    try:
+        done = subprocess.run(
+            ("git", "-C", str(_root), *args), capture_output=True, text=True, timeout=20
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return done.stdout if done.returncode == 0 else None
+
+
+# The one mistake a hand-maintained counter invites: pushing work without
+# bumping it, so nothing downstream can tell this copy from the deployed one —
+# and the downgrade guard, which is the whole reason the number exists, reads
+# them as the same build.
+_deployed = _git("show", "origin/deploy:src/circle_to_search/__init__.py")
+_found = re.search(r"^BUILD = (\d+)$", _deployed or "", re.MULTILINE)
+if _found is None:
+    print(f"note: no build number on origin/deploy to compare {BUILD} against")
+else:
+    _deployed_build = int(_found.group(1))
+    if _git("merge-base", "--is-ancestor", "HEAD", "origin/deploy") is not None:
+        # Already deployed: the same number is right, a lower one never is.
+        check("the build is not below the deployed one",
+              _deployed_build <= BUILD, f"{BUILD} vs {_deployed_build} on deploy")
+    else:
+        check("the build is above the deployed one",
+              _deployed_build < BUILD, f"{BUILD} vs {_deployed_build} on deploy")
 
 # --- recent captures -------------------------------------------------------
 from circle_to_search.history import RecentCaptures  # noqa: E402
