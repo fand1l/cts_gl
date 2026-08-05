@@ -28,8 +28,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from PyQt6.QtCore import QPoint, QRect
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import QPoint, QPointF, QRect, Qt
+from PyQt6.QtGui import QColor, QPainter, QPixmap, QRadialGradient
 
 #: The line: wide, white, opaque, with round caps and joins so it reads as one
 #: ribbon.  The shadow under it is a few pixels wider — Android draws over
@@ -98,6 +98,61 @@ def glow_colour(y: float, screen_height: float) -> QColor:
             round(start.blue() + (end.blue() - start.blue()) * along),
         )
     return stops[-1][1]
+
+
+#: Pre-rendered glows, keyed by colour rounded to five bits a channel.
+#:
+#: A radial gradient of this size costs about 0.65 ms to rasterise, which at a
+#: full trail is close to thirty milliseconds of a frame spent drawing the same
+#: shape forty-five times.  It is always the same shape: only the colour and how
+#: much of it is left ever change, and "how much is left" is the painter's
+#: opacity.  So each colour is drawn once and blitted after that.
+#:
+#: Rounding the colour costs nothing visible — the ramp moves a few units per
+#: step of screen height, and this is a soft blur — and it keeps the cache to
+#: about two dozen entries for a whole screen's worth of the ramp.
+_BLOBS: dict[tuple[int, int, int], QPixmap] = {}
+_BLOB_CACHE_LIMIT = 64
+
+
+def glow_blob(colour: QColor) -> QPixmap:
+    """A soft round glow of that colour, rendered once and kept.
+
+    At device pixel ratio 1 on purpose: the thing is a blur, so scaling it up on
+    a HiDPI screen costs nothing anybody can see, and it halves both the memory
+    and the time to make one.
+    """
+    key = (colour.red() >> 3, colour.green() >> 3, colour.blue() >> 3)
+    cached = _BLOBS.get(key)
+    if cached is not None:
+        return cached
+
+    # The middle of the bucket, so rounding never drifts in one direction.
+    exact = QColor((key[0] << 3) | 4, (key[1] << 3) | 4, (key[2] << 3) | 4)
+    side = GLOW_RADIUS * 2
+    blob = QPixmap(side, side)
+    blob.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(blob)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+    centre = QPointF(GLOW_RADIUS, GLOW_RADIUS)
+    gradient = QRadialGradient(centre, float(GLOW_RADIUS))
+    for stop, alpha in ((0.0, 150), (0.45, 45), (1.0, 0)):
+        # Most of the falloff in the outer half, so a blob has a bright core
+        # and a long soft skirt rather than being a hard disc.
+        step = QColor(exact)
+        step.setAlpha(alpha)
+        gradient.setColorAt(stop, step)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(gradient)
+    painter.drawEllipse(centre, float(GLOW_RADIUS), float(GLOW_RADIUS))
+    painter.end()
+
+    if len(_BLOBS) >= _BLOB_CACHE_LIMIT:
+        # Only reachable if something feeds it colours off the ramp; start over
+        # rather than grow without limit.
+        _BLOBS.clear()
+    _BLOBS[key] = blob
+    return blob
 
 
 @dataclass(frozen=True)

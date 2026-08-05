@@ -372,8 +372,16 @@ Under the white line there is a translucent dark one a few pixels wider.
 Android draws over photographs and does not need one; we draw over whatever you
 had on screen, and a white line on a white page is invisible.
 
-The full design, and the two drafts the photographs corrected, are in
-[`docs/STROKE.md`](docs/STROKE.md).
+Drawing it is kept cheap on purpose. The settled part of the ribbon is baked
+into a layer and only the last few dozen points are re-stroked each frame, so
+the cost of a frame does not grow with the length of the line; and the glow is
+one pre-rendered blob per colour, blitted, rather than a radial gradient
+rasterised forty times a frame. Without those two a long scribble ran at about
+one frame a second — Qt takes 88 ms to stroke a 1500-point antialiased
+twelve-pixel path, and there are two passes of it in a frame.
+
+The full design, the two drafts the photographs corrected, and the measurements
+are in [`docs/STROKE.md`](docs/STROKE.md).
 
 Lens always receives a rectangle. By default a lasso is uploaded as the plain
 crop around the loop — nothing is painted over, exactly like circling something

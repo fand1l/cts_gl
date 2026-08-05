@@ -69,7 +69,6 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QPolygon,
-    QRadialGradient,
     QResizeEvent,
     QScreen,
 )
@@ -86,6 +85,7 @@ from .stroke import (
     SHADOW_EXTRA,
     TICK_MS,
     Trail,
+    glow_blob,
     glow_colour,
 )
 from .windows import window_at
@@ -111,6 +111,12 @@ _HANDLE = 14
 #: Side of the grip in the middle of a confirmed box that moves the whole thing.
 #: Big enough to aim at, small enough to leave the box redrawable around it.
 _GRIP = 34
+
+#: How many points of the lasso stay "live" — re-stroked on every frame — before
+#: the rest is baked into a layer.  See :meth:`SelectionOverlay._freeze_stroke`:
+#: this is the number that decides whether a long scribble runs at 60 fps or at
+#: 4, and it wants to be small.
+_STROKE_CHUNK = 48
 
 #: Arrow-key step, and the bigger one with Ctrl held.
 _NUDGE = 1
@@ -352,6 +358,11 @@ class SelectionOverlay(QWidget):
         #: one clock they are all measured against, so no wall clock is read in
         #: the paint path.
         self._trail = Trail()
+        #: The settled part of the ribbon, already drawn, and how much of
+        #: `_points` is in it.  Allocated only once a loop grows past a chunk,
+        #: and given back the moment the drag ends.
+        self._stroke_layer: QPixmap | None = None
+        self._frozen_upto = 0
         self._stroke_started = QElapsedTimer()
         self._stroke_started.start()
         self._stroke_timer: QTimer | None = None
@@ -970,6 +981,8 @@ class SelectionOverlay(QWidget):
         """
         super().resizeEvent(event)
         self._text_dim_path = None
+        # The layer is the size of the widget, so it does not survive one.
+        self._drop_stroke_layer()
         if self.covers_screen() and not self._offset.isNull():
             log.info("the overlay now covers %s, dropping the offset", self._target_screen.name())
             self._offset = QPoint(0, 0)
@@ -1194,29 +1207,99 @@ class SelectionOverlay(QWidget):
             path.lineTo(float(point.x()), float(point.y()))
         return path
 
+    def _ribbon_pen(self, width: int, colour: QColor) -> QPen:
+        pen = QPen(colour)
+        pen.setWidth(width)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        return pen
+
+    @staticmethod
+    def _polyline(points: list[QPoint], offset: QPoint) -> QPainterPath:
+        path = QPainterPath()
+        if len(points) < 2:
+            return path
+        first = points[0] + offset
+        path.moveTo(float(first.x()), float(first.y()))
+        for point in points[1:]:
+            moved = point + offset
+            path.lineTo(float(moved.x()), float(moved.y()))
+        return path
+
+    def _freeze_stroke(self) -> None:
+        """Bake the finished part of the ribbon into a layer.
+
+        Re-stroking the whole path every frame is what made a long scribble
+        unusable, and by a wide margin: Qt's raster engine takes **88 ms** to
+        stroke a 1500-point antialiased twelve-pixel ribbon, and there are two
+        passes of it in a frame.  The cost is linear in the number of points, so
+        it got worse the longer you drew — a 4 fps drag by the time the loop was
+        interesting.  Clipping the painter does not help at all, because the
+        path is rasterised in full before anything is clipped away.
+
+        So the settled part of the stroke is drawn once, into a pixmap, and only
+        the last :data:`_STROKE_CHUNK` points are re-stroked per frame.  That
+        makes the per-frame cost constant no matter how long the line gets.
+        """
+        spare = len(self._points) - self._frozen_upto
+        if spare <= _STROKE_CHUNK:
+            return
+
+        layer = self._stroke_layer
+        if layer is None:
+            ratio = self.devicePixelRatioF()
+            layer = QPixmap(round(self.width() * ratio), round(self.height() * ratio))
+            layer.setDevicePixelRatio(ratio)
+            layer.fill(Qt.GlobalColor.transparent)
+            self._stroke_layer = layer
+
+        # Overlap by one segment so the round caps of the frozen part and the
+        # live tail meet on a shared point instead of leaving a gap.
+        start = max(0, self._frozen_upto - 1)
+        end = len(self._points) - 1
+        painter = QPainter(layer)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        # The layer is in widget coordinates, so no offset here.
+        chunk = self._polyline(self._points[start:end], QPoint())
+        painter.setPen(self._ribbon_pen(LINE_WIDTH + SHADOW_EXTRA, QColor(0, 0, 0, 90)))
+        painter.drawPath(chunk)
+        painter.setPen(self._ribbon_pen(LINE_WIDTH, QColor(255, 255, 255)))
+        painter.drawPath(chunk)
+        painter.end()
+        self._frozen_upto = end
+
+    def _drop_stroke_layer(self) -> None:
+        """Give the layer back.  It is only wanted while a loop is being drawn."""
+        self._stroke_layer = None
+        self._frozen_upto = 0
+
     def _draw_stroke(self, painter: QPainter) -> None:
         """The glow, then the shadow, then the white line — in that order.
 
         The cap sits on top of its own glow, which is how it looks in every
         photograph, and the shadow is under both because a white line on a white
         page would otherwise be invisible.
+
+        The shadow of the live tail goes down *before* the frozen layer, so that
+        where the two meet the frozen white covers it rather than a dark ring
+        being drawn across a line that is already there.
         """
+        self._freeze_stroke()
+        live = self._points[max(0, self._frozen_upto - 1) :]
+        tail = self._polyline(live, self._offset)
+
         painter.save()
         painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
         self._draw_glow(painter)
-
-        path = self._stroke_path()
         painter.setBrush(Qt.BrushStyle.NoBrush)
-        for width, colour in (
-            (LINE_WIDTH + SHADOW_EXTRA, QColor(0, 0, 0, 90)),
-            (LINE_WIDTH, QColor(255, 255, 255)),
-        ):
-            pen = QPen(colour)
-            pen.setWidth(width)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-            painter.drawPath(path)
+
+        painter.setPen(self._ribbon_pen(LINE_WIDTH + SHADOW_EXTRA, QColor(0, 0, 0, 90)))
+        painter.drawPath(tail)
+        if self._stroke_layer is not None:
+            painter.drawPixmap(self._offset, self._stroke_layer)
+        painter.setPen(self._ribbon_pen(LINE_WIDTH, QColor(255, 255, 255)))
+        painter.drawPath(tail)
         painter.restore()
 
     def _draw_glow(self, painter: QPainter) -> None:
@@ -1225,28 +1308,22 @@ class SelectionOverlay(QWidget):
         Plain source-over, not additive: a stationary glow saturates towards its
         own colour instead of blowing out to white, which is what the
         photographs show.
+
+        The blobs are pre-rendered and blitted rather than rasterised here — see
+        :func:`~circle_to_search.stroke.glow_blob`.  Drawing the gradient forty
+        times a frame was thirty milliseconds of it.
         """
         alive = self._trail.alive(self._stroke_clock())
         if not alive:
             return
         painter.save()
-        painter.setPen(Qt.PenStyle.NoPen)
         for blob, left in alive:
-            centre = QPointF(blob.point)
-            gradient = QRadialGradient(centre, float(GLOW_RADIUS))
-            inner = QColor(blob.colour)
-            inner.setAlpha(round(150 * left))
-            middle = QColor(blob.colour)
-            middle.setAlpha(round(45 * left))
-            edge = QColor(blob.colour)
-            edge.setAlpha(0)
-            # Most of the falloff in the outer half, so a blob has a bright core
-            # and a long soft skirt rather than being a hard disc.
-            gradient.setColorAt(0.0, inner)
-            gradient.setColorAt(0.45, middle)
-            gradient.setColorAt(1.0, edge)
-            painter.setBrush(gradient)
-            painter.drawEllipse(centre, float(GLOW_RADIUS), float(GLOW_RADIUS))
+            painter.setOpacity(left)
+            painter.drawPixmap(
+                blob.point.x() - GLOW_RADIUS,
+                blob.point.y() - GLOW_RADIUS,
+                glow_blob(blob.colour),
+            )
         painter.restore()
 
     def _stroke_clock(self) -> float:
@@ -1796,6 +1873,7 @@ class SelectionOverlay(QWidget):
         self._current = position
         self._points = [position]
         self._trail.clear()
+        self._drop_stroke_layer()
         if self._drag_mode == MODE_LASSO:
             self._remember_head(position)
             self._start_stroke_animation()
@@ -1900,6 +1978,7 @@ class SelectionOverlay(QWidget):
             # left behind on its own is a coloured smudge with nothing under it.
             self._stop_stroke_animation()
             self._trail.clear()
+            self._drop_stroke_layer()
         selection = self._selection_rect()
 
         if selection.width() < MIN_SELECTION or selection.height() < MIN_SELECTION:
@@ -2309,6 +2388,7 @@ class SelectionOverlay(QWidget):
     def _reset_selection(self) -> None:
         self._stop_stroke_animation()
         self._trail.clear()
+        self._drop_stroke_layer()
         self._text_anchor = None
         self._text_focus = None
         self._selecting_text = False

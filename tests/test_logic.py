@@ -1802,11 +1802,13 @@ i18n.set_language("auto")
 # corrected two drafts: the line carries no colour, the colour is a glow under
 # its head, and it stretches because it is a fading trail rather than a shape
 # computed from velocity.
+from circle_to_search.overlay import _STROKE_CHUNK  # noqa: E402
 from circle_to_search.stroke import (  # noqa: E402
     GLOW_RADIUS,
     LINE_WIDTH,
     Blob,
     Trail,
+    glow_blob,
     glow_colour,
 )
 
@@ -1913,6 +1915,52 @@ check("a small fraction of the whole overlay",
       f"{damage.width() * damage.height()} of {screen_area}")
 check("the stroke animates while the drag is on",
       lasso_overlay._stroke_timer is not None and lasso_overlay._stroke_timer.isActive())
+
+# Reported from a real desktop: a long scribble dropped the overlay to about
+# one frame a second.  Re-stroking the whole path every frame is what did it —
+# Qt takes 88 ms to stroke a 1500-point antialiased twelve-pixel ribbon, twice
+# a frame, and clipping the painter does not help because the path is
+# rasterised in full before anything is clipped away.  So the settled part is
+# baked into a layer and only the tail is re-stroked.
+long_stroke = make_overlay(MODE_LASSO)
+_mouse(long_stroke, QEvent.Type.MouseButtonPress, (20, 20))
+for step in range(1, 400):
+    _mouse(long_stroke, QEvent.Type.MouseMove, (20 + (step * 7) % 700, 20 + (step * 13) % 700))
+check("a long scribble keeps its points", len(long_stroke._points) > 300,
+      str(len(long_stroke._points)))
+check("nothing is frozen before it is painted", long_stroke._stroke_layer is None)
+long_stroke.render(QPixmap(long_stroke.size()))
+check("painting bakes the settled part into a layer",
+      long_stroke._stroke_layer is not None and long_stroke._frozen_upto > 0,
+      str(long_stroke._frozen_upto))
+live = len(long_stroke._points) - max(0, long_stroke._frozen_upto - 1)
+check("and leaves only a short tail to re-stroke", live <= _STROKE_CHUNK + 1, str(live))
+
+# However long it gets, the tail stays the same length — that is the whole
+# point, and it is what makes the cost per frame flat rather than linear.
+for _ in range(600):
+    step = len(long_stroke._points)
+    _mouse(long_stroke, QEvent.Type.MouseMove, (20 + (step * 7) % 700, 20 + (step * 11) % 700))
+long_stroke.render(QPixmap(long_stroke.size()))
+longer = len(long_stroke._points) - max(0, long_stroke._frozen_upto - 1)
+check("twice as long a line, the same amount of live path",
+      longer <= _STROKE_CHUNK + 1, f"{longer} live of {len(long_stroke._points)}")
+
+# The layer belongs to one drag: it is given back the moment the drag ends,
+# because it is a full-screen pixmap and leaving it lying about would undo the
+# work that halved this window's memory.
+_mouse(long_stroke, QEvent.Type.MouseButtonRelease, (300, 300))
+check("and the layer is given back when the drag ends",
+      long_stroke._stroke_layer is None and long_stroke._frozen_upto == 0)
+
+# The glow is blitted from a pre-rendered blob rather than rasterised forty
+# times a frame.  Colours that round to the same bucket share one.
+first_blob = glow_blob(QColor("#4285f4"))
+check("a blob is rendered once and kept", glow_blob(QColor("#4285f4")) is first_blob)
+check("and near-identical colours share it", glow_blob(QColor("#4386f5")) is first_blob)
+check("while a different one gets its own", glow_blob(QColor("#34a853")) is not first_blob)
+check("it is as wide as the glow reaches", first_blob.width() == GLOW_RADIUS * 2,
+      str(first_blob.width()))
 
 # Something is remembered, but the rate cap is doing its job: eight moves in
 # the same millisecond are not eight blobs to draw.

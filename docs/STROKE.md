@@ -200,16 +200,12 @@ All of the above, with three things worth recording.
 were in and settled — which is what it was moved to the end for.
 
 **One repaint claim had to be narrowed.**  This file said the stroke "repaints
-only the glow's own rectangle".  That is true of the *animation timer*, which is
-the new thing: while the pointer is still, and for the fifth of a second after
-the button comes up, only `Trail.bounds()` is damaged — a few hundred pixels
+only the glow's own rectangle".  That is true of the *animation timer*: while
+the pointer is still, only `Trail.bounds()` is damaged — a few hundred pixels
 square, and the tests assert it directly.  It is not true of an ordinary drag
-move, which still repaints the whole overlay, because the un-dimmed bounding box
-grows as the loop is drawn and a partial update there would leave stale pixels
-behind.  That was already the case before any of this: the wide stroke costs
-nothing extra on a moving pointer, and the thing that made the old cursor glow
-unusable — a separate always-on-top window repainting the desktop — is not what
-this is.
+move, which repaints the whole overlay, because the un-dimmed bounding box grows
+as the loop is drawn and a partial update there would leave stale pixels behind.
+That was already the case before any of this.
 
 **A bug came out of the drawing, not the design.**  A stroke drawn along one
 axis has a bounding box with no area, and `paintEvent` returned early on exactly
@@ -234,3 +230,51 @@ for a pointer held still.
 What is left afterwards is the un-dimmed box, its handles and the action bar.
 With `lasso_mask` off there is no thin outline either, by the same argument that
 removed the dashed rectangle: the un-dimmed area already is the crop.
+
+### The thing that actually cost frames
+
+A long scribble dropped the overlay to about one frame a second, reported from a
+real desktop with a screenshot.  Measured rather than guessed, on a 1920×1080
+screen at 2×, with a 1500-point path:
+
+| | |
+|---|---|
+| `drawPath`, antialiased, one pass | **88 ms** |
+| the same path with antialiasing off | 5.2 ms |
+| blitting the whole screenshot | 2.6 ms |
+| rebuilding the path from `_points` | 2.3 ms |
+| one glow blob | 0.65 ms |
+| **whole frame** | **229 ms** |
+
+So the cost was the ribbon, and it was linear in the length of the line — which
+is exactly why it got worse the longer you drew.  Two things came out of that:
+
+* **Clipping the painter does not help.**  A clipped frame measured *slower*
+  than an unclipped one (266 ms against 229): Qt rasterises the whole stroked
+  path before anything is clipped away, so a small damage rectangle saves
+  nothing when the path is what costs.  This is worth knowing before anyone
+  reaches for partial repaints to fix a drawing that is slow.
+* **The path had to stop being re-stroked.**  The settled part is baked into a
+  pixmap in chunks of `_STROKE_CHUNK` points, and only the tail is stroked per
+  frame, so the per-frame cost is flat.  The chunk overlaps the tail by one
+  segment so the round caps meet on a shared point, and the tail's *shadow* goes
+  down before the layer is blitted so the frozen white covers it at the join.
+  The layer is a full-screen pixmap, so it is allocated only when a line grows
+  past one chunk and given back the moment the drag ends.
+
+The glow was the other half.  It is the same shape every time — only the colour
+and the amount left change, and "the amount left" is the painter's opacity — so
+each colour is rendered once and blitted after that, keyed on the colour rounded
+to five bits a channel.  Forty-five blobs went from 29 ms a frame to under two.
+
+| | before | after |
+|---|---|---|
+| 400 points, full trail | 195 ms | 11 ms |
+| 1500 points, full trail | 258 ms | 12 ms |
+| 4000 points, full trail | 660 ms | 13 ms |
+
+Still standing, and deliberately not done: the whole overlay is repainted on
+every pointer move.  Clipping is worth about 20 % now that the path is cheap,
+which is not enough to justify the stale-pixel risk of tracking damage across
+the dimming, the size readout and the loupe — and it is what the program did
+before the stroke existed.
