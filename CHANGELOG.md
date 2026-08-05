@@ -44,6 +44,13 @@ order that cannot leave you worse off. And a repaint bug fixed that smeared the
 handles, the grip and the action bar across the screen when the selection was
 moved.
 
+**A crash fixed** that was in 1.0.0 from the start: *About* and the one-time
+text-recognition question each opened a message box that blocked everything
+until it was answered, and that could freeze the daemon and then take it down
+with a SIGSEGV on the way out. Both are ordinary windows now — the tray keeps
+working while they are open, and neither can be destroyed while it is still on
+screen, which is what the segfault was.
+
 KWin script **1.11.0**. Log out and back in after updating, or the pinned
 windows will not be kept above the rest.
 

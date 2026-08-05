@@ -2507,6 +2507,189 @@ with tempfile.TemporaryDirectory() as tmp:
 
 os.environ["PATH"] = original_path
 
+# --- the question that crashed the daemon ----------------------------------
+# Reported from a real session: it froze solid and then took a SIGSEGV, with
+#
+#     QMessageBoxPrivate::setVisible → QDialog::~QDialog → release_QMessageBox
+#     → sipWrapper_dealloc → _PyEval_FrameClearAndPop → QAction::triggered
+#
+# which reads backwards as: a tray action ran a slot, the slot made a
+# QMessageBox as a local variable and called exec() on it, and when the slot
+# returned the local died — running ~QDialog on a box that was *still visible*,
+# from inside the signal that was still being delivered.  Both message boxes in
+# the application were written that way.  Neither is any more.
+from PyQt6.QtCore import QEvent  # noqa: E402
+from PyQt6.QtGui import QIcon  # noqa: E402
+from PyQt6.QtWidgets import QDialog, QMessageBox  # noqa: E402
+
+from circle_to_search import version_label  # noqa: E402
+
+# The fact the fix rests on: QDialog::done() hides the window before it emits
+# finished, so a handler that lets go of the box there is letting go of a
+# hidden one.  If this ever stopped being true the pattern below would be no
+# safer than exec() was.
+timing = QMessageBox()
+timing.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
+seen: list[tuple[int, bool]] = []
+timing.finished.connect(lambda code: seen.append((code, timing.isVisible())))
+timing.show()
+check("a message box is really shown", timing.isVisible())
+timing.done(int(QMessageBox.StandardButton.Yes))
+check("finished carries which button it was",
+      [code for code, _ in seen] == [int(QMessageBox.StandardButton.Yes)], str(seen))
+check("and the box is already hidden by then", seen and not seen[0][1], str(seen))
+timing.deleteLater()
+
+
+class _Letting:
+    """The teardown both message boxes use, with the destructor watched.
+
+    The other half of the fix, and the half that is not obvious: PyQt owns a
+    parentless QMessageBox, so the C++ destructor runs the moment the last
+    Python reference to it goes — which in a `finished` handler is *during*
+    signal delivery.  Calling deleteLater() first hands the object to C++ and
+    moves the destruction out to the event loop, where it belongs.
+    """
+
+    def __init__(self, use_later: bool) -> None:
+        self.trail: list[str] = []
+        self._later = use_later
+        box = QMessageBox()
+        box.setStandardButtons(QMessageBox.StandardButton.Yes)
+        box.destroyed.connect(lambda *_: self.trail.append("destroyed"))
+        box.finished.connect(self._answered)
+        box.setWindowModality(Qt.WindowModality.NonModal)
+        box.show()
+        self.box: QMessageBox | None = box
+
+    def _answered(self, _code: int) -> None:
+        box = self.box
+        self.box = None
+        if self._later and box is not None:
+            box.deleteLater()
+        self.trail.append("let go")
+
+
+handed_over = _Letting(True)
+handed_over.box.done(int(QMessageBox.StandardButton.Yes))
+check("deleteLater carries the box past the end of the slot",
+      handed_over.trail == ["let go"], str(handed_over.trail))
+QApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
+check("and the event loop is what destroys it",
+      handed_over.trail == ["let go", "destroyed"], str(handed_over.trail))
+
+# The same teardown without it, to show the difference is real and not a
+# formality: the destructor runs as soon as the reference is gone.
+just_dropped = _Letting(False)
+just_dropped.box.done(int(QMessageBox.StandardButton.Yes))
+check("without it the destructor follows the reference straight down",
+      just_dropped.trail == ["let go", "destroyed"], str(just_dropped.trail))
+
+# No nested loop is opened from a slot anywhere in the application any more.
+# The two that are left are the event loop itself and the portal's reply, which
+# has a timer holding it to 30 seconds.
+_app_source = (Path(__file__).resolve().parent.parent / "src/circle_to_search/app.py").read_text()
+check("nothing in app.py calls exec()",
+      not re.search(r"^(?!\s*#).*\.exec\(\)", _app_source, re.MULTILINE),
+      re.search(r"^(?!\s*#).*\.exec\(\)", _app_source, re.MULTILINE).group(0)
+      if re.search(r"^(?!\s*#).*\.exec\(\)", _app_source, re.MULTILINE) else "")
+
+
+class _OcrStore:
+    def __init__(self, asked: bool = False) -> None:
+        self.ocr_asked = asked
+        self.ocr_enabled = False
+        self.ocr_languages = ""
+        self.synced = 0
+
+    def sync(self) -> None:
+        self.synced += 1
+
+
+class _AskHost:
+    """Just enough of the application to put the question and answer it."""
+
+    _ask_about_ocr = CircleToSearchApp._ask_about_ocr
+    _on_ocr_question_answered = CircleToSearchApp._on_ocr_question_answered
+    _extract_text = CircleToSearchApp._extract_text
+    show_about = CircleToSearchApp.show_about
+    _on_about_closed = CircleToSearchApp._on_about_closed
+
+    def __init__(self, asked: bool = False) -> None:
+        self._settings = _OcrStore(asked)
+        self._dialog = None
+        self._about: QMessageBox | None = None
+        self._ocr_question: QMessageBox | None = None
+        self._ocr_pending: Image.Image | None = None
+        self._icon = QIcon()
+        self.read: list[Image.Image] = []
+
+    def _run_ocr(self, image: Image.Image) -> None:
+        self.read.append(image)
+
+
+crop = Image.new("RGB", (30, 20), "white")
+asking = _AskHost()
+asking._extract_text(crop)
+check("the question is a window of its own", isinstance(asking._ocr_question, QMessageBox))
+check("and it is not modal", not asking._ocr_question.isModal())
+check("the crop waits for the answer instead of being read",
+      asking._ocr_pending is crop and asking.read == [])
+check("and being asked is written down straight away",
+      asking._settings.ocr_asked and asking._settings.synced == 1,
+      str(asking._settings.synced))
+
+# A second crop while the question is still up must not put it twice.
+first_box = asking._ocr_question
+second = Image.new("RGB", (10, 10), "black")
+asking._extract_text(second)
+check("one question, whatever arrives while it is open", asking._ocr_question is first_box)
+check("and it is about the newest crop", asking._ocr_pending is second)
+
+asking._ocr_question.done(int(QMessageBox.StandardButton.Yes))
+check("yes turns recognition on", asking._settings.ocr_enabled)
+check("and reads the crop that was waiting", asking.read == [second], str(len(asking.read)))
+check("the box is let go of", asking._ocr_question is None and asking._ocr_pending is None)
+
+declining = _AskHost()
+declining._extract_text(crop)
+declining._ocr_question.done(int(QMessageBox.StandardButton.No))
+check("no leaves it off", not declining._settings.ocr_enabled)
+check("and reads nothing", declining.read == [])
+check("but the answer is kept", declining._settings.synced == 2, str(declining._settings.synced))
+
+# Closing the window with its own X reports Rejected rather than a button, and
+# an unanswered question is not a yes.
+closed = _AskHost()
+closed._extract_text(crop)
+closed._ocr_question.done(int(QDialog.DialogCode.Rejected))
+check("closing it unanswered is not a yes", not closed._settings.ocr_enabled)
+
+# Asked once, and once only: afterwards it says so instead of asking again.
+again_host = _AskHost(asked=True)
+again_host._extract_text(crop)
+check("a second run never re-asks", again_host._ocr_question is None)
+check("and does not read it either", again_host.read == [])
+
+# Already on: straight through, no question at all.
+enabled_host = _AskHost(asked=True)
+enabled_host._settings.ocr_enabled = True
+enabled_host._extract_text(crop)
+check("with it on, the crop goes straight to tesseract", enabled_host.read == [crop])
+check("and nothing is asked", enabled_host._ocr_question is None)
+
+# The About box, the one that actually crashed.
+about_host = _AskHost()
+about_host.show_about()
+check("about is a window held on the application", isinstance(about_host._about, QMessageBox))
+check("and it is not modal either", not about_host._about.isModal())
+opened = about_host._about
+about_host.show_about()
+check("asking for it twice does not make a second one", about_host._about is opened)
+check("it says which release this is", version_label() in opened.text(), opened.text())
+opened.done(0)
+check("and closing it lets go of the reference", about_host._about is None)
+
 # --- the first-run window --------------------------------------------------
 from PyQt6.QtWidgets import QLabel, QPushButton  # noqa: E402
 

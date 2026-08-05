@@ -1049,6 +1049,7 @@ node    tests/test_detection.js    # the real main.js against a fake KWin API
 node    tests/replay-trace.js FILE # replay a recorded cursor trace
 python3 tests/test_browser_upload.py   # the launcher page, in a real Chromium
 python3 tests/test_dbus_surface.py     # the exported D-Bus methods, on a private bus
+bash    tests/test_install.sh          # ./install.sh update, against throwaway repos
 ```
 
 `tests/test_detection.js` loads `kwinscript/contents/code/main.js` unchanged
@@ -1452,6 +1453,61 @@ busctl --user call org.freedesktop.Notifications /org/freedesktop/Notifications 
 
 Without `actions` in the capabilities the misfire question is never shown at
 all — deliberately, because a question with no buttons cannot be answered.
+
+### The daemon froze solid and then took a SIGSEGV
+
+Fixed in 1.1.0, and worth writing down because the rule it broke applies to
+every window this program will ever open.
+
+A real coredump from 1.0.0, read from the top down:
+
+```
+#0  QMetaTypeInterfaceWrapper<QString>::metaType   libQt6Core
+#1  QMessageBoxPrivate::setVisible(bool)           libQt6Widgets
+#2  QDialog::~QDialog()                            libQt6Widgets
+#3  release_QMessageBox                            QtWidgets.abi3.so
+#4  sipWrapper_dealloc                             sip
+#6  _Py_Dealloc                                    libpython
+#8  _PyEval_FrameClearAndPop
+#12 PyQtSlot::invoke
+#16 QAction::triggered(bool)
+```
+
+Backwards, that is: a tray action fired, a Python slot ran, the slot returned,
+the frame was cleared, and a local variable holding a `QMessageBox` was the last
+reference to it — so `~QMessageBox` ran, and then `~QDialog` ran, *inside the
+signal that was still being delivered*. `QDialog`'s destructor hides the window
+on the way out, and hiding dispatches to `QMessageBoxPrivate::setVisible` on a
+private whose `QMessageBox` part had already been destroyed. Everything after
+that frame is reading freed memory.
+
+`QMessageBoxPrivate::setVisible` is only reached from `~QDialog` if the box was
+**still visible when it was destroyed** — which is the tell. `exec()` had
+returned without the dialog being closed, which happens when the nested event
+loop is torn down from outside rather than by a button. The freeze that came
+first is the other half of the same call: a modal `exec()` entered from a
+`QSystemTrayIcon` menu blocks the reply that Plasma's tray protocol is waiting
+for, so the menu — the only way into this program — wedges.
+
+Two rules came out of it, and both are checked by `tests/test_logic.py`:
+
+* **No `.exec()` anywhere in `app.py`.** The test greps for it. The only nested
+  loops left in the tree are `QApplication.exec()` itself and the portal's reply
+  in `screenshot.py`, which a `QTimer` holds to thirty seconds.
+* **A window is never destroyed inside a slot.** Every one of them is held on
+  the application object, shown with `show()`, and let go of in a `finished`
+  handler with `deleteLater()`. Two facts make that safe, and the tests assert
+  both because the pattern rests on them:
+  * `QDialog` hides the window *before* it emits `finished`, so the handler is
+    always letting go of something already off screen.
+  * `deleteLater()` hands a parentless widget from PyQt to C++. Without it,
+    dropping the last Python reference runs `~QMessageBox` there and then —
+    the reference is what owns the object. With it, the destructor runs back in
+    the event loop. `self._about = None` on its own would not have been a fix;
+    it is `deleteLater()` first that makes it one.
+
+Both message boxes are also `NonModal` now. A background daemon has no main
+window for a modal box to be modal *to*; all it could block is the tray.
 
 ### Everything else
 

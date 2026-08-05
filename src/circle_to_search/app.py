@@ -370,6 +370,17 @@ class CircleToSearchApp(QObject):
         self._history: HistoryWindow | None = None
         self._calibration: CalibrationDialog | None = None
         self._welcome: WelcomeDialog | None = None
+        #: The two message boxes.  They are held here for a harder reason than
+        #: the windows above: a QMessageBox built as a local variable and shown
+        #: with exec() is destroyed the moment the slot that made it returns —
+        #: and that return happens inside QAction::triggered, so ~QDialog runs
+        #: while the signal is still being delivered.  That is a segfault, and
+        #: it was one.  Nothing here is ever destroyed inside a slot again:
+        #: modeless, held on self, and let go with deleteLater().
+        self._about: QMessageBox | None = None
+        self._ocr_question: QMessageBox | None = None
+        #: The crop that is waiting on the answer to that question.
+        self._ocr_pending: Image.Image | None = None
         self._tasks: set[QRunnable] = set()
         #: Overlays that have already handed their selection over and are only
         #: still on screen to say it is on its way.  Held here for the same
@@ -431,6 +442,13 @@ class CircleToSearchApp(QObject):
     def stop(self) -> None:
         if self._calibration is not None:
             self._calibration.stop()
+        for box in (self._about, self._ocr_question):
+            if box is not None:
+                # Hidden rather than closed, and on the way out rather than
+                # never: destroying a *visible* QDialog is the whole thing
+                # being avoided, and closing this one would count as answering
+                # the question in it on the user's behalf.
+                box.hide()
         unregister_service()
 
     def _load_icon(self) -> QIcon:
@@ -1358,8 +1376,15 @@ class CircleToSearchApp(QObject):
 
     def _extract_text(self, image: Image.Image) -> None:
         """Read the text out of the selection instead of searching for it."""
-        if not self._settings.ocr_enabled and not self._ask_about_ocr():
+        if not self._settings.ocr_enabled:
+            # The question is a window now, not a blocking call, so this crop
+            # has to wait in _ocr_pending for the answer instead of here.
+            self._ask_about_ocr(image)
             return
+        self._run_ocr(image)
+
+    def _run_ocr(self, image: Image.Image) -> None:
+        """Hand a crop to tesseract, once it is settled that we may."""
         if not ocr.is_available():
             notify_error(
                 tr("notify.ocr_missing"),
@@ -1413,17 +1438,28 @@ class CircleToSearchApp(QObject):
         if enable:
             notify(tr("ocr.offer.on"), tr("ocr.offer.on_body"), timeout_ms=8000)
 
-    def _ask_about_ocr(self) -> bool:
-        """The one-time question.  True when recognition may go ahead now.
+    def _ask_about_ocr(self, image: Image.Image) -> None:
+        """The one-time question, asked without blocking anything.
 
         Off by default and asked exactly once: it needs a package the user may
         not have, and turning something on behind their back is not a favour.
+        The crop waits in ``_ocr_pending`` until the answer comes back.
         """
+        if self._ocr_question is not None:
+            # Already on screen from an earlier crop.  One question, and it is
+            # about the newest thing the user asked to read.
+            self._ocr_pending = image
+            self._ocr_question.raise_()
+            self._ocr_question.activateWindow()
+            return
         if self._settings.ocr_asked:
             notify(tr("notify.ocr_off"), tr("notify.ocr_off_body"), timeout_ms=8000)
-            return False
+            return
 
         self._settings.ocr_asked = True
+        # Written down now rather than with the answer: the question has been
+        # put, and being killed while it is up is not a reason to ask again.
+        self._settings.sync()
         found = ocr.is_available()
         box = QMessageBox()
         box.setWindowTitle(tr("ocr.ask.title"))
@@ -1434,13 +1470,31 @@ class CircleToSearchApp(QObject):
         )
         box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No)
         box.setDefaultButton(QMessageBox.StandardButton.Yes)
-        enable = box.exec() == QMessageBox.StandardButton.Yes
+        box.setWindowModality(Qt.WindowModality.NonModal)
+        box.finished.connect(self._on_ocr_question_answered)
+        self._ocr_question = box
+        self._ocr_pending = image
+        box.show()
+        box.raise_()
+        box.activateWindow()
+
+    def _on_ocr_question_answered(self, result: int) -> None:
+        box = self._ocr_question
+        image = self._ocr_pending
+        self._ocr_question = None
+        self._ocr_pending = None
+        if box is not None:
+            box.deleteLater()
+        enable = result == QMessageBox.StandardButton.Yes
         self._settings.ocr_enabled = enable
         self._settings.sync()
         log.info("text recognition %s by the user", "enabled" if enable else "declined")
-        if enable and self._dialog is not None:
+        if not enable:
+            return
+        if self._dialog is not None:
             self._dialog.reload()
-        return enable
+        if image is not None:
+            self._run_ocr(image)
 
     def _finish_ocr(
         self, task: QRunnable, text: str | None = None, error: str | None = None
@@ -1743,14 +1797,32 @@ class CircleToSearchApp(QObject):
 
     @pyqtSlot()
     def show_about(self) -> None:
-        shortcut = read_detection().shortcut
-        box = QMessageBox()
-        box.setWindowTitle(tr("tray.about"))
-        box.setIconPixmap(self._icon.pixmap(64, 64))
-        box.setTextFormat(Qt.TextFormat.RichText)
-        box.setText(tr("about.text", version=version_label(), shortcut=shortcut))
-        box.setInformativeText(f"D-Bus: {DBUS_SERVICE}")
-        box.exec()
+        if self._about is None:
+            box = QMessageBox()
+            box.setWindowTitle(tr("tray.about"))
+            box.setIconPixmap(self._icon.pixmap(64, 64))
+            box.setTextFormat(Qt.TextFormat.RichText)
+            box.setInformativeText(f"D-Bus: {DBUS_SERVICE}")
+            # A QMessageBox is application-modal by default, and this program
+            # has no main window for it to be modal *to* — all it could block
+            # is the tray menu, which is the only way in.
+            box.setWindowModality(Qt.WindowModality.NonModal)
+            box.finished.connect(self._on_about_closed)
+            self._about = box
+        # Read every time it is opened, not once when it is built: the shortcut
+        # is the thing on this window most likely to have changed since.
+        self._about.setText(
+            tr("about.text", version=version_label(), shortcut=read_detection().shortcut)
+        )
+        self._about.show()
+        self._about.raise_()
+        self._about.activateWindow()
+
+    def _on_about_closed(self) -> None:
+        box = self._about
+        self._about = None
+        if box is not None:
+            box.deleteLater()
 
     def _quit(self) -> None:
         log.info("quitting")
