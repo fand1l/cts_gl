@@ -361,8 +361,21 @@ rasterised forty times a frame. Without those two a long scribble ran at about
 one frame a second — Qt takes 88 ms to stroke a 1500-point antialiased
 twelve-pixel path, and there are two passes of it in a frame.
 
-The full design, the two drafts the photographs corrected, and the measurements
-are in [`STROKE.md`](STROKE.md).
+A drag repaints a **region**, not the window: on a 3840×2160 screen the overlay
+is 33 MB, and handing the compositor that sixty times a second is what made a 4K
+panel crawl while a 1080p one was fine. The box contributes a *ring* around its
+outline and never its filled inside, so a loop already covering most of the
+screen does not damage most of the screen each time it grows by five pixels.
+
+The price of that is that **everything drawn near the selection has to name
+itself** in `_floating_rects()` — the handles hang half outside the outline, the
+move grip sits in the middle of the box, and the action bar and the size readout
+follow the box around. Anything left out of that list is never erased from where
+it was: moving the box smeared the handles, the grip and the bar across the
+screen in stripes until they were added.
+
+The full design, the two drafts the photographs corrected, the measurements and
+that repaint bug are in [`STROKE.md`](STROKE.md).
 
 Lens always receives a rectangle. By default a lasso is uploaded as the plain
 crop around the loop — nothing is painted over, exactly like circling something

@@ -306,3 +306,39 @@ invisible, while the blending is three and a half megapixels a frame whatever
 the screen size.  And `lasso_mask` falls back to repainting everything, because
 closing a loop can light up a large region nowhere near the pointer and that is
 not worth tracking for a setting that is off by default.
+
+### The bill for that: stripes across the screen
+
+Reported from a real desktop a few days later, with a screenshot: moving the
+selection left horizontal combs of light blue across everything it had passed
+over.  Three of them, at the top edge, the middle and the bottom edge, running
+back to wherever the box had started.
+
+That is the ring, doing exactly what it was told.  At a one-pixel step the ring
+is eight pixels wide — four either side of the outline — and everything else the
+overlay draws around a selection lives outside it:
+
+* the **handles** are 14 px squares centred on the outline, so three pixels of
+  each hang past the ring at the top and three at the bottom.  Left behind at
+  every intermediate position, that is a comb;
+* the **move grip** sits in the middle of the box, which the ring subtracts on
+  purpose;
+* the **action bar** and the **size readout** hang off the box and move with it.
+
+The fix is not a wider ring — the grip and the bar are nowhere near the outline.
+Everything drawn near the selection now names itself in `_floating_rects()`,
+which is snapshotted before the change and recomputed after it, so each piece is
+erased from where it was and drawn where it now is.  It was already the list the
+loupe and the readout used; it just had three things missing.
+
+**The lesson is about the test, not the code.**  The first attempt at pinning
+this asserted `damage.contains(handle)` and passed against the bug: Qt's
+`QRegion::contains(QRect)` is true when the rectangle merely *touches* the
+region.  The question you actually want is `QRegion(rect).subtracted(damage)
+.isEmpty()`.
+
+So the test that stands replays a real drag instead: render the overlay, apply
+twenty steps letting only the damaged pixels through — `setClipRegion(damage)`
+over a full frame, which is what the screen gets — and compare with an honest
+repaint.  Before the fix that leaves about 20 000 stray pixels; it now has to be
+exactly zero, for a move, a corner resize and a keyboard nudge alike.

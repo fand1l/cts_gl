@@ -2296,13 +2296,26 @@ class SelectionOverlay(QWidget):
         return QPolygon(self._points).translated(self._offset)
 
     def _floating_rects(self) -> list[QRect]:
-        """What moves with the pointer during a drag, apart from the box itself."""
+        """Everything drawn *near* the selection rather than as part of its outline.
+
+        Snapshotted before a change and recomputed after it, so a partial repaint
+        erases each of these from where it was as well as drawing it where it now
+        is.  Anything left out of this list is left on the screen: moving the box
+        used to smear the handles, the grip and the action bar across it, because
+        the damage region was the outline's ring and none of this is on it.
+        """
         rects = [self._trail.bounds()]
         if self._loupe_showing():
             rects.append(self._loupe_rect())
         selection = self._selection_rect()
         if selection.width() >= 1 and selection.height() >= 1:
             rects.append(self._size_label(selection)[2])
+        if self._confirming and self._has_selection and not self._finished:
+            # The handles hang half outside the outline and the grip sits in the
+            # middle of the box, which the ring deliberately does not cover.
+            rects.extend(self._handle_rects().values())
+            rects.append(self._move_grip())
+        rects.append(self._bar_rect())
         return [rect for rect in rects if not rect.isNull()]
 
     def _drag_damage(self, was_box: QRect, was_floating: list[QRect], was_head: QPoint) -> QRegion:

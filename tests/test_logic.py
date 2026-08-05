@@ -559,7 +559,7 @@ check("nothing listed when identical", describe_changes(base, base) == [])
 
 # --- confirm and adjust before uploading -----------------------------------
 from PyQt6.QtCore import QEvent, QPointF  # noqa: E402
-from PyQt6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
+from PyQt6.QtGui import QKeyEvent, QMouseEvent, QPainter, QRegion  # noqa: E402
 
 from circle_to_search.ocr import Word  # noqa: E402
 from circle_to_search.overlay import (  # noqa: E402
@@ -779,6 +779,105 @@ check("dragging the grip moves the box, unchanged in size",
       overlay._selection_rect().size() == before.size()
       and overlay._selection_rect().topLeft() == before.topLeft() + QPoint(40, 30),
       str(overlay._selection_rect()))
+
+# Reported from a real desktop: moving the box smeared the handles, the grip and
+# the action bar across the screen in stripes.  The repaint is a *region* — the
+# whole point is not to hand a 4K compositor thirty-three megabytes per frame —
+# and the box contributes only a ring around its outline.  Anything drawn near
+# the box but not on that ring has to name itself, or it is never erased from
+# where it was.  A one-pixel step is the case that matters: the ring is then
+# eight pixels wide and the handles hang seven pixels either side of it.
+
+
+def repainted(damage, rect: QRect) -> bool:
+    """Whether every pixel of ``rect`` is in ``damage``.
+
+    Not ``QRegion.contains(QRect)``: that one is true when the rectangle merely
+    *touches* the region, which is exactly the wrong question here and would
+    have passed happily against the bug this pins.
+    """
+    return QRegion(rect).subtracted(damage).isEmpty()
+
+
+moving, _ = confirming()
+was_box = QRect(moving._selection_rect())
+was_floating = moving._floating_rects()
+was_furniture = {
+    **{f"the {name} handle": rect for name, rect in moving._handle_rects().items()},
+    "the grip": QRect(moving._move_grip()),
+    "the action bar": QRect(moving._bar_rect()),
+}
+moving._grab = "move"
+moving._apply_box(was_box.translated(1, 0), edited=True)
+damage = moving._drag_damage(was_box, was_floating, moving._current)
+left_behind = [
+    name
+    for name, rect in was_furniture.items()
+    if not repainted(damage, rect.translated(-moving._offset))
+]
+check("moving the box erases everything drawn around it", not left_behind, str(left_behind))
+check("and draws it where it is now",
+      all(repainted(damage, rect.translated(-moving._offset))
+          for rect in (*moving._handle_rects().values(),
+                       moving._move_grip(), moving._bar_rect())))
+check("without repainting the whole window",
+      not repainted(damage, moving.rect()), str(damage.boundingRect()))
+moving._grab = None
+
+
+def raw_pixels(image) -> bytes:
+    bits = image.constBits()
+    bits.setsize(image.sizeInBytes())
+    return bytes(bits)
+
+
+def replay(grab, change, steps: int = 20, magnifier: bool = False) -> int:
+    """Change the box repeatedly, letting only the damaged pixels through.
+
+    The regions are what the screen really gets, so the only honest question is
+    whether the result differs from a full repaint — and by how much.
+    """
+    view = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(shot)),
+        metrics,
+        screen,
+        dim_percent=40,
+        mode=MODE_RECTANGLE,
+        confirm=True,
+        magnifier=magnifier,
+    )
+    view.resize(screen.geometry().size())
+    view._has_selection = True
+    view._confirming = True
+    view._box = QRect(300, 300, 200, 150)
+    view._current = QPoint(400, 375)
+    view._grab = grab
+
+    canvas, frame = QPixmap(view.size()), QPixmap(view.size())
+    view.render(canvas)
+    for _ in range(steps):
+        was = QRect(view._selection_rect())
+        floating = view._floating_rects()
+        view._apply_box(change(was), edited=True)
+        view.render(frame)
+        painter = QPainter(canvas)
+        painter.setClipRegion(view._drag_damage(was, floating, view._current))
+        painter.drawPixmap(0, 0, frame)
+        painter.end()
+
+    honest = QPixmap(view.size())
+    view.render(honest)
+    left, right = canvas.toImage(), honest.toImage()
+    return sum(1 for a, b in zip(raw_pixels(left), raw_pixels(right), strict=True) if a != b)
+
+
+for what, grab, change in (
+    ("moving it", "move", lambda r: r.translated(-3, -3)),
+    ("resizing by a corner", "se", lambda r: r.adjusted(0, 0, 4, 3)),
+    ("nudging it with the keys", None, lambda r: r.translated(2, 0)),
+):
+    smeared = replay(grab, change)
+    check(f"{what} leaves nothing behind at all", smeared == 0, f"{smeared} bytes differ")
 
 # The corners still resize, which is what they were always for.
 overlay, results = confirming()
