@@ -7,6 +7,15 @@ usually already sitting in the code or in a screenshot.
 
 Ordered by what I think they are worth, not by how hard they are.
 
+**Where each stands** after the first read-through:
+
+| | |
+|---|---|
+| agreed | 1 redact · 2 search the text · 4 `--doctor` · 6 history window · 8 what will be sent · 9 the same area |
+| explained again, waiting | 3 delay (**the reason I gave was wrong — see below**) · 5 pin · 7 colour |
+| not yet discussed | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
+| dropped | 14 annotations |
+
 ---
 
 ## 1. Black out part of the selection before it leaves
@@ -50,20 +59,35 @@ Its sibling costs one more line: if the selected text **is** a URL, the button
 says *Open the link* instead.  Circling a link in a screenshot or a terminal and
 having it open is worth a great deal on its own.
 
-## 3. Capture after a delay
+## 3. Capture after a delay  — **the reason I gave was wrong**
 
 A tray item and a `--capture --after 5` flag: wait, then capture without an
 overlay appearing first.
 
-*How I knew:* this is the one thing the program cannot do at all.  The
-screenshot is taken *before* the overlay appears, so a hover state does survive
-— but a menu does not, because the shake needs the pointer to move and the
-global shortcut cannot reach kglobalaccel through a menu's grab.  So circling an
-open dropdown, a tooltip or a right-click menu is impossible today, and that is
-the most ordinary thing anybody wants a screenshot tool for.
+*What I claimed:* that an open menu cannot be captured.  **That is false**, and
+the user was right to push back — they tried it and menus come through fine.
 
-*How:* the countdown lives in the daemon, not the compositor: a `QTimer`, a tray
-tick-down in the tooltip, then the ordinary capture path.  Nothing else changes.
+*Why it is false:* the screenshot is taken *before* the overlay is built
+(`app.py`: capture, then construct, then show), so whatever is on screen at that
+instant is in the image.  And on Wayland a global shortcut is handled by the
+compositor before the client ever sees the key, so `Meta+Shift+L` reaches
+kglobalaccel straight through a popup's grab and nothing closes the popup.
+Shaking works too — moving the pointer over a menu does not dismiss it.
+
+*What is actually left,* and it is narrower:
+
+* **Anything that needs the mouse button held down.**  A drag preview, the value
+  tooltip on a slider being dragged, a press-and-hold menu.  You cannot press
+  the shortcut mid-drag and shaking means letting go.
+* **Tooltips.**  They die on pointer movement, so the shake is out; the shortcut
+  works only if you can reach it without moving the mouse.
+* **Anything on somebody else's schedule** — a toast, a progress dialog that
+  finishes, one frame of an animation — where you want to be *ready* rather than
+  reacting.
+
+That is a real but much smaller feature than I sold.  Worth doing cheaply if at
+all: a `QTimer` in the daemon and a countdown in the tray tooltip; the capture
+path itself does not change.
 
 ## 4. `circle-to-search --doctor`
 
@@ -96,10 +120,25 @@ typing somewhere else, and every one of the four actions today throws it away �
 search sends it, copy hides it in the clipboard, save buries it in a folder,
 Esc discards it.  Flameshot's pin is the feature people move to Flameshot for.
 
-*How:* we already build frameless always-on-top windows and already hold the
-cropped `QImage`; the pin is a `QLabel` in a frameless window with a drag
-handler and Esc to close.  The KWin script already knows how to keep our windows
-above panels.
+*What it does, concretely.*  You shake, you circle an error message.  Instead of
+*Search*, *Copy*, *Save*, you press *P*.  The overlay disappears and in its place
+a small borderless window is left holding exactly that crop, at its real size,
+**on top of every other window**.  You drag it wherever it does not get in the
+way with the mouse.  Then you go back to work: switch windows, type, scroll — it
+stays floating above all of it until you press Esc on it or middle-click it.
+
+*The case it is for.*  The thing you need to read is in window A, and the place
+you have to type it is window B, and B covers A.  Today that is alt-tab, forget,
+alt-tab, forget.  Pinned, both are on screen at once and you type it in one go.
+Phone numbers, error codes, a diagram you are copying, a value from a dashboard.
+
+*How:* we already build frameless always-on-top windows — that is what the
+overlay is — and we already hold the cropped `QImage` in `_deliver`.  The pin is
+a `QLabel` in a frameless `WindowStaysOnTopHint` window, a press-and-drag handler
+to move it, and Esc to close.  The KWin script already knows how to keep our own
+windows above the panels.  Worth adding while it is there: scroll to zoom, and
+*Ctrl+C* on a pinned window to copy it, so a pin can turn into the other actions
+without being recaptured.
 
 ## 6. A window for the captures, not a submenu
 
@@ -117,12 +156,37 @@ looked up last week" becomes answerable.
 
 ## 7. The loupe already knows the colour
 
-Show the hex value under the magnifier, and a key to copy it.
+A third chip beside *Lasso* and *Rectangle*: **Colour**.  Pick it and the overlay
+stops being a selection tool and becomes a screen colour picker.
 
-*How I knew:* `_draw_loupe` reads pixels out of `self._sharp` at the pointer
-every frame already.  The value is *right there*; it is thrown away after being
-drawn.  Six lines of code turn the overlay into a screen colour picker, which on
-Wayland is otherwise genuinely awkward — and it costs nothing when unused.
+*How I knew:* `_draw_loupe` magnifies the frozen screenshot around the pointer
+every frame already.  The pixel under the crosshair has a colour and it is thrown
+away after being drawn.  On Wayland there is no ordinary way to read a pixel off
+the screen — every client is blind to every other — so a program that has already
+frozen the screen and is already magnifying it is in an unusually good position
+to answer the question.
+
+*How, exactly:*
+
+* **Reading the pixel** is the one part that needs care.  `self._sharp` is a
+  `QPixmap`, and `toImage()` on a 4K one every frame would be as bad as anything
+  I have just spent two rounds removing.  So copy *one pixel*:
+  `self._sharp.copy(QRect(x, y, 1, 1)).toImage().pixelColor(0, 0)` — a few bytes,
+  not thirty-three megabytes.  Coordinates go through the same
+  `logical_rect_to_physical` the crop uses, so it reads the real pixel and not an
+  interpolated one.
+* **Showing it**: the loupe grows a strip along its bottom edge with a swatch and
+  `#RRGGBB`.  The crosshair already marks which pixel is meant.
+* **Taking it**: click, or Enter.  The hex goes to the clipboard, the overlay
+  closes, the notification says what was copied and shows the colour.
+* **The mode is why it is cheap.**  The loupe deliberately does not follow the
+  pointer on hover — that was the cursor-glow mistake, and I turned it down once
+  already.  In colour mode it has to, and that is fine, because the mode was
+  asked for: nobody pays for it who did not choose it.  It repaints only the
+  loupe's own rectangle, which the damage-region work now makes straightforward.
+
+Worth having on the same chip: *Shift* while picking copies `rgb(…)` instead, for
+CSS.
 
 ## 8. Say what will actually be sent
 
