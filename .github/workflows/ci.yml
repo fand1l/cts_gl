@@ -40,7 +40,16 @@ jobs:
           node --check tests/replay-trace.js
           bash -n install.sh
           bash -n uninstall.sh
+          bash -n tests/test_install.sh
           bash -n tools/record-trace.sh
+      # "update" is the one thing here that reaches into somebody's git
+      # checkout, so its refusals are run against throwaway repositories rather
+      # than only parsed.
+      - name: The installer's update command
+        run: |
+          git config --global user.email ci@example.com
+          git config --global user.name CI
+          bash tests/test_install.sh
       - name: Parse the JSON that ships
         run: |
           set -eux

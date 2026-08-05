@@ -8,12 +8,18 @@
 # recognised; on anything else the missing pieces are named and left to you.
 #
 #   ./install.sh                     normal install
+#   ./install.sh update              git pull, then reinstall — settings are kept
 #   ./install.sh reinstall           remove what was installed, then install it again
 #   ./install.sh reinstall --config  ...and erase the settings as well (asks first)
 #
 #   -y, --yes     assume yes for the package-manager step
 #   --no-deps     never call the package manager
-#   --force       install even if the session checks fail
+#   --force       install even if the session checks fail, and update over a
+#                 checkout with local changes
+#
+# "reinstall" has nothing to do with git: it installs *this* checkout, whatever
+# state it is in.  "update" is the pull as well, in the order that cannot leave
+# you worse off.
 #
 set -euo pipefail
 
@@ -44,15 +50,20 @@ info()  { printf '%s==>%s %s\n' "$GREEN$BOLD" "$RESET" "$*"; }
 warn()  { printf '%s[!]%s %s\n' "$YELLOW$BOLD" "$RESET" "$*" >&2; }
 die()   { printf '%s[x]%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2; exit 1; }
 
+#: The flags to hand on when "update" re-execs the installer it just pulled.
+PASSTHROUGH=()
+
 for arg in "$@"; do
     case "$arg" in
-        install|reinstall) COMMAND="$arg" ;;
+        install|reinstall|update) COMMAND="$arg" ;;
         --config)      CLEAN_CONFIG=1 ;;
-        -y|--yes)      ASSUME_YES=1 ;;
-        --no-deps)     SKIP_DEPS=1 ;;
-        --force)       FORCE=1 ;;
+        -y|--yes)      ASSUME_YES=1; PASSTHROUGH+=("$arg") ;;
+        --no-deps)     SKIP_DEPS=1;  PASSTHROUGH+=("$arg") ;;
+        --force)       FORCE=1;      PASSTHROUGH+=("$arg") ;;
         -h|--help)
-            sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+            # Every comment line of the header, however long it grows.
+            awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' \
+                "${BASH_SOURCE[0]}"
             exit 0 ;;
         *) die "unknown option: $arg (try --help)" ;;
     esac
@@ -280,7 +291,61 @@ install_deps() {
 }
 
 # --------------------------------------------------------------------------- #
-# 3. Reinstalling
+# 3. Updating
+#
+# Keeping up with the project was always two commands — `git pull` and then
+# `./install.sh reinstall` — and remembering the second one.  This is both, in
+# the order that cannot leave you worse off: **the pull happens first**, and a
+# pull that fails has removed nothing, so the working installation is exactly
+# as it was.
+#
+# Fast-forward only.  An update is not the moment to find out that a merge
+# wanted a decision from you, and refusing is a better answer than a conflicted
+# checkout half installed over the top of a working one.
+# --------------------------------------------------------------------------- #
+update_checkout() {
+    command -v git >/dev/null 2>&1 \
+        || die "'update' needs git. Update the checkout yourself, then run 'reinstall'."
+    git -C "$SOURCE_DIR" rev-parse --git-dir >/dev/null 2>&1 \
+        || die "$SOURCE_DIR is not a git checkout, so there is nothing to pull. Use 'reinstall'."
+
+    local branch upstream before after
+    branch="$(git -C "$SOURCE_DIR" symbolic-ref --quiet --short HEAD || true)"
+    [[ -n "$branch" ]] \
+        || die "HEAD is detached, so there is no branch to update. 'git switch <branch>' first."
+    upstream="$(git -C "$SOURCE_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' \
+        2>/dev/null || true)"
+    [[ -n "$upstream" ]] \
+        || die "'$branch' is not tracking anything. 'git branch -u origin/$branch' first."
+
+    if [[ -n "$(git -C "$SOURCE_DIR" status --porcelain)" ]]; then
+        if (( FORCE )); then
+            warn "The checkout has local changes; --force says carry on."
+            warn "  git will still refuse if the pull would overwrite one of them."
+        else
+            die "The checkout has local changes — commit, stash or discard them first
+      (git -C $SOURCE_DIR status), or pass --force to try anyway."
+        fi
+    fi
+
+    before="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+    info "Updating $branch from $upstream"
+    git -C "$SOURCE_DIR" pull --ff-only --quiet \
+        || die "Could not fast-forward $branch. Nothing has been touched — the installed
+      copy is still the one that was working. Sort the checkout out and try again."
+    after="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
+
+    if [[ "$before" == "$after" ]]; then
+        info "Already up to date — reinstalling anyway, so nothing stale is left behind."
+    else
+        info "New commits:"
+        git -C "$SOURCE_DIR" --no-pager log --oneline --no-decorate "$before..$after" \
+            | sed 's/^/      /'
+    fi
+}
+
+# --------------------------------------------------------------------------- #
+# 4. Reinstalling
 #
 # A plain install already overwrites everything it owns, so "reinstall" exists
 # for the case that does not cover: a file the project used to ship and no
@@ -358,7 +423,7 @@ wipe_config() {
 }
 
 # --------------------------------------------------------------------------- #
-# 4. Install
+# 5. Install
 # --------------------------------------------------------------------------- #
 install_python_package() {
     info "Installing the Python package into $APPDIR"
@@ -566,6 +631,21 @@ verify() {
 }
 
 main() {
+    if [[ "$COMMAND" == "update" ]]; then
+        # First, and before the session checks: the pull is worth doing from any
+        # terminal, and the installer this hands over to runs them itself.
+        update_checkout
+        # Hand over to the installer that was just pulled, for two reasons.  The
+        # new code is what knows where the new code goes — an old installer
+        # would not place a file this version has only just started shipping.
+        # And bash reads a script as it runs it, so carrying on inside a file
+        # that has changed underneath is a way to execute something nobody
+        # wrote.
+        info "Handing over to the installer that was just pulled."
+        echo
+        exec "$SOURCE_DIR/install.sh" reinstall "${PASSTHROUGH[@]+"${PASSTHROUGH[@]}"}"
+    fi
+
     check_session
     pick_python
     info "Using interpreter: $PYTHON"
@@ -615,4 +695,9 @@ ${GREEN}${BOLD}Done.${RESET}
 EOF
 }
 
-main "$@"
+# Run when executed, stay quiet when sourced — tests/test_install.sh sources this
+# to exercise update_checkout against a throwaway repository, which is worth
+# being able to do for the one command here that touches somebody's checkout.
+if [[ "${BASH_SOURCE[0]}" == "${0}" ]]; then
+    main "$@"
+fi

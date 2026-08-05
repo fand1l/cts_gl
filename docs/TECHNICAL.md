@@ -113,13 +113,48 @@ circletosearchEnabled true` + `reconfigure`) and starts
 `systemctl --user enable --now circle-to-search.service`.
 
 Flags: `-y` (don't ask before the package manager), `--no-deps` (never call it),
-`--force` (install even if the session checks fail).
+`--force` (install even if the session checks fail, and update over a checkout
+with local changes).
 
 The package names are a guess on every distribution but Fedora, so the installer
 **checks again afterwards** and names anything that is still missing rather than
 assuming the guess worked. On a package manager it does not know it prints the
 requirements in words — PyQt6 with QtDBus, Pillow, requests, and the KConfig and
 KPackage command line tools — and carries on.
+
+### Updating
+
+```bash
+./install.sh update               # git pull, then reinstall
+```
+
+`reinstall` has never had anything to do with git — it installs *this checkout*,
+whatever state it is in — so keeping up with the project was two commands and
+remembering the second one. `update` is both, and the order is the point:
+
+* **the pull happens first.** A pull that fails has removed nothing, so the
+  installation that was working is still the one running. Every refusal below
+  leaves the machine exactly as it was found;
+* **fast-forward only.** An update is not the moment to discover that a merge
+  wanted a decision, and refusing beats a conflicted checkout installed over the
+  top of a working one;
+* it stops before pulling if the checkout has **local changes** (`--force` skips
+  that check; git still refuses to overwrite a file you edited), if **HEAD is
+  detached**, if the branch **tracks nothing**, or if the directory is **not a
+  git checkout** at all — each with the command that fixes it;
+* it prints the **commits it pulled**, so "what did I just get" is answered
+  without going to look;
+* it **reinstalls even when nothing was pulled**, because that is the guarantee
+  being asked for: no file left over from a version that no longer ships it.
+
+Then it **`exec`s the installer it just pulled**. Two reasons, and the second is
+the one that bites: the new code is what knows where the new code goes — an old
+installer would not place a file this version has only just started shipping —
+and bash reads a script as it runs it, so carrying on inside a file that has
+changed underneath is a way to execute something nobody wrote.
+
+If the KWin script changed, `verify` says so at the end and names the fix; see
+below.
 
 ### Reinstalling
 

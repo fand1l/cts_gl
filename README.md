@@ -78,15 +78,27 @@ session, and a desktop entry.
 
 **Log out and back in** after installing, so KWin loads the script.
 
+Later, one command keeps it current:
+
+```bash
+./install.sh update
+```
+
 <details>
 <summary>Other commands</summary>
 
 ```bash
-./install.sh reinstall            # replace an existing installation
+./install.sh update               # git pull, then reinstall — settings are kept
+./install.sh reinstall            # reinstall this checkout, whatever state it is in
 ./install.sh reinstall --config   # …and wipe the settings too (it asks twice)
 ./uninstall.sh                    # remove it, keep your captures
 ./uninstall.sh --purge            # remove it and the captures
 ```
+
+`update` is the one to remember. `reinstall` has nothing to do with git — it
+installs whatever is in the folder you are standing in; `update` pulls first,
+and does it in the order that cannot leave you worse off: if the pull fails,
+nothing has been removed and the copy you had is still the one running.
 
 </details>
 
