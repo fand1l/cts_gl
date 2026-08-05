@@ -37,7 +37,7 @@ RELEASE_NAME = "better-version-control"
 #: Deliberately not derived from ``__version__`` for that reason.  It starts at
 #: 10000 so it is five digits from the first one, and 89,999 of them is more
 #: pushes than this will ever see.
-BUILD = 10000
+BUILD = 10001
 
 
 def version_label() -> str:

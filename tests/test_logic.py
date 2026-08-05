@@ -3417,22 +3417,27 @@ def _git(*args: str) -> str | None:
 
 
 # The one mistake a hand-maintained counter invites: pushing work without
-# bumping it, so nothing downstream can tell this copy from the deployed one —
+# bumping it, so nothing downstream can tell this copy from the published one —
 # and the downgrade guard, which is the whole reason the number exists, reads
 # them as the same build.
-_deployed = _git("show", "origin/deploy:src/circle_to_search/__init__.py")
-_found = re.search(r"^BUILD = (\d+)$", _deployed or "", re.MULTILINE)
-if _found is None:
-    print(f"note: no build number on origin/deploy to compare {BUILD} against")
-else:
-    _deployed_build = int(_found.group(1))
-    if _git("merge-base", "--is-ancestor", "HEAD", "origin/deploy") is not None:
-        # Already deployed: the same number is right, a lower one never is.
-        check("the build is not below the deployed one",
-              _deployed_build <= BUILD, f"{BUILD} vs {_deployed_build} on deploy")
+#
+# Both branches, because they catch different halves of "up by one on every
+# push": dev says whether this change bumped it, deploy whether the release
+# did.  Being *contained in* a branch is the one case where equal is right —
+# that is the same code, not a second one wearing its number.
+for _branch in ("dev", "deploy"):
+    _published = _git("show", f"origin/{_branch}:src/circle_to_search/__init__.py")
+    _found = re.search(r"^BUILD = (\d+)$", _published or "", re.MULTILINE)
+    if _found is None:
+        print(f"note: no build number on origin/{_branch} to compare {BUILD} against")
+        continue
+    _published_build = int(_found.group(1))
+    if _git("merge-base", "--is-ancestor", "HEAD", f"origin/{_branch}") is not None:
+        check(f"the build is not below the one on {_branch}",
+              _published_build <= BUILD, f"{BUILD} vs {_published_build} on {_branch}")
     else:
-        check("the build is above the deployed one",
-              _deployed_build < BUILD, f"{BUILD} vs {_deployed_build} on deploy")
+        check(f"the build is above the one on {_branch}",
+              _published_build < BUILD, f"{BUILD} vs {_published_build} on {_branch}")
 
 # --- recent captures -------------------------------------------------------
 from circle_to_search.history import RecentCaptures  # noqa: E402

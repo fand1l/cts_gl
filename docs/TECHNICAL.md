@@ -338,8 +338,15 @@ The order is the rest of the point:
 * a **detached HEAD** is no longer a problem: there is a branch to move to;
 * it prints the **commits it brought**, so "what did I just get" is answered
   without going to look;
-* it **reinstalls even when nothing arrived**, because that is the guarantee
-  being asked for: no file left over from a version that no longer ships it.
+* and it **stops when there is nothing to do**. Nothing arrived *and* the
+  version installed is the version here means the work is already done, and
+  doing it anyway — stopping the daemon, taking the installation out, putting
+  the identical thing back — is a minute of churn to arrive where it started.
+  When the two *differ* a reinstall is exactly the answer, and it happens
+  without asking: an installation from another branch, a half-finished one, or
+  one from before a file stopped shipping. So is any update that brought
+  commits, even if they left the version alone. `--force`, or plain
+  `reinstall`, puts it in again regardless.
 
 Then it **`exec`s the installer it just fetched**. Two reasons, and the second is
 the one that bites: the new code is what knows where the new code goes — an old

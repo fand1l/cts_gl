@@ -16,8 +16,9 @@
 #
 #   -y, --yes       assume yes for the package-manager step
 #   --no-deps       never call the package manager
-#   --force         install even if the session checks fail, and update over a
-#                   checkout with local changes
+#   --force         install even if the session checks fail, update over a
+#                   checkout with local changes, and reinstall a version that
+#                   is already the one installed
 #   --dev           update from 'dev' rather than 'deploy'
 #   --branch NAME   update from some other branch entirely
 #   --downgrade     allow update to install an older build — which erases the
@@ -503,18 +504,35 @@ update_checkout() {
       if those commits are not wanted."
     after="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
 
+    # The name, not just the number: "am I updating to the one I actually
+    # need" is answerable from a word and not from three digits.
+    local coming
+    coming="$(packaged_version)"
+
     if [[ "$before" == "$after" ]]; then
-        say "Already up to date — reinstalling anyway, so nothing stale is left behind."
+        # Nothing was fetched.  If what is installed is also what is here, then
+        # there is no work left for this command to do, and doing it anyway —
+        # stopping the daemon, taking the installation out, putting it back —
+        # is a minute of churn to arrive exactly where it started.
+        #
+        # Only when they *differ* is a reinstall the answer: an installation
+        # from another branch, a half-finished one, or one from before a file
+        # stopped shipping.
+        if [[ -n "$had" && "$coming" == "$had" ]] && (( ! FORCE )); then
+            say "Nothing to do — $coming is already installed."
+            printf '      %s\n' \
+                "Nothing arrived, and what is installed is what is here." \
+                "To put it in again regardless:  ./install.sh reinstall" \
+                "                          or:  ./install.sh update --force"
+            exit 0
+        fi
+        say "Nothing new arrived — installing this copy anyway."
     else
         say "New commits:"
         git -C "$SOURCE_DIR" --no-pager log --oneline --no-decorate "$before..$after" \
             | sed 's/^/      /'
     fi
 
-    # The name, not just the number: "am I updating to the one I actually
-    # need" is answerable from a word and not from three digits.
-    local coming
-    coming="$(packaged_version)"
     if [[ -n "$coming" ]]; then
         if [[ "$coming" == "$had" ]]; then
             say "Staying on $coming."

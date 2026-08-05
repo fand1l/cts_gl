@@ -96,9 +96,10 @@ check "the branch tracks the remote afterwards" \
       "$(git -C "$WORKSPACE/work" rev-parse --abbrev-ref '@{upstream}' 2>&1)"
 
 # --- nothing new ------------------------------------------------------------
+# Nothing arrived, but nothing is installed either, so there is still work.
 output="$(attempt "$WORKSPACE/work")"
-check "an unchanged checkout is still reinstalled" "$(says "$output" "Already up to date")" \
-      "$output"
+check "an unchanged checkout is installed anyway when nothing is installed" \
+      "$(says "$output" "Nothing new arrived")" "$output"
 
 # --- it follows deploy, not the branch you were on --------------------------
 git -C "$WORKSPACE/work" checkout -q main
@@ -294,7 +295,7 @@ check "the version line carries the build" \
       "$(says "$(SOURCE_DIR="$WORKSPACE/seed" packaged_version)" "9.9.9 (build 10005)")" \
       "$(SOURCE_DIR="$WORKSPACE/seed" packaged_version)"
 
-# --- argument handling ------------------------------------------------------
+# --- which branch the flags reach -------------------------------------------
 # The flags really do reach UPDATE_BRANCH.  Sourcing with arguments runs the
 # parsing and nothing else, since main is guarded.
 branch_for() {
@@ -309,6 +310,59 @@ check "--branch still reaches anywhere else" \
 check "--branch=NAME too" "$(yes_no "$(branch_for update --branch=wip)" "wip")" \
       "$(branch_for update --branch=wip)"
 
+# --- nothing to do ----------------------------------------------------------
+# Reported from a real machine: "update" on an up-to-date install stopped the
+# daemon, took the installation out and put the identical thing back.  A minute
+# of churn to arrive exactly where it started.  Nothing fetched *and* the same
+# version installed means there is no work, and the command has to say so
+# rather than invent some.
+git clone -q "$WORKSPACE/remote.git" "$WORKSPACE/current" 2>/dev/null
+git -C "$WORKSPACE/current" config user.email test@example.com
+git -C "$WORKSPACE/current" config user.name "Test"
+git -C "$WORKSPACE/current" checkout -q dev
+
+on_current() {
+    ( SOURCE_DIR="$WORKSPACE/current" UPDATE_BRANCH=dev FORCE="${1:-0}" \
+        update_checkout 2>&1 )
+}
+
+installed_as 10005          # the same as the tip of dev
+output="$(on_current)"
+check "an up-to-date install is left alone" "$(says "$output" "Nothing to do")" "$output"
+check "and it names what you are on" "$(says "$output" "9.9.9 (build 10005)")" "$output"
+check "and it does not install anything" \
+      "$(yes_no "$(says "$output" "About to install")" "0")" "$output"
+check "it offers the two ways to do it anyway" \
+      "$([[ "$output" == *"install.sh reinstall"* && "$output" == *"update --force"* ]] \
+        && echo 1 || echo 0)" "$output"
+
+output="$(on_current 1)"
+check "--force reinstalls it regardless" "$(says "$output" "Nothing new arrived")" "$output"
+check "and goes on to install" "$(says "$output" "Staying on")" "$output"
+
+# A different version installed is exactly when reinstalling *is* the answer:
+# another branch, a half-finished install, a file that stopped shipping.
+installed_as 10001
+output="$(on_current)"
+check "a different version installed is reinstalled" \
+      "$(says "$output" "Nothing new arrived")" "$output"
+installed_as ""
+printf 'not a version file\n' > "$APPDIR/circle_to_search/__init__.py"
+output="$(on_current)"
+check "and so is an installation it cannot read" \
+      "$(says "$output" "Nothing new arrived")" "$output"
+
+# Code changed but the version did not — a doc commit, a fix nobody renumbered.
+# Something arrived, so it goes in.
+installed_as 10005
+echo "six" > "$WORKSPACE/seed/marker"
+git -C "$WORKSPACE/seed" commit -qam "a commit that changes no version"
+git -C "$WORKSPACE/seed" push -q origin dev
+output="$(on_current)"
+check "new commits win over a matching version" "$(says "$output" "New commits")" "$output"
+check "and it says the version is not moving" "$(says "$output" "Staying on")" "$output"
+
+# --- argument handling ------------------------------------------------------
 passthrough_for() {
     ( source "$HERE/../install.sh" "$@" > /dev/null 2>&1; printf '%s' "${PASSTHROUGH[*]-}" )
 }

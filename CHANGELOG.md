@@ -38,6 +38,11 @@ comparable, and quietens the installer that reports them.
   wrote settings the older one has never heard of, and reading those back
   through older code fails in ways that look like a bug and are not. Captures
   and saved traces are kept, and it asks again before erasing anything.
+* **`update` stops when there is nothing to do.** Nothing fetched *and* the
+  version installed is the version here means the work is already done;
+  stopping the daemon to put the identical thing back was a minute of churn to
+  arrive where it started. It still reinstalls without asking when the two
+  differ, or when any commit arrived. `--force` does it regardless.
 * **The installer stopped shouting.** Five numbered steps and a tick each,
   instead of forty lines. What a step's commands print is held back and shown
   only if that step failed — its warnings are shown either way. The long
