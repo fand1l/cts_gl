@@ -304,24 +304,28 @@ package_for() {
         dnf:requests)      echo "python3-requests" ;;
         dnf:kconfig)       echo "kf6-kconfig-core" ;;
         dnf:kpackage)      echo "kf6-kpackage" ;;
+        dnf:zbar)          echo "zbar" ;;
 
         apt:qt)            echo "python3-pyqt6" ;;
         apt:pillow)        echo "python3-pil" ;;
         apt:requests)      echo "python3-requests" ;;
         apt:kconfig)       echo "libkf6config-bin" ;;
         apt:kpackage)      echo "libkf6package-bin" ;;
+        apt:zbar)          echo "zbar-tools" ;;
 
         pacman:qt)         echo "python-pyqt6" ;;
         pacman:pillow)     echo "python-pillow" ;;
         pacman:requests)   echo "python-requests" ;;
         pacman:kconfig)    echo "kconfig" ;;
         pacman:kpackage)   echo "kpackage" ;;
+        pacman:zbar)       echo "zbar" ;;
 
         zypper:qt)         echo "python3-qt6" ;;
         zypper:pillow)     echo "python3-Pillow" ;;
         zypper:requests)   echo "python3-requests" ;;
         zypper:kconfig)    echo "kconfig-tools" ;;
         zypper:kpackage)   echo "kpackage-tools" ;;
+        zypper:zbar)       echo "zbar" ;;
 
         *) echo "-" ;;
     esac
@@ -334,6 +338,7 @@ describe_requirement() {
         requests) echo "python-requests" ;;
         kconfig)  echo "the KConfig command line tools (kreadconfig6, kwriteconfig6)" ;;
         kpackage) echo "the KPackage command line tool (kpackagetool6)" ;;
+        zbar)     echo "zbar, for reading a QR code instead of uploading it" ;;
         *)        echo "$1" ;;
     esac
 }
@@ -344,6 +349,11 @@ missing_requirements() {
     has_module "requests" || echo requests
     command -v kwriteconfig6 >/dev/null 2>&1 || echo kconfig
     command -v kpackagetool6 >/dev/null 2>&1 || echo kpackage
+    # Optional, and named anyway: reading a QR code out of the selection is on
+    # by default, so shipping it with the decoder missing means the feature
+    # silently does nothing and the only place that says why is --doctor.  A
+    # feature that is on by default should arrive with what it needs.
+    command -v zbarimg >/dev/null 2>&1 || echo zbar
     return 0
 }
 
