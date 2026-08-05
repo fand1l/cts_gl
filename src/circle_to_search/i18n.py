@@ -311,6 +311,7 @@ _EN: dict[str, str] = {
         "Esc or right-click to cancel"
     ),
     "overlay.scanning": "Reading the text on screen",
+    "overlay.sending": "Sending it to Google Lens",
     "overlay.adjust": "drag the edges or use the arrow keys",
     "bar.search": "Search",
     "bar.copy": "Copy",
@@ -634,6 +635,7 @@ _UK: dict[str, str] = {
         "Esc або права кнопка — скасувати"
     ),
     "overlay.scanning": "Читаю текст на екрані",
+    "overlay.sending": "Надсилаю в Google Lens",
     "overlay.adjust": "тягніть за краї або стрілками",
     "bar.search": "Шукати",
     "bar.copy": "Копіювати",

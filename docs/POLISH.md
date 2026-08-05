@@ -44,7 +44,7 @@ that were not in the plan:
   `selection_mode` and tells the other screens, because *Shift* is already the
   way to change it for exactly one drag.
 
-## 2. Say that the sending is happening  ← next
+## 2. Say that the sending is happening  ← done
 
 Keep the overlay up with a small badge until the launcher page is on disk,
 instead of vanishing into a second of nothing.
@@ -58,7 +58,22 @@ Reuses the scanning badge, which already repaints only its own rectangle.  Plus
 a five-second dead-man's switch, so a failure elsewhere can never leave the
 overlay up for good.
 
-## 3. A magnifier while dragging  — **with a setting**
+**As built.**  One badge with two messages, because the screen is never being
+read and sent at the same time.  Four things worth writing down:
+
+* The selection stays *drawn* under it, undimmed.  "This is what is on its way"
+  is more use than an empty frozen screen, so what goes is only the things that
+  invite another click: the bar, the handles and the pixel readout.
+* Every way out is covered.  The five-second timer is the last resort; the
+  ordinary ends are the launcher landing on disk, the browser taking the focus,
+  and any key or click — a progress note is not a question.
+* `_busy` is cleared the moment the selection leaves, badge or no badge.  A
+  courtesy must never be able to lock the program out of the next capture.
+* Copying and saving deliberately do not get one.  They are finished by the time
+  the overlay would have closed, and a badge for them would be claiming to wait
+  for something that has already happened.
+
+## 3. A magnifier while dragging  — **with a setting**  ← next
 
 A small 4× loupe with a crosshair beside the pointer, while a drag or a handle
 is being moved.  Off by default is wrong for a thing this useful, but it is a

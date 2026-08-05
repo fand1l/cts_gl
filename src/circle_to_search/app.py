@@ -287,6 +287,11 @@ class CircleToSearchApp(QObject):
         self._calibration: CalibrationDialog | None = None
         self._welcome: WelcomeDialog | None = None
         self._tasks: set[QRunnable] = set()
+        #: Overlays that have already handed their selection over and are only
+        #: still on screen to say it is on its way.  Held here for the same
+        #: reason as `_tasks`: nothing else references them, and letting Python
+        #: collect one would take the badge off the screen it is drawn on.
+        self._sending: set[SelectionOverlay] = set()
         self._busy = False
 
         # Learning from misfires: the movement the KWin script last sent, and
@@ -714,8 +719,13 @@ class CircleToSearchApp(QObject):
         self._group = None
         self._desktop = None
         self._busy = False
-        if group is not None:
-            group.release()
+        if group is None:
+            return
+        # Whichever member owned the selection may still be showing the badge;
+        # release() leaves that one alone and it is kept here instead.
+        for overlay in group.overlays:
+            self._hold_if_sending(overlay)
+        group.release()
 
     @pyqtSlot(QRect, str)
     def _on_group_committed(self, rect: QRect, action: str) -> None:
@@ -727,6 +737,7 @@ class CircleToSearchApp(QObject):
             cropped = desktop.compose(rect)
         except ValueError as exc:
             log.error("could not compose the selection: %s", exc)
+            self._stop_sending()
             notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
             self._finish_opening()
             return
@@ -782,8 +793,30 @@ class CircleToSearchApp(QObject):
         overlay = self._overlay
         self._overlay = None
         self._busy = False
-        if overlay is not None:
+        if overlay is not None and not self._hold_if_sending(overlay):
             overlay.deleteLater()
+
+    def _hold_if_sending(self, overlay: SelectionOverlay) -> bool:
+        """Keep an overlay that is still saying "sending" alive and on screen.
+
+        ``_busy`` is cleared either way: the badge is a courtesy and must never
+        be able to lock the program out of the next capture, however long the
+        upload takes.
+        """
+        if not overlay.is_sending():
+            return False
+        self._sending.add(overlay)
+        overlay.dismissed.connect(lambda ref=overlay: self._drop_sending(ref))
+        return True
+
+    def _drop_sending(self, overlay: SelectionOverlay) -> None:
+        self._sending.discard(overlay)
+        overlay.deleteLater()
+
+    def _stop_sending(self) -> None:
+        """The launcher page is on disk (or it failed): the badge is done."""
+        for overlay in list(self._sending):
+            overlay.dismiss()
 
     def _on_cancelled(self) -> None:
         log.info("selection cancelled")
@@ -839,6 +872,10 @@ class CircleToSearchApp(QObject):
         ``text`` is whatever was already recognised inside the crop, so it is
         never recognised twice.
         """
+        if action != ACTION_SEARCH:
+            # Copying, saving and reading are finished by the time this returns.
+            # Only a search waits on anything, so any badge still up is stale.
+            self._stop_sending()
         if remember and self._settings.keep_recent:
             self._recent.add(cropped, text=text)
         if action == ACTION_TEXT and text:
@@ -887,6 +924,11 @@ class CircleToSearchApp(QObject):
         self, task: _UploadTask, url: str | None = None, error: str | None = None
     ) -> None:
         self._tasks.discard(task)
+        # Whatever happened, the overlay has nothing left to wait for: either
+        # the page is on disk and the browser is about to be handed it, or there
+        # is an error notification to read, and neither wants a frozen screen in
+        # front of it.
+        self._stop_sending()
         if error is not None:
             notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=error))
             return

@@ -366,6 +366,16 @@ Adjusting the box of a *lasso* selection drops the loop outline, because a loop
 that no longer matches its box would produce a wrong mask when `lasso_mask` is
 on. The selection simply becomes the rectangle you adjusted.
 
+**Searching does not make the overlay vanish.** Preparing the image and writing
+the launcher page take a moment, and the browser takes longer still, so the
+frozen screen stays up with the selection still lit and a badge saying
+*Надсилаю в Google Lens…* until the page is on disk — the same argument that
+produced the reading badge. It comes down by itself the moment the browser is
+handed the page, and it has a five-second dead-man's switch and a
+take-it-away-now on any key, click or focus change, so nothing that goes wrong
+downstream can leave the screen frozen. Copying and saving still close it
+outright: they are finished by the time it would have shut.
+
 Uncheck **Settings → General → Check the selection before sending it** to get
 the old send-on-release behaviour back.
 

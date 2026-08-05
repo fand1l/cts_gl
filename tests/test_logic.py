@@ -565,12 +565,14 @@ from circle_to_search.overlay import (  # noqa: E402
     ACTION_SAVE,
     ACTION_SEARCH,
     ACTION_TEXT,
+    BADGE_NONE,
     BAR_CANCEL,
     BAR_MODE_LASSO,
     BAR_MODE_RECT,
     BAR_TEXT_ALL,
     BAR_TEXT_BACK,
     BAR_TEXT_COPY,
+    SENDING_LIMIT_MS,
 )
 
 
@@ -1206,12 +1208,113 @@ check("scanning starts a timer", scan_overlay._scan_timer is not None)
 scan_overlay.render(QPixmap(scan_overlay.size()))
 check("the badge paints", True)
 scan_overlay.set_words(sample_words)
-check("words stop the timer", scan_overlay._scan_timer is None and not scan_overlay._scanning)
+check("words stop the timer",
+      scan_overlay._scan_timer is None and scan_overlay._badge == BADGE_NONE,
+      scan_overlay._badge)
 
 scan_overlay2 = make_overlay(MODE_RECTANGLE)
 scan_overlay2.set_scanning(True)
 scan_overlay2._cancel()
 check("finishing stops the timer too", scan_overlay2._scan_timer is None)
+
+# --- saying that the sending is happening ----------------------------------
+# The overlay used to disappear the instant Enter was pressed, and the browser
+# arrives a second or more later: in between there was nothing at all on
+# screen, which is the same complaint the loading badge was written for.
+sending, results = confirming()
+sending.show()
+sending.render(QPixmap(sending.size()))     # a selection waiting, no badge
+check("nothing is being sent yet", not sending.is_sending())
+press_key(sending, Qt.Key.Key_Return)
+check("Enter still sends the crop", ACTION_SEARCH in results, str(list(results)))
+check("and the overlay stays up saying so", sending.is_sending() and sending.isVisible(),
+      f"{sending.is_sending()} {sending.isVisible()}")
+check("the badge animates", sending._scan_timer is not None)
+check("with a dead-man's switch behind it",
+      sending._dismiss_timer is not None and sending._dismiss_timer.isActive())
+check("it does not outstay its welcome",
+      sending._dismiss_timer.interval() == SENDING_LIMIT_MS,
+      str(sending._dismiss_timer.interval()))
+check("the selection is still shown under it", sending._has_selection)
+sending.render(QPixmap(sending.size()))
+check("the sending badge paints", True)
+check("and nothing invites another click", sending._layout_buttons() == [],
+      str(sending._layout_buttons()))
+
+dismissals: list[bool] = []
+sending.dismissed.connect(lambda: dismissals.append(True))
+sending.dismiss()
+check("dismissing takes it down", not sending.is_sending() and not sending.isVisible(),
+      f"{sending.is_sending()} {sending.isVisible()}")
+check("and says so once", dismissals == [True], str(dismissals))
+check("the timers are stopped",
+      sending._scan_timer is None and sending._dismiss_timer is None)
+sending.dismiss()
+check("dismissing twice is not two dismissals", dismissals == [True], str(dismissals))
+
+# Nothing may be sent twice, whatever is pressed at it.
+again, results = confirming()
+press_key(again, Qt.Key.Key_Return)
+box_while_sending = QRect(again._selection_rect())
+drag(again, (400, 400), (500, 500))
+press_key(again, Qt.Key.Key_Return)
+check("a second Enter sends nothing more", list(results) == [ACTION_SEARCH], str(list(results)))
+check("and a drag redraws nothing", again._selection_rect() == box_while_sending,
+      str(again._selection_rect()))
+
+# Copying and saving are done by the time the overlay would have closed, so a
+# badge for them would be claiming to wait for something that already happened.
+for key, expected in ((Qt.Key.Key_C, ACTION_COPY), (Qt.Key.Key_S, ACTION_SAVE)):
+    instant, results = confirming()
+    press_key(instant, key)
+    check(f"{expected} closes the overlay outright",
+          not instant.is_sending() and not instant.isVisible(), f"{expected}")
+    check(f"and still {expected}s", list(results) == [expected], str(list(results)))
+
+# Esc cancels without any of it.
+quiet, results = confirming()
+press_key(quiet, Qt.Key.Key_Escape)
+check("cancelling never says sending", not quiet.is_sending())
+
+# Any key or click takes the badge away early: it is a progress note, not a
+# question, and the user may want the screen back at once.
+for how in ("key", "click"):
+    early, results = confirming()
+    press_key(early, Qt.Key.Key_Return)
+    if how == "key":
+        press_key(early, Qt.Key.Key_Escape)
+    else:
+        click(early, (400, 400))
+    check(f"a {how} dismisses the badge", not early.is_sending(), how)
+    check(f"and a {how} cancels nothing", list(results) == [ACTION_SEARCH], str(list(results)))
+
+# The browser stealing the focus is the sending having worked, not the user
+# walking away — the badge goes, the capture does not come back as cancelled.
+stolen, results = confirming()
+press_key(stolen, Qt.Key.Key_Return)
+stolen._accept_deactivation = True
+stolen.changeEvent(QEvent(QEvent.Type.ActivationChange))
+check("losing the focus ends the badge", not stolen.is_sending())
+check("and does not report a cancellation", "cancelled" not in results, str(list(results)))
+
+# Without the confirmation step the release sends straight away — and that path
+# has to say so too, or the whole point is missed by the people who turned the
+# confirmation off precisely because they want it quick.
+quick = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(shot)),
+    metrics,
+    screen,
+    dim_percent=40,
+    mode=MODE_RECTANGLE,
+    confirm=False,
+)
+quick.resize(screen.geometry().size())
+quick_sent: list[tuple] = []
+quick.selected.connect(lambda r, p: quick_sent.append((r, p)))
+drag(quick, (100, 100), (300, 250))
+check("send-on-release sends", len(quick_sent) == 1, str(quick_sent))
+check("and says so as well", quick.is_sending())
+quick.dismiss()
 
 # Painting every state has to work, since a crash here takes the capture with it.
 for state in ("hints", "selection"):
@@ -1336,6 +1439,15 @@ check("in global coordinates", committed[0][0] == QRect(1800, 200, 220, 100),
       str(committed[0][0]))
 check("with the action", committed[0][1] == ACTION_SEARCH, str(committed[0][1]))
 check("and does not also cancel", not group_cancelled, str(group_cancelled))
+
+# The one that owned the selection carries the badge; the rest go straight
+# away, and release() must leave the one that is still saying something.
+check("the owner says it is sending", left_overlay.is_sending())
+check("the neighbour just goes", not right_overlay.is_sending())
+group.release()
+check("release leaves the badge alone", left_overlay.is_sending())
+left_overlay.dismiss()
+check("and it comes down when it is told", not left_overlay.is_sending())
 
 # The selection still cannot leave the desktop altogether.
 left_overlay2 = group_overlay(left_shot, bounds)

@@ -116,9 +116,19 @@ _CURSORS = {
     "move": Qt.CursorShape.SizeAllCursor,
 }
 
-#: How often the "reading the screen…" badge ticks, and how many dots it has.
+#: How often the badge ticks, and how many dots it has.
 _SCAN_TICK_MS = 130
 _SCAN_DOTS = 4
+
+#: The two things the badge can be saying.
+BADGE_NONE = ""
+BADGE_SCANNING = "scanning"
+BADGE_SENDING = "sending"
+
+#: How long the overlay may stay up saying "sending" before it takes itself
+#: down.  A dead-man's switch and nothing else: whatever goes wrong between the
+#: release and the browser, a frozen screen that never lifts is worse.
+SENDING_LIMIT_MS = 5000
 
 #: Grabbing a word needs a lot more slack than the glyphs occupy: text is small,
 #: pointers are not, and being made to hit a five-pixel-tall word exactly is the
@@ -200,6 +210,8 @@ class SelectionOverlay(QWidget):
     #: The mode chip was clicked.  It is a setting, shown where it is wanted, so
     #: the choice is kept rather than lasting for one capture.
     mode_changed = pyqtSignal(str)
+    #: A "sending" overlay took itself down.  Whoever kept it alive can let go.
+    dismissed = pyqtSignal()
 
     #: Group mode only (see multiscreen.py): the selection in *global logical*
     #: pixels, which is the only space several overlays can agree about.
@@ -271,8 +283,8 @@ class SelectionOverlay(QWidget):
         self._deactivation_guard: Callable[[], bool] | None = None
 
         #: The text layer.  Recognition runs while the overlay is already up, so
-        #: these arrive late; until then `_scanning` drives a small badge saying
-        #: so, because several seconds of nothing looks like a hang.
+        #: these arrive late; until then the badge below says so, because
+        #: several seconds of nothing looks like a hang.
         self._words: list[PlacedWord] = []
         #: One rectangle per recognised line.  Both the lit-up backdrop and the
         #: "am I over text?" test work on these: a line is what a person aims
@@ -281,9 +293,16 @@ class SelectionOverlay(QWidget):
         #: Everything *except* the text, cached because it is filled on every
         #: repaint and a drag repaints constantly.
         self._text_dim_path: QPainterPath | None = None
-        self._scanning = False
+        #: The badge: what it says, which frame of the dots it is on, and the
+        #: timer driving it.  One mechanism for both the reading and the sending
+        #: message, because only one of them is ever true at a time.
+        self._badge = BADGE_NONE
         self._scan_phase = 0
         self._scan_timer: QTimer | None = None
+        #: Set once the selection has gone off to be uploaded.  The overlay
+        #: stays on screen saying so instead of vanishing into a second of
+        #: nothing, and `_dismiss_timer` guarantees it comes down again.
+        self._dismiss_timer: QTimer | None = None
         #: Indices into `_words`; the range between them is what is selected.
         self._text_anchor: int | None = None
         self._text_focus: int | None = None
@@ -377,6 +396,9 @@ class SelectionOverlay(QWidget):
 
     def _bar_entries(self) -> list[tuple[str, str, str, bool]]:
         """(action, label, key, primary) for the state the overlay is in."""
+        if self._finished:
+            # The selection has gone; the window is only still here to say so.
+            return []
         if self._showing_hint():
             # The current mode is the lit one; the other carries *Shift*, which
             # is what swapping to it for a single drag has always been.
@@ -551,21 +573,28 @@ class SelectionOverlay(QWidget):
 
     # ------------------------------------------------------------ text layer
 
-    def set_scanning(self, scanning: bool) -> None:
-        """Show (or stop showing) that the screen is being read."""
-        if scanning == self._scanning:
+    def _set_badge(self, badge: str) -> None:
+        if badge == self._badge:
             return
-        self._scanning = scanning
-        if scanning:
+        self._badge = badge
+        if badge and self._scan_timer is None:
             timer = QTimer(self)
             timer.setInterval(_SCAN_TICK_MS)
             timer.timeout.connect(self._tick_scan)
             timer.start()
             self._scan_timer = timer
-        elif self._scan_timer is not None:
+        elif not badge and self._scan_timer is not None:
             self._scan_timer.stop()
             self._scan_timer = None
         self.update()
+
+    def set_scanning(self, scanning: bool) -> None:
+        """Show (or stop showing) that the screen is being read."""
+        if self._badge == BADGE_SENDING:
+            # Already on its way.  What the recogniser has to say about a screen
+            # nobody is looking at any more is not worth taking the badge for.
+            return
+        self._set_badge(BADGE_SCANNING if scanning else BADGE_NONE)
 
     def _tick_scan(self) -> None:
         self._scan_phase = (self._scan_phase + 1) % _SCAN_DOTS
@@ -946,10 +975,11 @@ class SelectionOverlay(QWidget):
         painter.setPen(pen)
         painter.drawPath(self._selection_path())
 
-        if self._confirming and self._has_selection:
+        if self._confirming and self._has_selection and not self._finished:
             self._draw_handles(painter)
             self._draw_action_bar(painter)
-        self._draw_size_label(painter, selection)
+        if not self._finished:
+            self._draw_size_label(painter, selection)
         self._draw_badge(painter)
         painter.end()
 
@@ -1015,7 +1045,9 @@ class SelectionOverlay(QWidget):
         Drawn per *line* rather than per word: that is the shape a person reads
         and the shape they aim at, and there are ten times fewer of them.
         """
-        if not self._lines:
+        if not self._lines or self._finished:
+            # Once the selection has gone, nothing on the frozen screen can be
+            # taken any more, so nothing should still be marked as takeable.
             return
 
         wash = QColor(255, 255, 255, 26)
@@ -1071,10 +1103,17 @@ class SelectionOverlay(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(area)
 
+    def _badge_text(self) -> str:
+        if self._badge == BADGE_SENDING:
+            return tr("overlay.sending")
+        if self._badge == BADGE_SCANNING:
+            return tr("overlay.scanning")
+        return ""
+
     def _badge_rect(self) -> QRect:
-        """Where the "reading the screen" badge sits, in screen coordinates."""
+        """Where the badge sits, in screen coordinates."""
         metrics = self.fontMetrics()
-        width = metrics.horizontalAdvance(tr("overlay.scanning")) + 8 * _LABEL_PADDING
+        width = metrics.horizontalAdvance(self._badge_text()) + 8 * _LABEL_PADDING
         height = metrics.height() + 2 * _LABEL_PADDING
         return QRect(
             self._offset.x() + (self.width() - width) // 2,
@@ -1084,16 +1123,28 @@ class SelectionOverlay(QWidget):
         )
 
     def _draw_badge(self, painter: QPainter) -> None:
-        """Say that the screen is being read, and keep saying it.
+        """Say what is being waited for, and keep saying it.
 
         Several seconds of nothing happening looks like a hang; a line that
-        moves says "working" without asking for attention.
+        moves says "working" without asking for attention.  The same badge does
+        the reading of the screen and the sending of the selection, because only
+        one of the two is ever true at a time.
         """
-        if not self._scanning:
+        if not self._badge:
             return
         dots = "." * (self._scan_phase + 1)
         painter.setFont(self.font())
-        self._draw_box(painter, self._badge_rect(), tr("overlay.scanning") + dots)
+        box = self._badge_rect()
+        if self._badge == BADGE_SENDING:
+            # In the accent colour: this one is not a note about the screen, it
+            # is the last thing the overlay does before it goes away.
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(self._accent)
+            painter.drawRoundedRect(box, 4, 4)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(box, int(Qt.AlignmentFlag.AlignCenter), self._badge_text() + dots)
+            return
+        self._draw_box(painter, box, self._badge_text() + dots)
 
     def _draw_handles(self, painter: QPainter) -> None:
         """The grab squares on the edges and corners of the confirmed box."""
@@ -1233,6 +1284,11 @@ class SelectionOverlay(QWidget):
         painter.drawText(box, int(Qt.AlignmentFlag.AlignCenter), text)
 
     def mousePressEvent(self, event: QMouseEvent) -> None:
+        if self._finished:
+            # Nothing left to select: the selection has gone and the window is
+            # only still here to say so.  A press takes the badge away early.
+            self.dismiss()
+            return
         if event.button() == Qt.MouseButton.RightButton:
             self._cancel()
             return
@@ -1303,6 +1359,8 @@ class SelectionOverlay(QWidget):
         self._changed()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
+        if self._finished:
+            return
         position = event.position().toPoint()
         self._current = position
 
@@ -1351,7 +1409,7 @@ class SelectionOverlay(QWidget):
         self._changed()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
-        if event.button() != Qt.MouseButton.LeftButton:
+        if self._finished or event.button() != Qt.MouseButton.LeftButton:
             return
         if self._pressed_button is not None:
             armed = self._pressed_button
@@ -1407,9 +1465,11 @@ class SelectionOverlay(QWidget):
         if not self._confirm:
             if self.in_group:
                 global_box = selection.translated(self._origin)
-                self._finish(lambda: self.committed.emit(global_box, ACTION_SEARCH))
+                self._finish(
+                    lambda: self.committed.emit(global_box, ACTION_SEARCH), sending=True
+                )
                 return
-            self._finish(lambda: self.selected.emit(physical, polygon))
+            self._finish(lambda: self.selected.emit(physical, polygon), sending=True)
             return
 
         # Nothing is sent yet: hold the selection, let it be adjusted, and wait
@@ -1433,6 +1493,11 @@ class SelectionOverlay(QWidget):
 
     def keyPressEvent(self, event: QKeyEvent) -> None:
         key = event.key()
+        if self._finished:
+            # Only the badge is left.  Any key takes it away — it is a progress
+            # note, not something to be answered.
+            self.dismiss()
+            return
         if key in (Qt.Key.Key_Escape, Qt.Key.Key_Q):
             # One Esc drops the text selection, so a mis-drag does not throw the
             # whole capture away; the next one closes the overlay.
@@ -1494,6 +1559,16 @@ class SelectionOverlay(QWidget):
         super().keyPressEvent(event)
 
     def changeEvent(self, event: QEvent) -> None:
+        if (
+            event.type() == QEvent.Type.ActivationChange
+            and self.is_sending()
+            and not self.isActiveWindow()
+        ):
+            # The browser came up first.  Its window is the thing that says the
+            # sending worked, so the badge has nothing left to add.
+            log.debug("something else took the focus, the badge is done")
+            self.dismiss()
+            return
         if (
             event.type() == QEvent.Type.ActivationChange
             and self._accept_deactivation
@@ -1689,12 +1764,16 @@ class SelectionOverlay(QWidget):
             physical.x(),
             physical.y(),
         )
+        # Only searching goes anywhere: copying and saving are done by the time
+        # the overlay would have closed, and a badge for them would be a lie.
+        sending = action == ACTION_SEARCH
+
         if self.in_group:
             # The app cannot use a per-screen crop box here: the selection may
             # cover parts of two screenshots at two different scales, so it is
             # handed over in global logical pixels and stitched afterwards.
             global_box = self._box.translated(self._origin)
-            self._finish(lambda: self.committed.emit(global_box, action))
+            self._finish(lambda: self.committed.emit(global_box, action), sending=sending)
             return
 
         signals = {
@@ -1702,7 +1781,7 @@ class SelectionOverlay(QWidget):
             ACTION_SAVE: self.save_requested,
         }
         signal = signals.get(action, self.selected)
-        self._finish(lambda: signal.emit(physical, polygon))
+        self._finish(lambda: signal.emit(physical, polygon), sending=sending)
 
     def _reset_selection(self) -> None:
         self._text_anchor = None
@@ -1721,12 +1800,49 @@ class SelectionOverlay(QWidget):
     def _cancel(self) -> None:
         self._finish(self.cancelled.emit)
 
-    def _finish(self, emit: Callable[[], None]) -> None:
+    def _finish(self, emit: Callable[[], None], *, sending: bool = False) -> None:
         if self._finished:
             return
         self._finished = True
-        self.set_scanning(False)
         self.releaseKeyboard()
+
+        if sending:
+            # Do not vanish into a second of nothing.  Preparing the image and
+            # writing the launcher page take a moment, the browser takes longer,
+            # and an overlay that disappears before anything appears is
+            # indistinguishable from one that threw the selection away.  The
+            # same argument as for the reading badge, which the user made first.
+            # The selection stays drawn, undimmed, under the badge: "this is
+            # what is on its way" is more use than an empty frozen screen.  What
+            # goes is everything that invites another click.
+            self._set_badge(BADGE_SENDING)
+            self.setCursor(Qt.CursorShape.BusyCursor)
+            self.update()
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self.dismiss)
+            timer.start(SENDING_LIMIT_MS)
+            self._dismiss_timer = timer
+            emit()
+            return
+
+        self._set_badge(BADGE_NONE)
         self.hide()
         emit()
         self.close()
+
+    def is_sending(self) -> bool:
+        """True while the overlay is up only to say the selection is on its way."""
+        return self._badge == BADGE_SENDING
+
+    def dismiss(self) -> None:
+        """Take a sending overlay down: the launcher is up, or time is up."""
+        if not self.is_sending():
+            return
+        if self._dismiss_timer is not None:
+            self._dismiss_timer.stop()
+            self._dismiss_timer = None
+        self._set_badge(BADGE_NONE)
+        self.hide()
+        self.close()
+        self.dismissed.emit()

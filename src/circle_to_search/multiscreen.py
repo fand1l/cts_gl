@@ -204,16 +204,28 @@ class OverlayGroup(QObject):
         self.cancelled.emit()
 
     def _close_others(self) -> None:
-        """Take the rest of the group down with the one that finished."""
+        """Take the rest of the group down with the one that finished.
+
+        The one that finished may still be up, showing that its selection is on
+        its way; that one takes itself down when the sending is under way.
+        """
         for overlay in self._overlays:
             overlay.set_deactivation_guard(None)
-            overlay.close()
+            if not overlay.is_sending():
+                overlay.close()
 
     def release(self) -> None:
-        """Drop every overlay.  Safe after either outcome."""
+        """Drop every overlay.  Safe after either outcome.
+
+        An overlay still saying "sending" is left on screen and left alive: the
+        caller has taken it over by then (see ``_hold_if_sending``), and closing
+        it here would take the badge away the moment the selection left.
+        """
         self._done = True
         for overlay in self._overlays:
             overlay.set_deactivation_guard(None)
+            if overlay.is_sending():
+                continue
             overlay.close()
             overlay.deleteLater()
         self._overlays = []
