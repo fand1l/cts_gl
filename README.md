@@ -40,9 +40,11 @@ That is the whole idea. Everything below is what happens around it.
   you need to read is behind the window you have to type into.
 * **The same area as last time**, to the pixel — for watching a number that
   changes, where a rectangle redrawn by hand is never quite the same one.
-* **A QR code is read here, not sent anywhere.** Circle one and the bar offers
-  to open the link in it before it offers Google a picture of it — decoded on
-  your machine, in about a millisecond.
+* **A QR code gets a button on it.** Any code on the frozen screen is read
+  where it sits and wears a small button with the site it points at — press it
+  and you are there. Decoded on your machine, in about a millisecond, and
+  nothing about it is uploaded. Two codes on screen get two buttons, because
+  one button cannot say which it means.
 * **Pick a colour off the screen.** The screen is already frozen and already
   magnified under your pointer; click a pixel and its hex is in the clipboard.
 * **Select the text on your frozen screen**, then search for the words
@@ -153,6 +155,7 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 |---|---|
 | **Drag** | draw a loop, or hold *Shift* for a rectangle |
 | **Arrow keys** | aim without a mouse; *Space* for one corner, then the other |
+| **Press a code** | any QR code on screen wears a button with where it goes |
 | **Click a window** | take exactly that window |
 | **Drag across text** | take the text instead of a picture |
 | **The same area**, or *R* | exactly where you selected last time |
@@ -179,7 +182,6 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 | **Copy** | *C* | to the clipboard |
 | **Save** | *S* | a PNG in Pictures |
 | **Pin** | *P* | leave it on screen, above everything |
-| **Open the link** | *Enter* | when the selection holds a QR code |
 | **Black out** | *B* | paint over anything that must not leave |
 | **Cancel** | *Esc* | forget it |
 

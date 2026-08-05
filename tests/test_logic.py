@@ -3822,7 +3822,6 @@ check("with the version it is really running",
 # the code to a third party on the way, which for a Wi-Fi password or a payment
 # link is worse than useless.
 from circle_to_search import qr  # noqa: E402
-from circle_to_search.overlay import ACTION_QR  # noqa: E402
 
 _codes = qr.parse(
     "QR-Code:https://example.com/a:b?q=1\nEAN-13:4006381333931\nnot a line\n:\nQR-Code:"
@@ -3911,66 +3910,132 @@ with tempfile.TemporaryDirectory() as tmp:
         (fake_dir / manager).unlink()
 os.environ["PATH"] = original_path
 
-# What the bar does about it.  The button leads and takes Enter with it —
-# Search stays, because "what else is on this shelf label" is a fair question.
+# What the screen does about it.  A button per code, on the code — one in the
+# action bar would have to say "Open the link" about whichever one it decided to
+# mean, and nothing stops a screen from holding two.
 
 
-def with_estimate() -> SelectionOverlay:
-    """A confirmed selection on an overlay that has asked about its crop."""
-    view = SelectionOverlay(
-        QPixmap.fromImage(pil_to_qimage(shot)),
-        metrics,
-        screen,
-        dim_percent=40,
-        mode=MODE_RECTANGLE,
-        confirm=True,
-        max_side=1000,
+def screen_code(payload: str, left: int = 100, top: int = 120, side: int = 240) -> qr.Code:
+    """A code at a place, in physical pixels of the screenshot (2x here)."""
+    return qr.Code(
+        kind="QR-Code",
+        payload=payload,
+        points=((left, top), (left, top + side), (left + side, top + side), (left + side, top)),
     )
-    view.resize(screen.geometry().size())
-    drag(view, (100, 100), (300, 250))
-    view._ask_for_upload_size()
-    return view
 
 
-coded = with_estimate()
-check("no button until something is decoded",
-      next(placed.action for placed in coded._layout_buttons()) == ACTION_SEARCH)
-coded.set_code(
-    coded._estimated_for, "QR-Code", "https://example.com/x", "https://example.com/x"
-)
-_bar = [placed.action for placed in coded._layout_buttons()]
-check("a decoded link leads the bar", _bar[0] == ACTION_QR, str(_bar))
-check("and Search is still on it", ACTION_SEARCH in _bar, str(_bar))
-check("the button says what it will do",
-      button_named(coded, ACTION_QR).label == "Open the link",
-      button_named(coded, ACTION_QR).label)
-check("and Enter now means that", coded._primary_action() == ACTION_QR)
+chipped = make_overlay(MODE_RECTANGLE)
+check("no chips until something is found", chipped.chips() == [])
+chipped.set_codes([screen_code("https://uk.m.wikipedia.org/")])
+_chips = chipped.chips()
+check("a code becomes a chip", len(_chips) == 1, str(_chips))
+check("labelled with the host, not the URL", _chips[0].label == "uk.m.wikipedia.org",
+      _chips[0].label)
+check("and it knows it is a link", _chips[0].link == "https://uk.m.wikipedia.org/")
+# Physical to logical: the fixture is a 2x screen, so a 240 px code is 120 wide.
+check("placed where the code is", _chips[0].code == QRect(50, 60, 120, 120),
+      str(_chips[0].code))
+# A code big enough to hold the pill wears it in the middle, like the phone.
+roomy = make_overlay(MODE_RECTANGLE)
+roomy.set_codes([screen_code("https://ex.io/", left=100, top=120, side=900)])
+check("a roomy code wears the pill in the middle",
+      roomy.chips()[0].code.contains(roomy.chips()[0].pill),
+      f"{roomy.chips()[0].pill} vs {roomy.chips()[0].code}")
 
-# A code that is not a link is worth copying, not opening.
-plain = with_estimate()
-plain.set_code(plain._estimated_for, "QR-Code", "WIFI:S=home;T=WPA;P=hunter2;;", "")
-check("a code that is not a link says copy",
-      button_named(plain, ACTION_QR).label == "Copy the code",
-      button_named(plain, ACTION_QR).label)
+# A code with no corners cannot be pointed at, so it gets no button: a chip in
+# the middle of the screen would be pointing at nothing.
+unplaced = make_overlay(MODE_RECTANGLE)
+unplaced.set_codes([qr.Code(kind="QR-Code", payload="https://example.com/")])
+check("a code with no corners gets no chip", unplaced.chips() == [], str(unplaced.chips()))
 
-# The same staleness rule the byte count follows: an answer about a box that
-# has been dragged somewhere else would offer a link nobody selected.
-stale_code = with_estimate()
-stale_code.set_code(QRect(1, 2, 3, 4), "QR-Code", "https://example.com/no", "…")
-check("an answer about another crop is dropped", stale_code.code() == ("", ""),
-      str(stale_code.code()))
+# A code too small to hold its own pill wears it underneath instead.
+small = make_overlay(MODE_RECTANGLE)
+small.set_codes([screen_code("https://example.com/", left=400, top=400, side=60)])
+_small = small.chips()[0]
+check("a small code wears the pill below it", _small.pill.top() > _small.code.bottom(),
+      f"{_small.pill} vs {_small.code}")
 
-moved = with_estimate()
-moved.set_code(moved._estimated_for, "QR-Code", "https://example.com/y", "https://example.com/y")
-press_key(moved, Qt.Key.Key_Right)
-check("and moving the box takes the button away again", moved.code() == ("", ""),
-      str(moved.code()))
-check("so Enter goes back to searching", moved._primary_action() == ACTION_SEARCH)
+# Not a link: the pill says the payload and pressing it will copy.
+wifi = make_overlay(MODE_RECTANGLE)
+wifi.set_codes([screen_code("WIFI:S=home;T=WPA;P=hunter2;;")])
+check("a code that is not a link says so", wifi.chips()[0].link == "")
+check("and shows what it holds", wifi.chips()[0].label.startswith("WIFI:S=home"),
+      wifi.chips()[0].label)
+# A code can carry any URI at all, and handing an arbitrary one to xdg-open on
+# a press is not something to do on the strength of a colon.
+for _uri in ("WIFI:S=x;;", "geo:50.45,30.52", "bitcoin:1abc", "smsto:+380"):
+    _one = make_overlay(MODE_RECTANGLE)
+    _one.set_codes([screen_code(_uri)])
+    check(f"{_uri.split(':')[0]} is copied, not opened", _one.chips()[0].link == "",
+          _one.chips()[0].link)
+_mail = make_overlay(MODE_RECTANGLE)
+_mail.set_codes([screen_code("http://example.com/plain")])
+check("but plain http is opened", _mail.chips()[0].link == "http://example.com/plain")
+long_one = make_overlay(MODE_RECTANGLE)
+long_one.set_codes([screen_code("x" * 200)])
+check("a payload nobody would read off a pill is cut",
+      long_one.chips()[0].label.endswith("…") and len(long_one.chips()[0].label) <= 34,
+      long_one.chips()[0].label)
+
+# Two codes: both get one, and pills that would overlap are pushed apart.
+two = make_overlay(MODE_RECTANGLE)
+two.set_codes([
+    screen_code("https://example.com/one", left=100, top=120, side=240),
+    screen_code("https://example.com/two", left=120, top=140, side=240),
+])
+check("two codes, two chips", len(two.chips()) == 2, str(len(two.chips())))
+check("and the pills do not overlap",
+      not two.chips()[0].pill.intersects(two.chips()[1].pill),
+      f"{two.chips()[0].pill} vs {two.chips()[1].pill}")
+
+# Pressing one is the whole gesture.
+pressed = make_overlay(MODE_RECTANGLE)
+pressed.set_codes([screen_code("https://uk.m.wikipedia.org/")])
+taken: list[tuple[str, str]] = []
+pressed.code_activated.connect(lambda payload, link: taken.append((payload, link)))
+chip = pressed.chips()[0]
+click(pressed, (chip.pill.center().x(), chip.pill.center().y()))
+check("pressing a chip takes the code",
+      taken == [("https://uk.m.wikipedia.org/", "https://uk.m.wikipedia.org/")], str(taken))
+check("and nothing was selected by pressing it", not pressed._has_selection)
+
+# Enter takes the only one; with two it is ambiguous and means nothing here.
+alone = make_overlay(MODE_RECTANGLE)
+alone.set_codes([screen_code("https://example.com/only")])
+by_key: list[str] = []
+alone.code_activated.connect(lambda payload, _link: by_key.append(payload))
+press_key(alone, Qt.Key.Key_Return)
+check("Enter takes the only code", by_key == ["https://example.com/only"], str(by_key))
+
+ambiguous = make_overlay(MODE_RECTANGLE)
+ambiguous.set_codes([
+    screen_code("https://example.com/one", left=100, top=120, side=240),
+    screen_code("https://example.com/two", left=600, top=120, side=240),
+])
+never: list[str] = []
+ambiguous.code_activated.connect(lambda payload, _link: never.append(payload))
+press_key(ambiguous, Qt.Key.Key_Return)
+check("but not one of two", never == [], str(never))
+
+# They belong to the untouched screen: once anything is being selected the bar
+# is what is being read, and buttons scattered behind it are noise.
+busy = make_overlay(MODE_RECTANGLE)
+busy.set_codes([screen_code("https://example.com/x")])
+check("chips are showing while nothing is taken", busy._showing_chips())
+drag(busy, (500, 500), (700, 650))
+check("and gone once something is", not busy._showing_chips())
+check("but the repaint knows where they were",
+      any(chip.pill.intersects(rect) for chip in busy.chips()
+          for rect in busy._floating_rects()),
+      str(busy._floating_rects()))
+busy.render(QPixmap(busy.size()))
+chipped.render(QPixmap(chipped.size()))
+check("both states paint", True)
 
 for code in ("en", "uk"):
     i18n.set_language(code)
-    for key in ("bar.qr_open", "bar.qr_copy", "notify.qr_copied", "settings.qr",
-                "settings.qr.hint", "settings.qr.missing"):
+    for key in ("notify.qr_copied", "settings.qr", "settings.qr.hint",
+                "settings.qr.missing"):
         check(f"{code}: {key} has words", i18n.tr(key) != key, i18n.tr(key)[:40])
 i18n.set_language("en")
 

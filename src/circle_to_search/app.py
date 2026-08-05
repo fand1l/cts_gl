@@ -80,7 +80,6 @@ from .notify import URGENCY_CRITICAL, notify, notify_error, supports_actions
 from .overlay import (
     ACTION_COPY,
     ACTION_PIN,
-    ACTION_QR,
     ACTION_SAVE,
     ACTION_SEARCH,
     ACTION_TEXT,
@@ -307,7 +306,7 @@ class _EstimateTask(QRunnable):
 
 
 class _QrSignals(QObject):
-    finished = pyqtSignal(QRect, str, str)
+    finished = pyqtSignal(list)
 
 
 class _QrTask(QRunnable):
@@ -320,38 +319,24 @@ class _QrTask(QRunnable):
     too late to offer them anything.
     """
 
-    def __init__(self, image: Image.Image, crop: QRect, redactions: list[QRect] | None = None):
+    def __init__(self, image: Image.Image):
         super().__init__()
         self.setAutoDelete(False)
         self.signals = _QrSignals()
         self._image = image
-        self._crop = QRect(crop)
-        self._redactions = [QRect(rect) for rect in redactions or []]
 
     @pyqtSlot()
     def run(self) -> None:
-        box = (
-            self._crop.x(),
-            self._crop.y(),
-            self._crop.x() + self._crop.width(),
-            self._crop.y() + self._crop.height(),
-        )
         try:
-            cropped = self._image.crop(box)
-            # Whatever has been blacked out is not in the picture that would be
-            # sent, so it must not be in the code that is read out of it either
-            # — a QR code half covered is not a code the user offered up.
-            cropped = black_out(cropped, rects_to_crop_space(self._redactions, self._crop))
-            found = qr.best(qr.decode(cropped))
+            found = qr.decode(self._image)
         except Exception:
-            # Nothing depends on this: without an answer the bar simply does not
-            # grow a button.  Answered with nothing so the caller can let go.
-            log.debug("could not decode the crop", exc_info=True)
-            self.signals.finished.emit(self._crop, "", "")
+            # Nothing depends on this: without an answer no chips appear, which
+            # is the same as a screen with no codes on it.  Answered with
+            # nothing so the caller can let go of the task either way.
+            log.debug("could not scan the screen for codes", exc_info=True)
+            self.signals.finished.emit([])
             return
-        self.signals.finished.emit(
-            self._crop, found.kind if found else "", found.payload if found else ""
-        )
+        self.signals.finished.emit([code for code in found if code.located])
 
 
 class _OpenSignals(QObject):
@@ -446,9 +431,6 @@ class CircleToSearchApp(QObject):
         #: everything else here: a pin is meant to still be there in ten
         #: minutes, long after the capture that made it was forgotten.
         self._pins: set[PinnedCrop] = set()
-        #: The payload decoded out of the crop that is on screen, and the link
-        #: in it if it is one.  See _finish_qr.
-        self._pending_code: tuple[str, str] = ("", "")
         self._busy = False
 
         # Learning from misfires: the movement the KWin script last sent, and
@@ -887,6 +869,7 @@ class CircleToSearchApp(QObject):
         overlay.text_selected.connect(self._on_text_selected)
         overlay.text_search_requested.connect(self._on_text_search)
         overlay.colour_picked.connect(self._on_colour_picked)
+        overlay.code_activated.connect(self._on_code_activated)
         overlay.mode_changed.connect(self._on_mode_changed)
         overlay.estimate_requested.connect(
             lambda crop, ref=overlay: self._estimate_upload(ref, capture.image, crop)
@@ -917,6 +900,7 @@ class CircleToSearchApp(QObject):
         # so a capture that failed cannot leave a trace behind for the next one.
         self._opening_trace = trace
         self._start_reading(overlay, capture.image)
+        self._start_scanning_codes(overlay, capture.image)
         QTimer.singleShot(500, lambda: self._check_overlay_geometry(screen))
         try:
             overlay.show_on_screen()
@@ -983,12 +967,14 @@ class CircleToSearchApp(QObject):
             overlay.text_selected.connect(self._on_text_selected)
             overlay.text_search_requested.connect(self._on_text_search)
             overlay.colour_picked.connect(self._on_colour_picked)
+            overlay.code_activated.connect(self._on_code_activated)
             overlay.mode_changed.connect(self._on_mode_changed)
         self._group = group
         self._desktop = desktop
         self._opening_trace = trace
         for overlay, shot in zip(overlays, shots, strict=True):
             self._start_reading(overlay, shot.image)
+            self._start_scanning_codes(overlay, shot.image)
         try:
             group.show()
         except Exception as exc:
@@ -1211,10 +1197,6 @@ class CircleToSearchApp(QObject):
         if action == ACTION_TEXT:
             self._extract_text(cropped)
             return
-        if action == ACTION_QR and self._pending_code[0]:
-            self._use_code(*self._pending_code)
-            return
-
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
 
@@ -1313,6 +1295,44 @@ class CircleToSearchApp(QObject):
             log.debug("could not remove %s: %s", path, exc)
 
     # ------------------------------------------------ optional text (OCR)
+
+    def _start_scanning_codes(self, overlay: SelectionOverlay, image: Image.Image) -> None:
+        """Look for codes on the *whole* frozen screen, as it opens.
+
+        Not on the selection: a code is a thing you point at rather than frame,
+        and framing one you were only ever going to open is three gestures too
+        many.  Off the GUI thread, and nothing waits for it — the chips appear
+        when they appear, which for a screenful is a few tens of milliseconds.
+        """
+        if not self._settings.qr_enabled or not qr.is_available():
+            return
+        task = _QrTask(image)
+        task.signals.finished.connect(
+            lambda codes, ref=task, target=overlay: self._codes_ready(ref, target, codes)
+        )
+        self._tasks.add(task)
+        QThreadPool.globalInstance().start(task)
+
+    def _codes_ready(
+        self, task: QRunnable, overlay: SelectionOverlay, codes: list[qr.Code]
+    ) -> None:
+        self._tasks.discard(task)
+        if not codes:
+            return
+        # The overlay may have closed while zbar worked.  Handing chips to the
+        # *next* one would put them where nothing is.
+        if overlay is not self._overlay and overlay not in self._group_overlays():
+            log.debug("the overlay closed before the codes were ready")
+            return
+        overlay.set_codes(codes)
+
+    @pyqtSlot(str, str)
+    def _on_code_activated(self, payload: str, link: str) -> None:
+        """A chip on a code was pressed."""
+        self._release_overlay()
+        self._release_group()
+        self._finish_opening()
+        self._use_code(payload, link)
 
     def _start_reading(self, overlay: SelectionOverlay, image: Image.Image) -> None:
         """Begin reading the frozen screen, if the user has allowed it.
@@ -1470,7 +1490,6 @@ class CircleToSearchApp(QObject):
         13-digit barcode — goes to the clipboard, because there is nothing
         sensible to open and it is still the thing that was asked for.
         """
-        self._pending_code = ("", "")
         if link:
             log.info("opening the link out of the code instead of uploading it")
             self._open_url(link)

@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from PyQt6.QtCore import (
     QElapsedTimer,
@@ -83,6 +84,7 @@ from .i18n import tr
 from .imageops import scaled_size
 from .logging_setup import get_logger
 from .ocr import Word, words_to_text
+from .qr import Code
 from .stroke import (
     GLOW_RADIUS,
     LINE_WIDTH,
@@ -249,9 +251,13 @@ ACTION_SAVE = "save"
 #: _commit like the other three, so the redaction and the lasso mask apply to it
 #: exactly as they do to an upload.
 ACTION_PIN = "pin"
-#: The crop turned out to hold a QR code, so there is a better answer than
-#: sending a picture of it to Google.
-ACTION_QR = "qr"
+#: How much bigger than its text the chip's pill is, and how far it will sit
+#: from the code's edge when it does not fit inside it.
+_CHIP_PAD_X = 14
+_CHIP_PAD_Y = 7
+_CHIP_GAP = 8
+#: A label longer than this is a payload nobody reads off a pill.
+_CHIP_CHARS = 34
 #: Only the tray's recent list uses this one now: on the overlay the text is
 #: taken by dragging across it, not by asking for a whole region to be read.
 ACTION_TEXT = "text"
@@ -275,6 +281,77 @@ class PlacedWord:
     text: str
     rect: QRect
     line: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class CodeChip:
+    """A QR code found on the frozen screen, and the button sitting on it.
+
+    The button is *on the code* rather than in the action bar, because a bar
+    button cannot say which code it means and there is nothing stopping a
+    screen from holding two.  Pointing at one is the whole answer.
+    """
+
+    payload: str
+    #: The payload when it is a link, empty when it is anything else.  Decides
+    #: both what the chip says and what pressing it does.
+    link: str
+    label: str
+    #: Where the code is, in the coordinates the overlay draws in.
+    code: QRect
+    #: Where the pill is.  Centred on the code, or just under it when the code
+    #: is too small to hold it.
+    pill: QRect
+
+
+def _openable(payload: str) -> str:
+    """The payload when it is a link worth opening, and empty otherwise.
+
+    Narrower than :func:`looks_like_url` on purpose.  A QR code can carry any
+    URI at all — ``WIFI:``, ``geo:``, ``bitcoin:``, ``smsto:`` — and handing an
+    arbitrary one to xdg-open on a press is not something to do on the strength
+    of a colon.  http and https only; everything else is copied, which is still
+    what was asked for and cannot surprise anybody.
+    """
+    link = looks_like_url(payload)
+    return link if urlparse(link).scheme in ("http", "https") else ""
+
+
+def _chip_label(payload: str, link: str) -> str:
+    """What the pill says: the host for a link, the payload for anything else.
+
+    The host, not the URL, because that is the part a person reads to decide
+    whether they want it — and it is what the phone shows.
+    """
+    if link:
+        host = urlparse(link).netloc or link
+        return host.removeprefix("www.")
+    text = payload.strip().replace("\n", " ")
+    return text if len(text) <= _CHIP_CHARS else text[: _CHIP_CHARS - 1] + "…"
+
+
+def _spread(chips: list[CodeChip]) -> list[CodeChip]:
+    """Push overlapping pills apart, downwards, in the order they were found.
+
+    Two codes side by side put their pills in the same band, and a pill half
+    under another pill is a button nobody can press with confidence.
+    """
+    placed: list[CodeChip] = []
+    for chip in chips:
+        pill = QRect(chip.pill)
+        for other in placed:
+            if pill.intersects(other.pill):
+                pill.moveTop(other.pill.bottom() + _CHIP_GAP)
+        placed.append(
+            CodeChip(
+                payload=chip.payload,
+                link=chip.link,
+                label=chip.label,
+                code=chip.code,
+                pill=pill,
+            )
+        )
+    return placed
 
 
 class SelectionOverlay(QWidget):
@@ -307,6 +384,9 @@ class SelectionOverlay(QWidget):
     #: screenshot.  Answering means really encoding a JPEG, which is far too slow
     #: for the GUI thread, so the overlay asks and carries on drawing.
     estimate_requested = pyqtSignal(QRect)
+    #: A chip on a code was pressed: (payload, link).  The link is empty
+    #: when the code is not one, and then the payload is for the clipboard.
+    code_activated = pyqtSignal(str, str)
     #: A "sending" overlay took itself down.  Whoever kept it alive can let go.
     dismissed = pyqtSignal()
 
@@ -361,9 +441,7 @@ class SelectionOverlay(QWidget):
         #: the application off the GUI thread, on the same ask as the byte
         #: count, and dropped the same way when it comes back about a crop that
         #: has since been dragged somewhere else.
-        self._code = ""
-        self._code_kind = ""
-        self._code_link = ""
+        self._chips: list[CodeChip] = []
         self._estimated_marks: list[QRect] = []
         #: Bumped whenever anything that changes the answer changes — the crop,
         #: or what is blacked out inside it.  An answer that was asked for
@@ -639,28 +717,6 @@ class SelectionOverlay(QWidget):
             ]
         if self._confirming and self._has_selection:
             count = len(self._redactions)
-            if self._code:
-                # A code in the crop has a better answer than a picture of it,
-                # so it leads and takes *Enter* with it — Search is still there,
-                # because "what else is on this shelf label" is a fair question.
-                return [
-                    (
-                        ACTION_QR,
-                        tr("bar.qr_open") if self._code_link else tr("bar.qr_copy"),
-                        "Enter",
-                        True,
-                    ),
-                    (ACTION_SEARCH, tr("bar.search"), "", False),
-                    (ACTION_COPY, tr("bar.copy"), "C", False),
-                    (ACTION_SAVE, tr("bar.save"), "S", False),
-                    (
-                        BAR_REDACT,
-                        tr("bar.redact_count", count=count) if count else tr("bar.redact"),
-                        "B",
-                        self._redacting,
-                    ),
-                    (BAR_CANCEL, tr("bar.cancel"), "Esc", False),
-                ]
             return [
                 (ACTION_SEARCH, tr("bar.search"), "Enter", True),
                 (ACTION_COPY, tr("bar.copy"), "C", False),
@@ -1433,6 +1489,7 @@ class SelectionOverlay(QWidget):
             self._dim_around_text(painter)
             self._draw_window_outline(painter)
             self._draw_word_hints(painter)
+            self._draw_chips(painter)
             self._draw_caret(painter)
             self._draw_action_bar(painter)
             self._draw_badge(painter)
@@ -2304,6 +2361,13 @@ class SelectionOverlay(QWidget):
             self._repaint_bar()
             return
 
+        chip = self._chip_at(where)
+        if chip is not None:
+            # On the code, not in the bar: pressing it is the whole gesture, so
+            # nothing about a selection starts here.
+            self._use_chip(chip)
+            return
+
         if self._picking_colour:
             # A click *is* the answer here; there is nothing to drag.
             self._pick_colour(css=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
@@ -2659,6 +2723,16 @@ class SelectionOverlay(QWidget):
         }
 
         if not self._confirming:
+            # One code on screen and nothing selected: Enter is unambiguous and
+            # takes it.  With two it goes back to meaning nothing here, because
+            # "the primary action" cannot be two different links.
+            if (
+                key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and len(self._chips) == 1
+                and self._showing_chips()
+            ):
+                self._use_chip(self._chips[0])
+                return
             # Nothing taken yet, and nothing else is going on: the arrows raise
             # a caret and move it, Space pins a corner and then takes the box.
             if self._keyboard_selecting():
@@ -2681,7 +2755,7 @@ class SelectionOverlay(QWidget):
             return
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-            self._commit(self._primary_action())
+            self._commit(ACTION_SEARCH)
             return
         if key == Qt.Key.Key_C:
             self._commit(ACTION_COPY)
@@ -2785,6 +2859,10 @@ class SelectionOverlay(QWidget):
         the damage region was the outline's ring and none of this is on it.
         """
         rects = [self._trail.bounds()]
+        # The pills vanish the moment anything is being selected, and they sit
+        # in the middle of the screen with no outline near them — exactly the
+        # shape of thing the damage ring does not cover on its own.
+        rects.extend(chip.pill.adjusted(-3, -3, 3, 3) for chip in self._chips)
         if self._caret is not None:
             rects.append(self._caret_rect())
         if self._loupe_showing():
@@ -2897,34 +2975,111 @@ class SelectionOverlay(QWidget):
         self._estimate_asked = self._estimate_serial
         self.estimate_requested.emit(QRect(self._estimated_for))
 
-    def code(self) -> tuple[str, str]:
-        """``(payload, link)`` for whatever was decoded, or two empty strings."""
-        return self._code, self._code_link
+    # ------------------------------------------------- codes on the frozen screen
+    #
+    # Read off the *whole* screen the moment it freezes rather than out of a
+    # selection, because a code is a thing you point at, not a thing you frame:
+    # on a phone this is what Circle to Search does, and framing a code you were
+    # only ever going to open is three gestures too many.
+    #
+    # A button per code, on the code.  One in the action bar would have to say
+    # "Open the link" about whichever one it decided to mean, and nothing stops
+    # a screen from holding two.
 
-    def set_code(self, crop: QRect, kind: str, payload: str, link: str) -> None:
-        """The answer to "is there a code in this?", for the crop it was asked about.
+    def chips(self) -> list[CodeChip]:
+        return list(self._chips)
 
-        Dropped on the same terms as the byte count, and for the same reason: a
-        slow answer about a box that has been dragged somewhere else would put a
-        button on the bar that offers to open a link nobody selected.
+    def set_codes(self, codes: list[Code]) -> None:
+        """Hand over what was decoded, in physical pixels of the screenshot."""
+        font = self._chip_font()
+        metrics = QFontMetrics(font)
+        chips: list[CodeChip] = []
+        for found in codes:
+            if not found.located:
+                # No corners to put a button on.  The payload is still real, but
+                # a chip in the middle of the screen would be pointing at
+                # nothing, and there is no honest place to draw it.
+                log.debug("a %s was decoded but not located", found.kind)
+                continue
+            left, top, width, height = found.bounds
+            code = physical_rect_to_logical(QRect(left, top, width, height), self._metrics)
+            if code.width() < 1 or code.height() < 1:
+                continue
+            link = _openable(found.payload)
+            label = _chip_label(found.payload, link)
+            chips.append(
+                CodeChip(
+                    payload=found.payload,
+                    link=link,
+                    label=label,
+                    code=code,
+                    pill=self._chip_pill(code, metrics.horizontalAdvance(label), metrics.height()),
+                )
+            )
+        self._chips = _spread(chips)
+        if self._chips:
+            log.info("%d code(s) on screen", len(self._chips))
+            self.update()
 
-        The whole bar is repainted rather than a rectangle of it — this adds a
-        button, so every other button on it moves.
+    def _chip_font(self) -> QFont:
+        font = QFont(self.font())
+        font.setPointSizeF(max(10.0, font.pointSizeF() + 0.5))
+        font.setBold(True)
+        return font
+
+    @staticmethod
+    def _chip_pill(code: QRect, text_width: int, text_height: int) -> QRect:
+        """Centred on the code, or under it when the code is too small to hold it."""
+        width = text_width + 2 * _CHIP_PAD_X
+        height = text_height + 2 * _CHIP_PAD_Y
+        pill = QRect(0, 0, width, height)
+        pill.moveCenter(code.center())
+        if width > code.width() - 2 * _CHIP_GAP or height > code.height() - 2 * _CHIP_GAP:
+            pill.moveTop(code.bottom() + _CHIP_GAP)
+        return pill
+
+    def _showing_chips(self) -> bool:
+        """Only while nothing has been taken.
+
+        Once a selection is being drawn or waiting, the bar is what is being
+        read and buttons scattered over the screen behind it are noise.
         """
-        if crop != self._estimated_for or self._estimate_asked != self._estimate_serial:
-            return
-        if (payload, link) == (self._code, self._code_link):
-            return
-        was = self._bar_rect()
-        self._code = payload
-        self._code_kind = kind
-        self._code_link = link
-        log.info("the crop holds a %s%s", kind or "code", " (a link)" if link else "")
-        self.update(was.united(self._bar_rect()).translated(-self._offset).adjusted(-4, -4, 4, 4))
+        return bool(self._chips) and self._showing_hint() and not self._picking_colour
 
-    def _primary_action(self) -> str:
-        """What *Enter* means on the confirmed bar: whatever the lit button says."""
-        return ACTION_QR if self._code else ACTION_SEARCH
+    def _chip_at(self, point: QPoint) -> CodeChip | None:
+        if not self._showing_chips():
+            return None
+        for chip in self._chips:
+            if chip.pill.contains(point):
+                return chip
+        return None
+
+    def _use_chip(self, chip: CodeChip) -> None:
+        log.info("taking the %s from the screen", "link" if chip.link else "code")
+        self._finish(
+            lambda: self.code_activated.emit(chip.payload, chip.link),
+            badge=BADGE_OPENING if chip.link else BADGE_NONE,
+        )
+
+    def _draw_chips(self, painter: QPainter) -> None:
+        if not self._showing_chips():
+            return
+        font = self._chip_font()
+        painter.setFont(font)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for chip in self._chips:
+            pill = chip.pill
+            radius = pill.height() / 2
+            # A light rim under the dark pill, for the same reason everything
+            # else here has two tones: what is behind it is somebody else's
+            # screen and may be any colour.
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 255, 90))
+            painter.drawRoundedRect(pill.adjusted(-2, -2, 2, 2), radius + 2, radius + 2)
+            painter.setBrush(QColor(24, 24, 27, 235))
+            painter.drawRoundedRect(pill, radius, radius)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(pill, int(Qt.AlignmentFlag.AlignCenter), chip.label)
 
     def set_upload_size(self, crop: QRect, nbytes: int) -> None:
         """The answer to :attr:`estimate_requested`, for the crop it was asked about.

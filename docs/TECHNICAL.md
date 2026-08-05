@@ -942,7 +942,7 @@ with it.
 Everything above is read **fresh** every time the menu is opened. Caching it
 would reintroduce precisely the bug it is there to expose.
 
-### Reading a QR code instead of uploading it
+### QR codes wear their own button
 
 `qr.py` is `ocr.py`'s shape and for the same reasons: an outside program called
 through a pipe rather than a Python dependency, optional, never a hard
@@ -956,29 +956,44 @@ and reads their whole screen, so it asks first. This needs a package they very
 likely already have, and its entire effect is to *stop* a picture going to
 Google. There is nothing to ask.
 
-It rides the byte-count question rather than having one of its own: both are
-asked about the same rectangle at the same moment, once the box has settled, by
-`estimate_requested`. The answer goes through `set_code()`, which drops it on
-exactly the terms `set_upload_size()` drops a stale byte count — a slow answer
-about a box that has since been dragged elsewhere would put a button on the bar
-offering to open a link nobody selected.
+**The whole screen is scanned as it freezes, not the selection.** A code is a
+thing you point at rather than frame, and framing one you were only ever going
+to open is three gestures too many — which is also how the phone behaves. It
+runs off the GUI thread beside the text layer and nothing waits for it: the
+buttons appear when they appear.
 
-Three details that are not obvious:
+**The button is on the code.** One in the action bar is what this had first, and
+it was dishonest: it can only say "Open the link" about whichever code it
+decided to mean, and nothing stops a screen from holding two. A pill centred on
+each code says which one it is by being there. Where a code is too small to
+hold its pill, the pill sits just underneath; where two pills would overlap,
+`_spread()` pushes the later one down, because a button half under another
+button is one nobody can press with confidence.
 
-* **Redactions are applied before decoding.** What has been blacked out is not
-  in the picture that would be sent, so it must not be in the code read out of
-  it either: a QR code half covered is not a code the user offered up.
+*Enter* takes the only code when there is exactly one and goes back to meaning
+nothing there when there are several — "the primary action" cannot be two
+different links. The chips stay pressable either way. They are drawn only while
+nothing has been taken: once a selection is being made, the bar is what is
+being read and buttons scattered behind it are noise.
+
+Four details that are not obvious:
+
+* **`--polygon` changes the shape of the line, in the middle.** zbar prints
+  `TYPE:POLYGON:payload` with it and `TYPE:payload` without, so the field
+  arrives *between* the two that were there before. Splitting once — which this
+  did on purpose, so a URL keeps its own colons — hands back the corners as
+  part of the payload. The parser takes the second field as a polygon only when
+  it really is one, which is also what keeps it right on a zbar too old to have
+  the flag.
+* **Only http and https are opened.** A code can carry any URI at all —
+  `WIFI:`, `geo:`, `bitcoin:`, `smsto:` — and handing an arbitrary one to
+  `xdg-open` on a press is not a thing to do on the strength of a colon.
+  Everything else is copied, which is still what was asked for.
 * **`zbarimg` exits 4 when it read the image and found nothing**, which is the
-  ordinary case — most selections are not codes, and this is asked about every
-  one of them. That is not an error and is not reported as one.
-* **The payload keeps its own colons.** zbar prints `TYPE:payload` and a
-  payload is very often a URL; splitting on every colon would hand back a
-  hostname.
-
-A code that is a link is opened; anything else — a Wi-Fi string, a 13-digit EAN
-— is copied, because there is nothing sensible to open and it is still what was
-asked for. *Search* stays on the bar either way: "what else is on this shelf
-label" is a fair question.
+  ordinary case: most screens have no codes on them.
+* **The pills are in `_floating_rects()`.** They sit in the middle of the
+  screen with no outline near them and they vanish the moment a drag starts —
+  exactly the shape of thing the damage ring does not cover on its own.
 
 ### Selecting without a mouse
 

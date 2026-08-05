@@ -23,14 +23,17 @@ the release.
 
 ## 1.3.0 — “another-way”
 
-* **A QR code is read instead of uploaded.** When the confirmed selection
-  holds one, the bar leads with **Open the link** — and takes *Enter* with it —
-  rather than offering to send Google a picture of a thing that decodes locally
-  in a millisecond. A code that is not a link is copied instead. It needs
-  `zbar`, and does nothing at all without it; unlike text recognition it is on
-  by default and is not asked about first, because the trade is the other way
-  round: it costs nothing and its whole effect is to *stop* an upload. Whatever
-  has been blacked out is not read either.
+* **A QR code wears its own button.** The whole screen is read as it freezes,
+  and every code found gets a small pill on it saying where it goes — press it
+  and you are there, with nothing uploaded and nothing to select first. Two
+  codes get two buttons, because one button in the action bar can only say
+  "Open the link" about whichever it decided to mean. *Enter* takes the only
+  code when there is one. A code that is not an http link is copied instead,
+  because handing an arbitrary `WIFI:` or `bitcoin:` URI to the browser on a
+  press is not a thing to do on the strength of a colon. It needs `zbar`, which
+  the installer now offers; unlike text recognition it is on by default and is
+  not asked about first, because the trade is the other way round — it costs
+  nothing and its whole effect is to stop an upload.
 * **Select without a mouse.** The arrow keys raise a crosshair and move it —
   *Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
   the arrows size the box from it, *Space* again takes it, and from there it is
