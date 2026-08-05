@@ -78,7 +78,7 @@ session, and a desktop entry.
 
 **Log out and back in** after installing, so KWin loads the script.
 
-Later, one command keeps it current:
+Later, one command keeps it current — it follows the `deploy` branch:
 
 ```bash
 ./install.sh update
@@ -88,17 +88,21 @@ Later, one command keeps it current:
 <summary>Other commands</summary>
 
 ```bash
-./install.sh update               # git pull, then reinstall — settings are kept
-./install.sh reinstall            # reinstall this checkout, whatever state it is in
+./install.sh update               # fetch the deploy branch and reinstall
+./install.sh reinstall            # reinstall this folder, whatever state it is in
 ./install.sh reinstall --config   # …and wipe the settings too (it asks twice)
 ./uninstall.sh                    # remove it, keep your captures
 ./uninstall.sh --purge            # remove it and the captures
 ```
 
-`update` is the one to remember. `reinstall` has nothing to do with git — it
-installs whatever is in the folder you are standing in; `update` pulls first,
-and does it in the order that cannot leave you worse off: if the pull fails,
-nothing has been removed and the copy you had is still the one running.
+`update` is the one to remember. It follows the **`deploy`** branch — the code
+that has been decided to be fit to run — and moves the checkout there if it is
+standing somewhere else. `reinstall` has nothing to do with git: it installs
+whatever is in the folder you are in.
+
+The order cannot leave you worse off: if the fetch fails, nothing has been moved
+or removed and the copy you had is still the one running. Your settings, your
+captures and your calibration are kept either way.
 
 </details>
 

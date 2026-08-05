@@ -114,7 +114,8 @@ circletosearchEnabled true` + `reconfigure`) and starts
 
 Flags: `-y` (don't ask before the package manager), `--no-deps` (never call it),
 `--force` (install even if the session checks fail, and update over a checkout
-with local changes).
+with local changes), `--branch NAME` (update from something other than
+`deploy`).
 
 The package names are a guess on every distribution but Fedora, so the installer
 **checks again afterwards** and names anything that is still missing rather than
@@ -125,29 +126,42 @@ KPackage command line tools — and carries on.
 ### Updating
 
 ```bash
-./install.sh update               # git pull, then reinstall
+./install.sh update                    # fetch the deploy branch, then reinstall
+./install.sh update --branch main      # ...from somewhere else, for a test
 ```
 
 `reinstall` has never had anything to do with git — it installs *this checkout*,
 whatever state it is in — so keeping up with the project was two commands and
-remembering the second one. `update` is both, and the order is the point:
+remembering the second one. `update` is both.
 
-* **the pull happens first.** A pull that fails has removed nothing, so the
-  installation that was working is still the one running. Every refusal below
-  leaves the machine exactly as it was found;
+**It follows one named branch, `deploy`, not whatever is checked out.** The
+machine running this is not the machine the work is done on, and "the code I
+have decided is fit to run" is a different question from "the code I was last
+editing". So if the checkout is standing somewhere else, `update` moves it —
+which is safe, because the tree has to be clean to get that far and the commits
+on the branch being left are still on it afterwards. It says so when it does.
+
+The order is the rest of the point:
+
+* **the fetch happens first.** A fetch that fails has moved and removed nothing,
+  so the installation that was working is still the one running. Every refusal
+  below leaves the machine exactly as it was found;
 * **fast-forward only.** An update is not the moment to discover that a merge
   wanted a decision, and refusing beats a conflicted checkout installed over the
-  top of a working one;
-* it stops before pulling if the checkout has **local changes** (`--force` skips
-  that check; git still refuses to overwrite a file you edited), if **HEAD is
-  detached**, if the branch **tracks nothing**, or if the directory is **not a
-  git checkout** at all — each with the command that fixes it;
-* it prints the **commits it pulled**, so "what did I just get" is answered
+  top of a working one. If the local `deploy` has commits of its own it stops and
+  gives you the `reset --hard` that throws them away, rather than choosing;
+* it stops before fetching if the checkout has **local changes** (`--force`
+  skips that check; git still refuses if they are in the way), and before
+  anything if the directory is **not a git checkout** or the branch **does not
+  exist on the remote** — the last one carries the `git push` that creates it,
+  because it is the first thing anybody hits;
+* a **detached HEAD** is no longer a problem: there is a branch to move to;
+* it prints the **commits it brought**, so "what did I just get" is answered
   without going to look;
-* it **reinstalls even when nothing was pulled**, because that is the guarantee
+* it **reinstalls even when nothing arrived**, because that is the guarantee
   being asked for: no file left over from a version that no longer ships it.
 
-Then it **`exec`s the installer it just pulled**. Two reasons, and the second is
+Then it **`exec`s the installer it just fetched**. Two reasons, and the second is
 the one that bites: the new code is what knows where the new code goes — an old
 installer would not place a file this version has only just started shipping —
 and bash reads a script as it runs it, so carrying on inside a file that has

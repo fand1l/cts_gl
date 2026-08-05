@@ -8,18 +8,19 @@
 # recognised; on anything else the missing pieces are named and left to you.
 #
 #   ./install.sh                     normal install
-#   ./install.sh update              git pull, then reinstall — settings are kept
+#   ./install.sh update              fetch the deploy branch, then reinstall
 #   ./install.sh reinstall           remove what was installed, then install it again
 #   ./install.sh reinstall --config  ...and erase the settings as well (asks first)
 #
-#   -y, --yes     assume yes for the package-manager step
-#   --no-deps     never call the package manager
-#   --force       install even if the session checks fail, and update over a
-#                 checkout with local changes
+#   -y, --yes       assume yes for the package-manager step
+#   --no-deps       never call the package manager
+#   --force         install even if the session checks fail, and update over a
+#                   checkout with local changes
+#   --branch NAME   update from this branch instead of 'deploy'
 #
 # "reinstall" has nothing to do with git: it installs *this* checkout, whatever
-# state it is in.  "update" is the pull as well, in the order that cannot leave
-# you worse off.
+# state it is in.  "update" brings the deploy branch first, in the order that
+# cannot leave you worse off.
 #
 set -euo pipefail
 
@@ -45,6 +46,13 @@ FORCE=0
 COMMAND="install"
 CLEAN_CONFIG=0
 
+#: Where "update" takes its code from.  A branch of its own rather than
+#: whatever happens to be checked out: the machine running this is not the
+#: machine the work is done on, and "the code I have decided is fit to run" is
+#: a different question from "the code I was last editing".
+UPDATE_BRANCH="deploy"
+REMOTE="origin"
+
 RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
 info()  { printf '%s==>%s %s\n' "$GREEN$BOLD" "$RESET" "$*"; }
 warn()  { printf '%s[!]%s %s\n' "$YELLOW$BOLD" "$RESET" "$*" >&2; }
@@ -53,21 +61,30 @@ die()   { printf '%s[x]%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2; exit 1; }
 #: The flags to hand on when "update" re-execs the installer it just pulled.
 PASSTHROUGH=()
 
-for arg in "$@"; do
-    case "$arg" in
-        install|reinstall|update) COMMAND="$arg" ;;
+while (( $# )); do
+    case "$1" in
+        install|reinstall|update) COMMAND="$1" ;;
         --config)      CLEAN_CONFIG=1 ;;
-        -y|--yes)      ASSUME_YES=1; PASSTHROUGH+=("$arg") ;;
-        --no-deps)     SKIP_DEPS=1;  PASSTHROUGH+=("$arg") ;;
-        --force)       FORCE=1;      PASSTHROUGH+=("$arg") ;;
+        -y|--yes)      ASSUME_YES=1; PASSTHROUGH+=("$1") ;;
+        --no-deps)     SKIP_DEPS=1;  PASSTHROUGH+=("$1") ;;
+        --force)       FORCE=1;      PASSTHROUGH+=("$1") ;;
+        --branch)
+            [[ -n "${2:-}" ]] || die "--branch needs a branch name."
+            UPDATE_BRANCH="$2"; shift ;;
+        --branch=*)    UPDATE_BRANCH="${1#--branch=}" ;;
         -h|--help)
             # Every comment line of the header, however long it grows.
             awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' \
                 "${BASH_SOURCE[0]}"
             exit 0 ;;
-        *) die "unknown option: $arg (try --help)" ;;
+        *) die "unknown option: $1 (try --help)" ;;
     esac
+    shift
 done
+
+if [[ -z "$UPDATE_BRANCH" ]]; then
+    die "--branch needs a branch name."
+fi
 
 if (( CLEAN_CONFIG )) && [[ "$COMMAND" != "reinstall" ]]; then
     die "--config erases settings, so it only means anything with 'reinstall'."
@@ -295,9 +312,16 @@ install_deps() {
 #
 # Keeping up with the project was always two commands — `git pull` and then
 # `./install.sh reinstall` — and remembering the second one.  This is both, in
-# the order that cannot leave you worse off: **the pull happens first**, and a
-# pull that fails has removed nothing, so the working installation is exactly
+# the order that cannot leave you worse off: **the fetch happens first**, and a
+# fetch that fails has removed nothing, so the working installation is exactly
 # as it was.
+#
+# It follows one named branch (`deploy`), not whatever is checked out.  The
+# machine running this is not the machine the work is done on, and "the code I
+# have decided is fit to run" is a different question from "the code I was last
+# editing".  So if the checkout is somewhere else, this moves it — which is safe
+# because the tree has to be clean to get this far, and any commits on the
+# branch being left are still on it afterwards.
 #
 # Fast-forward only.  An update is not the moment to find out that a merge
 # wanted a decision from you, and refusing is a better answer than a conflicted
@@ -307,32 +331,47 @@ update_checkout() {
     command -v git >/dev/null 2>&1 \
         || die "'update' needs git. Update the checkout yourself, then run 'reinstall'."
     git -C "$SOURCE_DIR" rev-parse --git-dir >/dev/null 2>&1 \
-        || die "$SOURCE_DIR is not a git checkout, so there is nothing to pull. Use 'reinstall'."
+        || die "$SOURCE_DIR is not a git checkout, so there is nothing to fetch. Use 'reinstall'."
 
-    local branch upstream before after
-    branch="$(git -C "$SOURCE_DIR" symbolic-ref --quiet --short HEAD || true)"
-    [[ -n "$branch" ]] \
-        || die "HEAD is detached, so there is no branch to update. 'git switch <branch>' first."
-    upstream="$(git -C "$SOURCE_DIR" rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' \
-        2>/dev/null || true)"
-    [[ -n "$upstream" ]] \
-        || die "'$branch' is not tracking anything. 'git branch -u origin/$branch' first."
-
+    local here before after
     if [[ -n "$(git -C "$SOURCE_DIR" status --porcelain)" ]]; then
         if (( FORCE )); then
             warn "The checkout has local changes; --force says carry on."
-            warn "  git will still refuse if the pull would overwrite one of them."
+            warn "  git will still refuse if they are in the way."
         else
             die "The checkout has local changes — commit, stash or discard them first
       (git -C $SOURCE_DIR status), or pass --force to try anyway."
         fi
     fi
 
+    info "Fetching $UPDATE_BRANCH from $REMOTE"
+    git -C "$SOURCE_DIR" fetch --quiet "$REMOTE" "$UPDATE_BRANCH" 2>/dev/null \
+        || die "Could not fetch '$UPDATE_BRANCH' from $REMOTE. Nothing has been touched.
+      If the branch does not exist yet, make it:
+          git push $REMOTE HEAD:refs/heads/$UPDATE_BRANCH
+      Otherwise check the network and the remote, and try again."
+
     before="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
-    info "Updating $branch from $upstream"
-    git -C "$SOURCE_DIR" pull --ff-only --quiet \
-        || die "Could not fast-forward $branch. Nothing has been touched — the installed
-      copy is still the one that was working. Sort the checkout out and try again."
+    here="$(git -C "$SOURCE_DIR" symbolic-ref --quiet --short HEAD || echo "a detached HEAD")"
+    if [[ "$here" != "$UPDATE_BRANCH" ]]; then
+        # Moving off whatever was checked out.  Nothing is lost: the tree is
+        # clean by now and the commits on the old branch stay on it.
+        info "Switching from $here to $UPDATE_BRANCH"
+        if git -C "$SOURCE_DIR" show-ref --verify --quiet "refs/heads/$UPDATE_BRANCH"; then
+            git -C "$SOURCE_DIR" checkout --quiet "$UPDATE_BRANCH"
+        else
+            git -C "$SOURCE_DIR" checkout --quiet -b "$UPDATE_BRANCH" \
+                --track "$REMOTE/$UPDATE_BRANCH"
+        fi || die "Could not switch to $UPDATE_BRANCH. Nothing has been installed;
+      the copy that was running is still the one running."
+    fi
+
+    git -C "$SOURCE_DIR" merge --ff-only --quiet "$REMOTE/$UPDATE_BRANCH" \
+        || die "Could not fast-forward $UPDATE_BRANCH onto $REMOTE/$UPDATE_BRANCH —
+      the local branch has commits of its own. Nothing has been installed; the
+      copy that was running is still the one running. Reset it with
+          git -C $SOURCE_DIR reset --hard $REMOTE/$UPDATE_BRANCH
+      if those commits are not wanted."
     after="$(git -C "$SOURCE_DIR" rev-parse HEAD)"
 
     if [[ "$before" == "$after" ]]; then
