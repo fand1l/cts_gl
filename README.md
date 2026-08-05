@@ -33,6 +33,8 @@ That is the whole idea. Everything below is what happens around it.
   so there is a moment to check first.
 * **Copy or save instead of searching.** The same selection, three other places
   to send it.
+* **The same area as last time**, to the pixel — for watching a number that
+  changes, where a rectangle redrawn by hand is never quite the same one.
 * **Select the text on your frozen screen**, then search for the words
   themselves rather than a picture of them — or copy them, without any of it
   leaving the machine. An optional local text recognition, off until you turn it
@@ -45,7 +47,7 @@ That is the whole idea. Everything below is what happens around it.
 
 | | |
 |---|---|
-| ![The moment before you draw](docs/images/overlay-start.png) **Shake, and the screen freezes.** Lasso or rectangle — the chip remembers which. | ![Drawing the loop](docs/images/overlay-drawing.png) **Circle it.** A wide white line with a coloured glow that follows your hand. |
+| ![The moment before you draw](docs/images/overlay-start.png) **Shake, and the screen freezes.** Lasso or rectangle — or the same area as last time. | ![Drawing the loop](docs/images/overlay-drawing.png) **Circle it.** A wide white line with a coloured glow that follows your hand. |
 | ![The selection waiting with its buttons](docs/images/overlay-actions.png) **Nothing has been sent yet.** It says what it is about to send, in pixels and kilobytes. | ![Selecting text on the frozen screen](docs/images/overlay-text.png) **Drag across text and you get the text** — searched for as words, not as a picture. |
 | ![The window under the pointer, outlined](docs/images/overlay-window.png) **Click a window** instead of drawing carefully around it. | ![The magnifier while dragging](docs/images/overlay-magnifier.png) **A magnifier while you aim**, so the edge lands where you meant. |
 
@@ -107,6 +109,7 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 | **Drag** | draw a loop, or hold *Shift* for a rectangle |
 | **Click a window** | take exactly that window |
 | **Drag across text** | take the text instead of a picture |
+| **The same area**, or *R* | exactly where you selected last time |
 | **Esc** or right-click | forget it |
 
 Then the selection waits. Drag the eight handles to resize, the grip in the

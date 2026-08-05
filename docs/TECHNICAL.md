@@ -405,6 +405,29 @@ a single drag. Clicking one keeps it: it is the setting from *Settings →
 General*, put where it is actually wanted. With one overlay per screen the
 others follow immediately.
 
+Beside them, when there is one to offer, **The same area** (*R*) — the exact
+rectangle of the previous capture. Comparing something that changes, a build
+log or a download counter or a number on a dashboard, means taking the *same*
+rectangle twice, and a rectangle drawn by hand is never quite the same twice,
+which is what makes the two results hard to compare in the first place.
+
+It is four numbers and a screen name in the settings file (`lastarea.py`), not
+a file beside the kept crops: offering the rectangle again is useful whether or
+not the pictures are being kept, and four numbers are not a copy of anything
+that was on screen. **Logical** pixels, so it still means the same place after
+the scale factor changes, and it is the space the overlay itself works in.
+
+* It is only offered to the screen it was taken on. A rectangle from the other
+  monitor would put the selection somewhere arbitrary, and a chip that did that
+  would be worse than no chip. A selection that spanned several screens is
+  filed under `*` in global logical pixels and offered back only to a group,
+  each overlay receiving it shifted into its own coordinates.
+* It is clamped to the screen as it is *now*, and dropped outright if nothing of
+  it is left there — monitors get rearranged between captures.
+* The parser is strict and silent: five fields or nothing. It reads a file a
+  person can edit, the only cost of refusing a line is that a convenience is not
+  offered, and half a parsed rectangle would select somewhere nobody asked for.
+
 While a selection is being drawn — and while an edge is being moved — a 4×
 loupe with a crosshair follows the pointer, so the pixel an edge is about to
 land on is visible while it is still being placed. It is cut from the

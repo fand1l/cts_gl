@@ -10,6 +10,7 @@ from pathlib import Path
 from PIL import Image
 from PyQt6.QtCore import (
     QObject,
+    QPoint,
     QRect,
     QRunnable,
     QStandardPaths,
@@ -44,10 +45,11 @@ from .config import (
     set_detection_enabled,
 )
 from .dbus_service import ServiceObject, register_service, unregister_service
-from .hidpi import ScreenMetrics, measure_screen
+from .hidpi import ScreenMetrics, measure_screen, physical_rect_to_logical
 from .history import RecentCaptures
 from .i18n import current_language, set_language, tr
 from .imageops import mask_outside_polygon, pil_to_qimage, polygon_to_crop_space
+from .lastarea import EVERY_SCREEN, format_area, parse_area
 from .lens import (
     BACKEND_BROWSER,
     LensError,
@@ -740,6 +742,7 @@ class CircleToSearchApp(QObject):
             confirm=self._settings.confirm_selection,
             magnifier=self._settings.magnifier,
             max_side=self._settings.max_side,
+            last_area=self._last_area_for(metrics.name),
         )
         # The compositor's answer to "what is under the pointer", clipped to
         # this screen and moved into its coordinates.  Empty when the KWin
@@ -818,6 +821,7 @@ class CircleToSearchApp(QObject):
                     mask_outside=self._settings.lasso_mask,
                     confirm=self._settings.confirm_selection,
                     magnifier=self._settings.magnifier,
+                    last_area=self._last_area_for(EVERY_SCREEN, origin=shot.geometry.topLeft()),
                     group_bounds=bounds,
                 )
             )
@@ -863,6 +867,9 @@ class CircleToSearchApp(QObject):
         self._release_group()
         if desktop is None:
             return
+        # Already in global logical pixels, which is the only space a selection
+        # spanning two monitors can be described in.
+        self._remember_area(EVERY_SCREEN, rect)
         try:
             cropped = desktop.compose(rect)
         except ValueError as exc:
@@ -963,6 +970,7 @@ class CircleToSearchApp(QObject):
     ) -> None:
         self._release_overlay()
         self._finish_opening()
+        self._remember_area(metrics.name, physical_rect_to_logical(rect, metrics))
         box = (rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height())
         log.info("cropping %s out of %dx%d", box, metrics.physical_width, metrics.physical_height)
         cropped = image.crop(box)
@@ -1158,6 +1166,33 @@ class CircleToSearchApp(QObject):
             clipboard.setText(text)
         log.info("copied %d character(s) of recognised text", len(text))
         notify(tr("notify.ocr_done"), ocr.summarise(text), timeout_ms=8000)
+
+    # ------------------------------------------ the same area as last time
+
+    def _last_area_for(self, screen: str, origin: QPoint | None = None) -> QRect:
+        """Where the previous capture was, in one overlay's own coordinates.
+
+        Empty unless it was taken on the same screen: offering a rectangle from
+        a different monitor would put the selection somewhere arbitrary, and a
+        chip that did that would be worse than no chip.
+        """
+        remembered = parse_area(self._settings.last_area)
+        if remembered is None or not remembered.matches(screen):
+            return QRect()
+        if origin is not None:
+            # A group works in global logical pixels; each overlay's box is in
+            # its own, which is the same thing shifted by where its screen is.
+            return remembered.rect.translated(-origin)
+        return QRect(remembered.rect)
+
+    def _remember_area(self, screen: str, rect: QRect) -> None:
+        """Keep where a capture was taken, so it can be taken there again."""
+        value = format_area(screen, rect)
+        if not value or value == self._settings.last_area:
+            return
+        self._settings.last_area = value
+        self._settings.sync()
+        log.debug("the last area is now %s", value)
 
     def _estimate_upload(self, overlay: SelectionOverlay, image: Image.Image, crop: QRect) -> None:
         """Answer the overlay's "how big would this be?", off the GUI thread."""

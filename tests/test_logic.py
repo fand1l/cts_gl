@@ -1098,6 +1098,147 @@ check("the readout stays on screen at the right edge",
       edge._visible_area().toRect().contains(readout),
       f"{readout} in {edge._visible_area().toRect()}")
 
+# --- the same area as last time --------------------------------------------
+# Comparing a number that changes means taking the same rectangle twice, and a
+# rectangle drawn by hand is never quite the same twice — which is exactly what
+# makes the two results incomparable.
+from circle_to_search.app import CircleToSearchApp  # noqa: E402
+from circle_to_search.lastarea import (  # noqa: E402
+    EVERY_SCREEN,
+    LastArea,
+    format_area,
+    parse_area,
+)
+from circle_to_search.overlay import BAR_LAST_AREA  # noqa: E402
+
+check("a round trip survives",
+      parse_area(format_area("eDP-1", QRect(10, 20, 300, 200)))
+      == LastArea("eDP-1", QRect(10, 20, 300, 200)),
+      format_area("eDP-1", QRect(10, 20, 300, 200)))
+check("it is readable by a person",
+      format_area("eDP-1", QRect(10, 20, 300, 200)) == "eDP-1 10 20 300 200",
+      format_area("eDP-1", QRect(10, 20, 300, 200)))
+check("a nameless screen is not remembered", format_area("", QRect(10, 20, 300, 200)) == "")
+check("nor is a slip of a selection", format_area("eDP-1", QRect(10, 20, 4, 300)) == "")
+for junk in ("", "   ", "eDP-1", "eDP-1 1 2 3", "eDP-1 1 2 3 4 5", "eDP-1 a b c d",
+             "eDP-1 1 2 3 x", "eDP-1 0 0 2 2"):
+    check(f"junk is refused: {junk!r}", parse_area(junk) is None, str(parse_area(junk)))
+check("a group's rectangle is filed under every screen",
+      parse_area(format_area(EVERY_SCREEN, QRect(1900, 0, 400, 300))).screen == EVERY_SCREEN)
+check("and only offered back to a group",
+      not parse_area("* 0 0 40 30").matches("eDP-1")
+      and parse_area("* 0 0 40 30").matches(EVERY_SCREEN))
+
+
+def with_memory(area: QRect | None):
+    view = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(shot)),
+        metrics,
+        screen,
+        dim_percent=40,
+        mode=MODE_LASSO,
+        confirm=True,
+        last_area=area,
+    )
+    view.resize(screen.geometry().size())
+    return view
+
+
+forgetful = with_memory(None)
+check("no chip when there is nothing to offer",
+      [placed.action for placed in forgetful._layout_buttons()]
+      == [BAR_MODE_LASSO, BAR_MODE_RECT],
+      str([placed.action for placed in forgetful._layout_buttons()]))
+press_key(forgetful, Qt.Key.Key_R)
+check("and R does nothing either", not forgetful._has_selection)
+
+again = with_memory(QRect(120, 90, 300, 200))
+check("a third chip when there is",
+      [placed.action for placed in again._layout_buttons()]
+      == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_LAST_AREA],
+      str([placed.action for placed in again._layout_buttons()]))
+check("with a key of its own", button_named(again, BAR_LAST_AREA).key == "R")
+target = button_named(again, BAR_LAST_AREA)
+click(again, (target.rect.center().x(), target.rect.center().y()))
+check("it selects exactly where the last one was",
+      again._selection_rect() == QRect(120, 90, 300, 200), str(again._selection_rect()))
+check("and hands straight over to the action bar", again._confirming
+      and [placed.action for placed in again._layout_buttons()]
+      == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_CANCEL])
+check("as a rectangle, with no lasso outline to mask against",
+      again.selection_polygon().count() == 0)
+
+by_key = with_memory(QRect(120, 90, 300, 200))
+press_key(by_key, Qt.Key.Key_R)
+check("R does the same thing as the chip",
+      by_key._selection_rect() == QRect(120, 90, 300, 200), str(by_key._selection_rect()))
+press_key(by_key, Qt.Key.Key_R)
+check("and does nothing once a selection is waiting",
+      by_key._selection_rect() == QRect(120, 90, 300, 200), str(by_key._selection_rect()))
+
+# The screen may have been rearranged since; the rectangle is clamped to what
+# is there now, and dropped outright when nothing of it is left.
+gone = with_memory(QRect(5000, 5000, 300, 200))
+gone._use_last_area()
+check("an area that is off the screen now is not offered",
+      not gone._has_selection, str(gone._selection_rect()))
+clipped = with_memory(QRect(screen.geometry().width() - 100, 100, 300, 200))
+clipped._use_last_area()
+check("one hanging over the edge is clamped to it",
+      clipped._has_selection
+      and screen.geometry().contains(clipped._selection_rect()),
+      str(clipped._selection_rect()))
+
+
+# What the application does either side of that: which screen a remembered
+# rectangle is offered to, and in whose coordinates.
+class _AreaStore:
+    def __init__(self, value: str = "") -> None:
+        self.last_area = value
+        self.synced = 0
+
+    def sync(self) -> None:
+        self.synced += 1
+
+
+class _AreaHost:
+    """Just enough of the application to exercise the two ends of the memory."""
+
+    _last_area_for = CircleToSearchApp._last_area_for
+    _remember_area = CircleToSearchApp._remember_area
+
+    def __init__(self, value: str = "") -> None:
+        self._settings = _AreaStore(value)
+
+
+host = _AreaHost("eDP-1 10 20 300 200")
+check("offered back to the screen it came from",
+      host._last_area_for("eDP-1") == QRect(10, 20, 300, 200),
+      str(host._last_area_for("eDP-1")))
+check("and to no other", host._last_area_for("HDMI-A-1").isNull(),
+      str(host._last_area_for("HDMI-A-1")))
+check("nothing remembered, nothing offered", _AreaHost()._last_area_for("eDP-1").isNull())
+check("nor from a corrupt line", _AreaHost("what")._last_area_for("eDP-1").isNull())
+
+# In a group the rectangle is global; each overlay wants it in its own space.
+grouped = _AreaHost("* 1900 40 400 300")
+check("a group's rectangle is shifted onto each screen",
+      grouped._last_area_for(EVERY_SCREEN, origin=QPoint(1920, 0)) == QRect(-20, 40, 400, 300),
+      str(grouped._last_area_for(EVERY_SCREEN, origin=QPoint(1920, 0))))
+check("and the leftmost screen keeps it as it is",
+      grouped._last_area_for(EVERY_SCREEN, origin=QPoint(0, 0)) == QRect(1900, 40, 400, 300))
+
+writing = _AreaHost()
+writing._remember_area("eDP-1", QRect(10, 20, 300, 200))
+check("committing writes it out", writing._settings.last_area == "eDP-1 10 20 300 200"
+      and writing._settings.synced == 1, writing._settings.last_area)
+writing._remember_area("eDP-1", QRect(10, 20, 300, 200))
+check("the same area again is not written twice", writing._settings.synced == 1,
+      str(writing._settings.synced))
+writing._remember_area("eDP-1", QRect(0, 0, 2, 2))
+check("and a slip does not overwrite a real one",
+      writing._settings.last_area == "eDP-1 10 20 300 200", writing._settings.last_area)
+
 # --- the magnifier ---------------------------------------------------------
 # Arrow-key nudging exists because precision was missing, but it only helps
 # after the miss.  The loupe answers the same problem while the edge is still

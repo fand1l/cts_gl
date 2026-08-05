@@ -367,6 +367,7 @@ _EN: dict[str, str] = {
     "bar.back": "Back",
     "bar.mode.lasso": "Lasso",
     "bar.mode.rect": "Rectangle",
+    "bar.last_area": "The same area",
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
 }
@@ -733,6 +734,7 @@ _UK: dict[str, str] = {
     "bar.back": "Назад",
     "bar.mode.lasso": "Ласо",
     "bar.mode.rect": "Прямокутник",
+    "bar.last_area": "Те саме місце",
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",
 }

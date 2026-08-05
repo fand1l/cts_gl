@@ -11,8 +11,8 @@ Ordered by what I think they are worth, not by how hard they are.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** |
-| agreed, in this order | 9 the same area · 1 redact · 7 colour · 5 pin · 6 history window · 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** |
+| agreed, in this order | 1 redact · 7 colour · 5 pin · 6 history window · 4 `--doctor` |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | dropped | 3 delay · 14 annotations |
 
@@ -39,11 +39,14 @@ next to the thing you want to look up, the only options today are to reframe the
 crop until it excludes them or to give up.  That is the same problem the confirm
 step was written for, half-solved.
 
-*How:* a `Redact` button in the action bar (or hold *R*) turns the next drags
-into black rectangles instead of a new selection; they live in overlay state and
-are painted over the crop in `_on_selected`, **before** `_deliver`.  Baked into
-the image, not drawn on top of it, and into the copied and saved versions too —
-one image, no path that produces the original.
+*How:* a `Redact` button in the action bar turns the next drags into black
+rectangles instead of a new selection; they live in overlay state and are painted
+over the crop in `_on_selected`, **before** `_deliver`.  Baked into the image,
+not drawn on top of it, and into the copied and saved versions too — one image,
+no path that produces the original.
+
+Not *R*, as this said before it was written: **R** now takes the same area as
+last time (idea 9), and that one is on screen at the same moment.
 
 *What to watch:* `_deliver` also writes the browser launcher page to disk with
 the JPEG inlined, and it stays there for ten minutes
@@ -246,7 +249,7 @@ answer comes back tagged with the crop it is about.  Two consequences:
   stitched from several screenshots at the highest scale involved, and a number
   that was nearly right would be worse than the honest absence of one.
 
-## 9. The same area as last time
+## 9. The same area as last time — **done**
 
 A key that re-selects the exact rectangle of the previous capture.
 
@@ -255,6 +258,16 @@ from.  Anyone comparing a value that changes — a build log, a dashboard, a
 download counter — currently redraws the same rectangle by hand every time and
 gets it slightly different every time, which also makes the results
 incomparable.  Storing four numbers next to the PNG fixes it.
+
+*What shipped:* four numbers and a screen name, but in the **settings file**
+rather than beside the kept crops (`lastarea.py`).  Offering the rectangle again
+is useful whether or not the pictures are being kept, and it turned out to be
+worth being careful about which screen it came from — a rectangle from the other
+monitor would select somewhere arbitrary, so it is only offered back to the
+screen it was taken on, clamped to that screen as it is *now*, and dropped
+outright when nothing of it is left there.  It appears as a third chip beside
+*Lasso* and *Rectangle* — the one moment it is wanted is before a new rectangle
+has been drawn over the old one by hand — and on **R**.
 
 ## 10. Drag the crop out of the overlay
 

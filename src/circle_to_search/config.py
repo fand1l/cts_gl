@@ -444,6 +444,20 @@ class AppSettings:
         self._settings.setValue("keep_recent", bool(value))
 
     @property
+    def last_area(self) -> str:
+        """Where the last selection was, as ``"<screen> x y w h"`` (see lastarea.py).
+
+        Here rather than beside the kept crops: offering the same rectangle again
+        is useful whether or not the pictures are being kept, and four numbers in
+        the settings file are not a copy of anything that was on screen.
+        """
+        return str(self._settings.value("last_area", ""))
+
+    @last_area.setter
+    def last_area(self, value: str) -> None:
+        self._settings.setValue("last_area", str(value))
+
+    @property
     def all_screens(self) -> bool:
         """Open an overlay on every monitor instead of only the pointer's.
 

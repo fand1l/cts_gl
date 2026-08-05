@@ -204,6 +204,8 @@ _KEY_GAP = 8             # between a label and its key
 #: Buttons only respond to a press *and* a release on the same one, the way
 #: buttons everywhere do, so sliding off one is a way to change your mind.
 BAR_CANCEL = "bar-cancel"
+#: Offered only when there is one to offer, so it is never a dead chip.
+BAR_LAST_AREA = "bar-last-area"
 BAR_TEXT_SEARCH = "bar-text-search"
 BAR_TEXT_COPY = "bar-text-copy"
 BAR_TEXT_ALL = "bar-text-all"
@@ -288,6 +290,7 @@ class SelectionOverlay(QWidget):
         confirm: bool = True,
         magnifier: bool = True,
         max_side: int = 0,
+        last_area: QRect | None = None,
         group_bounds: QRect | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -318,6 +321,11 @@ class SelectionOverlay(QWidget):
         self._upload_bytes = 0
         self._estimate_timer: QTimer | None = None
         self._estimated_for = QRect()
+
+        #: Where the previous capture was taken, in this overlay's own logical
+        #: coordinates.  Null when there is no previous one, or it was on
+        #: another screen, in which case nothing about it is shown.
+        self._last_area = QRect(last_area) if last_area is not None else QRect()
 
         #: Where this window sits inside its screen, in logical pixels.  It is
         #: (0, 0) for a proper full-screen overlay; when KWin leaves the window
@@ -499,10 +507,16 @@ class SelectionOverlay(QWidget):
             # The current mode is the lit one; the other carries *Shift*, which
             # is what swapping to it for a single drag has always been.
             lasso = self._mode == MODE_LASSO
-            return [
+            entries = [
                 (BAR_MODE_LASSO, tr("bar.mode.lasso"), "" if lasso else "Shift", lasso),
                 (BAR_MODE_RECT, tr("bar.mode.rect"), "Shift" if lasso else "", not lasso),
             ]
+            if not self._last_area.isNull():
+                # Not a third mode — an action, and the one moment it is wanted
+                # is exactly this one, before a new rectangle has been drawn
+                # over the old one by hand.
+                entries.append((BAR_LAST_AREA, tr("bar.last_area"), "R", False))
+            return entries
         if self.has_text_selection():
             # Searching leads, as it does for a region: the whole program is a
             # way to search for what is on the screen, and by this point the
@@ -665,6 +679,8 @@ class SelectionOverlay(QWidget):
                 self._drag_mode = mode
                 self.mode_changed.emit(mode)
             self.update()
+        elif action == BAR_LAST_AREA:
+            self._use_last_area()
         elif action == BAR_CANCEL:
             self._cancel()
         elif action == BAR_TEXT_BACK:
@@ -2169,6 +2185,12 @@ class SelectionOverlay(QWidget):
             self.select_all_text()
             return
 
+        if key == Qt.Key.Key_R and self._showing_hint():
+            # Only while nothing is taken, which is exactly when the chip that
+            # carries it is on screen — so the key and the button agree.
+            self._use_last_area()
+            return
+
         if self.has_text_selection():
             # The same keys as the region bar below, doing the same two things:
             # Enter is whatever the lit button says, C is the clipboard.
@@ -2567,11 +2589,31 @@ class SelectionOverlay(QWidget):
         self._finish(lambda: signal.emit(physical, polygon), badge=badge)
 
     def _take_window(self, window: QRect) -> None:
-        """Make one window the selection, as if it had been dragged around.
+        """Make one window the selection, as if it had been dragged around."""
+        self._use_rect(window)
 
-        A rectangle, always: whatever the mode is, what the compositor handed
-        over is a box, and a lasso outline around it would be a fiction.
+    def _use_last_area(self) -> None:
+        """Select exactly where the last capture was taken.
+
+        Comparing a number that changes means taking the same rectangle twice,
+        and a rectangle drawn by hand is never quite the same twice.
         """
+        if self._last_area.isNull():
+            return
+        log.info("selecting the same area as last time: %s", self._last_area)
+        self._reset_selection()
+        self._use_rect(QRect(self._last_area))
+
+    def _use_rect(self, rect: QRect) -> None:
+        """Make a given rectangle the selection, as if it had been dragged.
+
+        A rectangle, always: whatever the mode is, what is being handed over is
+        a box, and a lasso outline around it would be a fiction.
+        """
+        window = rect.intersected(self._clamp_bounds())
+        if window.width() < MIN_SELECTION or window.height() < MIN_SELECTION:
+            log.debug("%s does not fit on this screen any more", rect)
+            return
         self._drag_mode = MODE_RECTANGLE
         self._points = []
         self._has_selection = True

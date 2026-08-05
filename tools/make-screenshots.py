@@ -189,13 +189,18 @@ def words_for(language: str) -> list[Word]:
     return words
 
 
-def overlay_for(language: str, mode: str = MODE_LASSO, magnifier: bool = False):
+def overlay_for(
+    language: str,
+    mode: str = MODE_LASSO,
+    magnifier: bool = False,
+    last_area: QRect | None = None,
+):
     shot = desktop(language)
     metrics = hidpi.measure_screen(screen.name(), QRect(0, 0, W, H), (W * SCALE, H * SCALE), SCALE)
     overlay = SelectionOverlay(
         QPixmap.fromImage(shot), metrics, screen,
         dim_percent=45, mode=mode, confirm=True, magnifier=magnifier,
-        max_side=MAX_SIDE,
+        max_side=MAX_SIDE, last_area=last_area,
     )
     overlay.resize(W, H)
     overlay.setProperty("shot", shot)
@@ -264,8 +269,9 @@ for language in ("en", "uk"):
     suffix = "" if language == "en" else "-uk"
     print(f"{language}:")
 
-    # 1. Nothing drawn yet: the mode chips and the hint.
-    idle = overlay_for(language)
+    # 1. Nothing drawn yet: the mode chips, the hint, and — because there was a
+    #    capture before this one — the offer to take the same rectangle again.
+    idle = overlay_for(language, last_area=QRect(150, 180, 620, 300))
     idle._current = QPoint(700, 500)
     save(idle, f"overlay-start{suffix}.png")
 
