@@ -1,0 +1,498 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Тут нічого немає — Обвести й знайти · Nothing here — Circle to Search</title>
+<meta name="description" content="Такої сторінки на цьому сайті немає. There is no such page here.">
+<meta name="robots" content="noindex">
+<!-- This one page carries its own styles, and nothing else at all.
+     GitHub Pages hands 404.html back for a request at ANY depth, so a relative
+     <link href="css/site.css"> would resolve somewhere different every time —
+     and the page would arrive unstyled exactly when it matters.  So: no
+     stylesheet, no external script, no image, no favicon, no request of any
+     kind.  The tokens below are copied out of css/site.css unchanged; the type
+     roles are the same roles; nothing here is redesigned. -->
+<script>
+/* The one script on the page, and being inline it is not a request either: the
+   theme somebody chose on a real page is remembered for this one too.  Without
+   it the switch would quietly stop applying the moment a URL is mistyped. */
+(function () {
+  try {
+    var chosen = localStorage.getItem('cts-theme');
+    if (chosen === 'dark' || chosen === 'light') {
+      document.documentElement.setAttribute('data-theme', chosen);
+    }
+  } catch (error) {}
+})();
+</script>
+<style>
+/* ========================================================== tokens: colour */
+
+:root {
+  color-scheme: light;
+
+  /* scheme_for((0x42, 0x85, 0xF4), dark=False) */
+  --primary: #005cba;
+  --on-primary: #ffffff;
+  --secondary-container: #dbe1ff;
+  --on-secondary-container: #131b30;
+  --surface: #f8f9ff;
+  --on-surface: #1a1b21;
+  --on-surface-variant: #444653;
+  --surface-container-low: #f2f3fb;
+  --outline: #747684;
+  --outline-variant: #c3c6d5;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* scheme_for((0x42, 0x85, 0xF4), dark=True) */
+  --primary: #b5c4ff;
+  --on-primary: #002f65;
+  --secondary-container: #3f465f;
+  --on-secondary-container: #dbe1ff;
+  --surface: #121319;
+  --on-surface: #e1e2ea;
+  --on-surface-variant: #c3c6d5;
+  --surface-container-low: #1a1b21;
+  --outline: #8d909e;
+  --outline-variant: #444653;
+}
+
+/* The desktop's own preference, unless the switch on a real page has been used:
+   the inline script in the head reads back the same remembered choice and puts
+   data-theme on <html>, so the rule above does apply here. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --primary: #b5c4ff;
+    --on-primary: #002f65;
+    --secondary-container: #3f465f;
+    --on-secondary-container: #dbe1ff;
+    --surface: #121319;
+    --on-surface: #e1e2ea;
+    --on-surface-variant: #c3c6d5;
+    --surface-container-low: #1a1b21;
+    --outline: #8d909e;
+    --outline-variant: #444653;
+  }
+}
+
+/* ============================================ tokens: shape, space, motion */
+
+:root {
+  --shape-xs: 4px;
+  --shape-full: 28px;
+
+  /* SPACE = 8, half steps allowed and nothing else. */
+  --space-05: 4px;
+  --space-1: 8px;
+  --space-15: 12px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-6: 48px;
+  --space-8: 64px;
+  --space-12: 96px;
+
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --duration-short-2: 100ms;
+
+  --state-hover: 0.08;
+  --state-pressed: 0.12;
+
+  /* Every role is a ratio against body-medium, so the whole page grows with
+     the reader's own font size.  1rem is that font size. */
+  --type-anchor: 0.875rem;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'Noto Sans', Cantarell,
+    'Liberation Sans', 'DejaVu Sans', sans-serif;
+
+  --measure: 66ch;
+  --page: 1180px;
+}
+
+/* ==================================================================== base */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--on-surface);
+  display: flex;
+  flex-direction: column;
+  font-family: var(--font-sans);
+  /* body-large */
+  font-size: calc(1.142857 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0.03125em;
+  line-height: 1.5;
+  min-height: 100vh;
+  min-height: 100svh;
+  overflow-wrap: break-word;
+}
+
+main {
+  flex: 1 0 auto;
+}
+
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--shape-xs);
+}
+
+a {
+  color: var(--primary);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+p {
+  margin: 0 0 var(--space-2);
+  max-width: var(--measure);
+}
+
+/* ============================================================= type roles */
+
+.display-small {
+  font-size: calc(2.571429 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.22;
+  margin: 0;
+}
+
+h1 {
+  font-size: calc(2.571429 * var(--type-anchor));
+  font-weight: 400;
+  line-height: 1.22;
+  margin: 0;
+}
+
+.lede {
+  font-size: calc(1.571429 * var(--type-anchor));
+  letter-spacing: 0;
+  line-height: 1.45;
+  max-width: 46ch;
+}
+
+.supporting {
+  color: var(--on-surface-variant);
+  font-size: calc(0.857143 * var(--type-anchor));
+  letter-spacing: 0.033333em;
+  line-height: 1.45;
+  max-width: var(--measure);
+}
+
+.eyebrow {
+  color: var(--on-surface-variant);
+  display: block;
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.041667em;
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+}
+
+/* =================================================================== shell */
+
+.container {
+  margin-inline: auto;
+  max-width: var(--page);
+  padding-inline: var(--space-3);
+  width: 100%;
+}
+
+.section {
+  padding-block: var(--space-12);
+}
+
+/* ================================================================= buttons */
+
+.btn {
+  align-items: center;
+  border: 0;
+  border-radius: var(--shape-full);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: var(--type-anchor);
+  font-weight: 500;
+  gap: var(--space-1);
+  justify-content: center;
+  letter-spacing: 0.007143em;
+  line-height: 1.43;
+  min-height: 48px;
+  padding: var(--space-15) var(--space-3);
+  position: relative;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition: transform var(--duration-short-2) var(--ease-standard);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+/* MD3's state layer: a film of the thing's own ink. */
+.btn::after {
+  background: currentColor;
+  border-radius: inherit;
+  content: '';
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--duration-short-2) var(--ease-standard);
+}
+
+.btn:hover::after {
+  opacity: var(--state-hover);
+}
+
+.btn:active::after {
+  opacity: var(--state-pressed);
+}
+
+.btn--filled {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.btn--tonal {
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
+}
+
+.btn--outlined {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--outline);
+  color: var(--primary);
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-15);
+}
+
+/* ================================================================== footer */
+
+.footer {
+  background: var(--surface-container-low);
+  border-top: 1px solid var(--outline-variant);
+  padding-block: var(--space-8);
+}
+
+/* ============================================ this page: the circled title */
+
+/* The only rules that are not in css/site.css.  They stack one thing on top
+   of another and centre the column; nothing here restyles anything the rest
+   of the site has. */
+
+.notfound {
+  text-align: center;
+}
+
+.notfound p {
+  margin-inline: auto;
+}
+
+.notfound .actions {
+  justify-content: center;
+}
+
+.notfound .actions + .actions {
+  margin-top: var(--space-15);
+}
+
+.stroke {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  margin-block: var(--space-2) var(--space-3);
+  margin-inline: auto;
+  max-width: 640px;
+}
+
+.stroke > * {
+  align-self: center;
+  grid-column: 1;
+  grid-row: 1;
+}
+
+/* The loop sizes the box; the words sit in the middle of it. */
+.stroke__loop {
+  height: auto;
+  width: 100%;
+}
+
+.stroke__title {
+  justify-self: center;
+  padding-inline: var(--space-3);
+}
+
+/* The other language: the next role down the same scale, in the same quieter
+   ink the site gives secondary text. */
+.alt {
+  color: var(--on-surface-variant);
+  display: block;
+}
+
+.stroke__title .alt {
+  /* headline-medium */
+  font-size: calc(2 * var(--type-anchor));
+  line-height: 1.29;
+}
+
+.lede .alt {
+  /* body-large */
+  font-size: calc(1.142857 * var(--type-anchor));
+  letter-spacing: 0.03125em;
+  line-height: 1.5;
+  margin-top: var(--space-05);
+}
+
+.notfound .lede {
+  margin-bottom: var(--space-6);
+}
+
+/* The loop scales with the page and the words do not, so they step down the
+   same scale to stay inside it. */
+@media (max-width: 600px) {
+  .stroke__title {
+    /* headline-medium */
+    font-size: calc(2 * var(--type-anchor));
+    line-height: 1.29;
+  }
+
+  .stroke__title .alt {
+    /* title-large */
+    font-size: calc(1.571429 * var(--type-anchor));
+    line-height: 1.27;
+  }
+}
+
+@media (max-width: 420px) {
+  .stroke__title {
+    /* title-large */
+    font-size: calc(1.571429 * var(--type-anchor));
+    line-height: 1.27;
+  }
+
+  .stroke__title .alt {
+    /* body-large */
+    font-size: calc(1.142857 * var(--type-anchor));
+    line-height: 1.5;
+  }
+}
+
+/* ========================================================= reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+</head>
+<body>
+
+<main class="section" id="main">
+  <div class="container notfound">
+
+    <span class="eyebrow">404</span>
+
+    <div class="stroke">
+      <!-- The stroke, drawn by the same rule the program draws by
+           (docs/STROKE.md), the same way site/icon.svg does it:
+
+             · one open contour — it sweeps 392°, so its two ends simply pass
+               each other and never join;
+             · the line is white, all of it, 12 units wide at this SVG's own
+               scale, fully opaque, round caps and round joins;
+             · under it, drawn first, the same path in black at 0.353, four
+               units wider — a white line on a white page is invisible, and
+               this page can be either colour;
+             · under both, drawn first of all, the glow: one soft circle
+               centred on the END of the line.
+
+           The glow's colour is read off how far down the head ended up, not
+           off a clock.  The head lands at y = 194.88 of the 320-unit height,
+           i.e. 0.6090 — which on the ramp (0 #4285F4 · 0.40 #EA4335 ·
+           0.62 #FBBC05 · 1 #34A853, linear between) is 0.9499 of the way from
+           red to yellow, and gives #fab607. -->
+      <svg class="stroke__loop" viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg"
+           aria-hidden="true" focusable="false">
+        <defs>
+          <radialGradient id="stroke-glow" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#fab607" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#fab607" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#fab607" stop-opacity="0"/>
+          </radialGradient>
+        </defs>
+        <circle cx="539.91" cy="194.88" r="100" fill="url(#stroke-glow)"/>
+        <path d="M542.98 136.18 L545.81 142.04 L547.78 147.97 L548.86 153.96 L549.06 159.96 L548.39 165.96 L546.86 171.93 L544.49 177.84 L541.32 183.67 L537.38 189.40 L532.70 195.02 L527.31 200.50 L521.25 205.84 L514.54 211.02 L507.22 216.04 L499.31 220.86 L490.83 225.50 L481.79 229.93 L472.23 234.13 L462.15 238.10 L451.59 241.81 L440.56 245.26 L429.10 248.42 L417.24 251.28 L405.01 253.83 L392.46 256.06 L379.63 257.95 L366.58 259.51 L353.34 260.72 L339.97 261.58 L326.52 262.11 L313.03 262.31 L299.54 262.17 L286.09 261.71 L272.72 260.95 L259.46 259.87 L246.32 258.50 L233.35 256.84 L220.57 254.89 L208.01 252.66 L195.69 250.14 L183.66 247.33 L171.95 244.24 L160.62 240.86 L149.71 237.19 L139.27 233.24 L129.37 229.00 L120.06 224.50 L111.41 219.73 L103.47 214.73 L96.28 209.49 L89.91 204.05 L84.36 198.44 L79.69 192.68 L75.88 186.81 L72.96 180.84 L70.90 174.81 L69.69 168.76 L69.31 162.69 L69.72 156.64 L70.89 150.63 L72.78 144.67 L75.36 138.77 L78.61 132.95 L82.48 127.22 L86.98 121.58 L92.07 116.04 L97.76 110.62 L104.04 105.32 L110.91 100.15 L118.38 95.13 L126.44 90.28 L135.10 85.62 L144.35 81.17 L154.18 76.94 L164.59 72.96 L175.53 69.26 L186.99 65.85 L198.93 62.76 L211.29 59.99 L224.03 57.57 L237.10 55.49 L250.45 53.78 L264.01 52.42 L277.73 51.43 L291.56 50.79 L305.46 50.51 L319.36 50.57 L333.24 50.98 L347.04 51.73 L360.73 52.82 L374.27 54.23 L387.62 55.97 L400.73 58.03 L413.57 60.42 L426.09 63.12 L438.24 66.14 L449.97 69.47 L461.24 73.10 L471.99 77.03 L482.17 81.24 L491.74 85.72 L500.67 90.44 L508.91 95.40 L516.43 100.56 L523.23 105.91 L529.29 111.42 L534.60 117.07 L539.17 122.83 L543.01 128.69 L546.13 134.61 L548.55 140.60 L550.28 146.62 L551.33 152.67 L551.71 158.74 L551.44 164.82 L550.50 170.89 L548.89 176.94 L546.60 182.97 L543.61 188.95 L539.91 194.88"
+              fill="none" stroke="#000000" stroke-opacity="0.353"
+              stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>
+        <path d="M542.98 136.18 L545.81 142.04 L547.78 147.97 L548.86 153.96 L549.06 159.96 L548.39 165.96 L546.86 171.93 L544.49 177.84 L541.32 183.67 L537.38 189.40 L532.70 195.02 L527.31 200.50 L521.25 205.84 L514.54 211.02 L507.22 216.04 L499.31 220.86 L490.83 225.50 L481.79 229.93 L472.23 234.13 L462.15 238.10 L451.59 241.81 L440.56 245.26 L429.10 248.42 L417.24 251.28 L405.01 253.83 L392.46 256.06 L379.63 257.95 L366.58 259.51 L353.34 260.72 L339.97 261.58 L326.52 262.11 L313.03 262.31 L299.54 262.17 L286.09 261.71 L272.72 260.95 L259.46 259.87 L246.32 258.50 L233.35 256.84 L220.57 254.89 L208.01 252.66 L195.69 250.14 L183.66 247.33 L171.95 244.24 L160.62 240.86 L149.71 237.19 L139.27 233.24 L129.37 229.00 L120.06 224.50 L111.41 219.73 L103.47 214.73 L96.28 209.49 L89.91 204.05 L84.36 198.44 L79.69 192.68 L75.88 186.81 L72.96 180.84 L70.90 174.81 L69.69 168.76 L69.31 162.69 L69.72 156.64 L70.89 150.63 L72.78 144.67 L75.36 138.77 L78.61 132.95 L82.48 127.22 L86.98 121.58 L92.07 116.04 L97.76 110.62 L104.04 105.32 L110.91 100.15 L118.38 95.13 L126.44 90.28 L135.10 85.62 L144.35 81.17 L154.18 76.94 L164.59 72.96 L175.53 69.26 L186.99 65.85 L198.93 62.76 L211.29 59.99 L224.03 57.57 L237.10 55.49 L250.45 53.78 L264.01 52.42 L277.73 51.43 L291.56 50.79 L305.46 50.51 L319.36 50.57 L333.24 50.98 L347.04 51.73 L360.73 52.82 L374.27 54.23 L387.62 55.97 L400.73 58.03 L413.57 60.42 L426.09 63.12 L438.24 66.14 L449.97 69.47 L461.24 73.10 L471.99 77.03 L482.17 81.24 L491.74 85.72 L500.67 90.44 L508.91 95.40 L516.43 100.56 L523.23 105.91 L529.29 111.42 L534.60 117.07 L539.17 122.83 L543.01 128.69 L546.13 134.61 L548.55 140.60 L550.28 146.62 L551.33 152.67 L551.71 158.74 L551.44 164.82 L550.50 170.89 L548.89 176.94 L546.60 182.97 L543.61 188.95 L539.91 194.88"
+              fill="none" stroke="#ffffff"
+              stroke-width="12" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+
+      <h1 class="display-small stroke__title">
+        <span lang="uk">Тут нічого немає</span>
+        <span class="alt" lang="en">Nothing here</span>
+      </h1>
+    </div>
+
+    <p class="lede">
+      <span lang="uk">Такої сторінки на цьому сайті немає. Можливо, посилання застаріло.</span>
+      <span class="alt" lang="en">There is no such page on this site. The link may be out of date.</span>
+    </p>
+
+    <!-- Plain relative hrefs.  GitHub Pages serves this file for a missing
+         path at any depth, and only one depth can be resolved against: the
+         site root, which is where a mistyped or stale link from outside
+         lands.  These four are correct there. -->
+    <div class="actions">
+      <a class="btn btn--filled" href="index.html" lang="uk">На головну</a>
+      <a class="btn btn--outlined" href="install.html" lang="uk">Встановлення</a>
+    </div>
+    <div class="actions">
+      <a class="btn btn--tonal" href="en/index.html" lang="en">Home page</a>
+      <a class="btn btn--outlined" href="en/install.html" lang="en">Installing</a>
+    </div>
+
+  </div>
+</main>
+
+<footer class="footer">
+  <div class="container notfound">
+    <p class="supporting" lang="uk">Не повʼязано з Google. «Circle to Search» і «Google Lens» — назви Google для речей Google; це незалежна програма, яка відкриває їхню публічну вебточку у вашому браузері.</p>
+    <p class="supporting" lang="en">Not affiliated with Google. “Circle to Search” and “Google Lens” are Google’s names for Google’s things; this is an independent program that opens their public web endpoint in your browser.</p>
+  </div>
+</footer>
+
+</body>
+</html>
