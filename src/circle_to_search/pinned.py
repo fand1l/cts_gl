@@ -20,10 +20,11 @@ It follows that neither of the two things that make a pin a pin is done here.
 
 from __future__ import annotations
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QSize, Qt, pyqtSignal
+from PyQt6.QtCore import QEvent, QMimeData, QPoint, QRect, QSize, Qt, pyqtSignal
 from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
+    QDrag,
     QGuiApplication,
     QKeyEvent,
     QMouseEvent,
@@ -51,6 +52,10 @@ MIN_SIDE = 24
 #: Nor larger than this share of the screen it lands on.  A full-screen crop
 #: pinned at its own size *is* a second copy of the screen, on top of the first.
 MAX_SHARE = 0.8
+
+#: How big the picture under the pointer gets while it is being carried.
+#: Big enough to see what it is, small enough to see where it is going.
+_DRAG_PREVIEW = QSize(240, 240)
 
 #: The border: light over dark, because this is drawn on top of somebody else's
 #: window and either one alone disappears against something.
@@ -174,6 +179,9 @@ class PinnedCrop(QWidget):
             return
         if event.button() != Qt.MouseButton.LeftButton:
             return
+        if event.modifiers() & Qt.KeyboardModifier.ControlModifier:
+            self.drag_out()
+            return
         window = self.windowHandle()
         if window is None:
             return
@@ -186,6 +194,51 @@ class PinnedCrop(QWidget):
 
     def mouseReleaseEvent(self, _event: QMouseEvent) -> None:
         self.setCursor(Qt.CursorShape.OpenHandCursor)
+
+    # ------------------------------------------------------ dragging it out
+
+    def mime(self) -> QMimeData:
+        """The crop, as the clipboard already carries it, for a drop instead.
+
+        ``setImageData`` and nothing else: Qt turns one QImage into every
+        image format the target asks for, and a hand-rolled ``image/png`` next
+        to it would be the same bytes twice under a name Qt already offers.
+        """
+        data = QMimeData()
+        data.setImageData(self._pixmap.toImage())
+        return data
+
+    def drag_out(self) -> None:
+        """Carry the crop into another window: a chat, a document, an editor.
+
+        The clipboard already holds exactly this by another route, and the
+        route is the point — dropping a picture into a chat is one gesture
+        where copy-switch-paste is four, and this window is already holding
+        the image.
+
+        It is *this* window rather than the overlay because of something the
+        sketch for it had not asked: a drag has to start while the button is
+        down, which over there is while a full-screen overlay is still covering
+        every window the picture could be dropped into.  A pin is a small
+        ordinary window with nothing underneath it, so a drag out of one is an
+        ordinary drag with an ordinary target, and *P* then drag is two
+        gestures rather than four.
+
+        Ctrl, because a plain press already means "move me" and has since this
+        window existed.
+        """
+        drag = QDrag(self)
+        drag.setMimeData(self.mime())
+        # What the pointer carries: the crop itself, small enough to see past.
+        preview = self._pixmap.scaled(
+            self._pixmap.size().boundedTo(_DRAG_PREVIEW),
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        drag.setPixmap(preview)
+        drag.setHotSpot(QPoint(preview.width() // 2, preview.height() // 2))
+        log.info("dragging the pinned crop out")
+        drag.exec(Qt.DropAction.CopyAction)
 
     def wheelEvent(self, event: QWheelEvent) -> None:
         # Proportional to how far the wheel actually turned, not one step per

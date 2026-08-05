@@ -54,6 +54,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="show the first-run window again",
     )
     parser.add_argument(
+        "--doctor",
+        action="store_true",
+        help="check every moving part and print what to do about each, then exit",
+    )
+    parser.add_argument(
         "--test-lens",
         metavar="IMAGE",
         help="upload one image file to Google and print the result URL, then exit",
@@ -276,6 +281,13 @@ def main(argv: list[str] | None = None) -> int:
         return test_lens(args.test_lens, args.backend, args.verbose)
     if args.probe_lens:
         return probe_lens(args.probe_lens)
+    if args.doctor:
+        # Before warn_about_session(), which says one of the same things less
+        # usefully, and before anything claims a name on the bus: a doctor that
+        # started a second daemon would be reporting on itself.
+        from circle_to_search.doctor import run as run_doctor
+
+        return run_doctor()
 
     warn_about_session()
 

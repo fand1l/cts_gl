@@ -373,6 +373,21 @@ def upload_search_by_image(
     return upload_variant(prepared, VARIANTS_BY_NAME["searchbyimage"], timeout, language)
 
 
+def other_way(backend: str) -> str:
+    """The genuinely different route to try after one has failed.
+
+    There are two mechanisms here, not five: either this program performs the
+    upload or the browser does, and they fail for unrelated reasons — a request
+    from here is refused by Google or blocked by the network, while the browser
+    path is a local file that a content blocker or a sandboxed browser can
+    refuse to post.  So the second attempt swaps the mechanism.
+
+    Trying a different *variant* would not be a second attempt at all:
+    ``BACKEND_AUTO`` already walks every one of them before it reports failure.
+    """
+    return BACKEND_AUTO if backend == BACKEND_BROWSER else BACKEND_BROWSER
+
+
 def candidates_for(backend: str) -> tuple[Variant, ...]:
     """Which variants to try, in order, for a configured back end."""
     if backend in VARIANTS_BY_NAME:

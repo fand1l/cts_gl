@@ -40,6 +40,11 @@ That is the whole idea. Everything below is what happens around it.
   you need to read is behind the window you have to type into.
 * **The same area as last time**, to the pixel — for watching a number that
   changes, where a rectangle redrawn by hand is never quite the same one.
+* **A QR code gets a button on it.** Any code on the frozen screen is read
+  where it sits and wears a small button with the site it points at — press it
+  and you are there. Decoded on your machine, in about a millisecond, and
+  nothing about it is uploaded. Two codes on screen get two buttons, because
+  one button cannot say which it means.
 * **Pick a colour off the screen.** The screen is already frozen and already
   magnified under your pointer; click a pixel and its hex is in the clipboard.
 * **Select the text on your frozen screen**, then search for the words
@@ -149,6 +154,8 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 | | |
 |---|---|
 | **Drag** | draw a loop, or hold *Shift* for a rectangle |
+| **Arrow keys** | aim without a mouse; *Space* for one corner, then the other |
+| **Press a code** | any QR code on screen wears a button with where it goes |
 | **Click a window** | take exactly that window |
 | **Drag across text** | take the text instead of a picture |
 | **The same area**, or *R* | exactly where you selected last time |
@@ -158,6 +165,12 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 Then the selection waits. Drag the eight handles to resize, the grip in the
 middle to move it, the arrow keys to nudge it a pixel at a time — and press
 anywhere else to start again.
+
+**Without a mouse at all:** the arrow keys raise a crosshair and move it —
+*Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
+the arrows size the box from it, and *Space* again takes it. From there it is
+the same waiting selection, with the same keys on it. *Esc* lets go of the
+corner without letting go of the capture.
 
 Above it, two lines: the size of what you have selected, and under it what will
 actually leave — `→ 1000 × 400, ~30 KB JPEG`. They are not the same number, and
@@ -174,8 +187,9 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 
 **Pin** is the other one worth knowing about. It leaves that crop on your screen
 as a small window above everything else, which you can drag around, scroll to
-zoom, and close with *Esc* or a middle click. *Ctrl+C* on it copies it. Useful
-whenever the thing you have to read is behind the window you have to type into.
+zoom, and close with *Esc* or a middle click. *Ctrl+C* on it copies it, and *Ctrl* with a
+drag carries the picture straight into a chat or a document. Useful whenever
+the thing you have to read is behind the window you have to type into.
 
 ![A pinned crop floating over another window](docs/images/pinned.png)
 
@@ -264,6 +278,26 @@ is nearly always the better way round.
 
 ## If something does not work
 
+Ask it:
+
+```bash
+circle-to-search --doctor
+```
+
+It checks every moving part — the session, the daemon, its service, the KWin
+script and whether KWin is running the copy that is installed, the shortcut,
+the screen capture (by really taking one), the browser, and the text
+recognition — and prints the fix next to whatever is wrong.
+
+```
+  ✓  daemon            io.github.fand1l.CircleToSearch is on the bus
+  ✗  KWin script       KWin is running v1.10.0, but v1.11.0 is installed
+                       KWin loads a script once, at login, and keeps running that copy.
+                       Toggle it off and on in System Settings → Window Management →
+                       KWin Scripts, or log out and back in.
+  ✓  screen capture    kwin-screenshot2, 3840×2160 px in 84 ms
+```
+
 **Nothing happens when I shake.** Hover the tray icon — it will tell you which
 part is wrong. Most often the answer is *log out and back in*: KWin loads a
 script once, at login, and keeps running that copy.
@@ -279,6 +313,12 @@ Scripts*.
 **The Lens page opens empty.** The upload is done by your browser, not by this
 program, so a browser that blocks the request is the usual cause. Try it in a
 window without content blocking.
+
+**The upload failed.** The notification now has a **Try another way** button.
+There are two ways this can send a picture — your browser posts it, or this
+program does — and they fail for unrelated reasons, so the button swaps them
+rather than trying the same one again. Your selection is still in memory; it
+is offered once, and then it reports plainly.
 
 Longer answers, and about twenty other failure modes with the reasoning behind
 each, are in the [technical documentation](docs/TECHNICAL.md#what-can-break-and-how-to-debug-it).

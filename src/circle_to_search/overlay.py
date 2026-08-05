@@ -44,6 +44,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from urllib.parse import urlparse
 
 from PyQt6.QtCore import (
     QElapsedTimer,
@@ -83,6 +84,7 @@ from .i18n import tr
 from .imageops import scaled_size
 from .logging_setup import get_logger
 from .ocr import Word, words_to_text
+from .qr import Code
 from .stroke import (
     GLOW_RADIUS,
     LINE_WIDTH,
@@ -126,6 +128,19 @@ _STROKE_CHUNK = 48
 #: Arrow-key step, and the bigger one with Ctrl held.
 _NUDGE = 1
 _NUDGE_FAST = 10
+
+#: How far one arrow press moves the keyboard caret, and what the modifiers do
+#: to it.  Deliberately not the nudge above: that one corrects a finished box by
+#: a pixel, this one has to cross a screen, and 1 px at a key-repeat rate is
+#: four thousand presses to reach the far side of a 4K display.  Ctrl is how you
+#: travel, Shift is how you land.
+_CARET_STEP = 16
+_CARET_STEP_FAST = 96
+_CARET_STEP_FINE = 1
+#: Half the length of the caret's arms, and the gap left at its centre so the
+#: pixel it is actually pointing at is not covered by the thing pointing at it.
+_CARET_ARM = 13
+_CARET_GAP = 3
 
 #: The eight handles, as (name, x factor, y factor) of the box.
 _HANDLES = (
@@ -236,6 +251,13 @@ ACTION_SAVE = "save"
 #: _commit like the other three, so the redaction and the lasso mask apply to it
 #: exactly as they do to an upload.
 ACTION_PIN = "pin"
+#: How much bigger than its text the chip's pill is, and how far it will sit
+#: from the code's edge when it does not fit inside it.
+_CHIP_PAD_X = 14
+_CHIP_PAD_Y = 7
+_CHIP_GAP = 8
+#: A label longer than this is a payload nobody reads off a pill.
+_CHIP_CHARS = 34
 #: Only the tray's recent list uses this one now: on the overlay the text is
 #: taken by dragging across it, not by asking for a whole region to be read.
 ACTION_TEXT = "text"
@@ -259,6 +281,77 @@ class PlacedWord:
     text: str
     rect: QRect
     line: tuple[int, int, int]
+
+
+@dataclass(frozen=True)
+class CodeChip:
+    """A QR code found on the frozen screen, and the button sitting on it.
+
+    The button is *on the code* rather than in the action bar, because a bar
+    button cannot say which code it means and there is nothing stopping a
+    screen from holding two.  Pointing at one is the whole answer.
+    """
+
+    payload: str
+    #: The payload when it is a link, empty when it is anything else.  Decides
+    #: both what the chip says and what pressing it does.
+    link: str
+    label: str
+    #: Where the code is, in the coordinates the overlay draws in.
+    code: QRect
+    #: Where the pill is.  Centred on the code, or just under it when the code
+    #: is too small to hold it.
+    pill: QRect
+
+
+def _openable(payload: str) -> str:
+    """The payload when it is a link worth opening, and empty otherwise.
+
+    Narrower than :func:`looks_like_url` on purpose.  A QR code can carry any
+    URI at all — ``WIFI:``, ``geo:``, ``bitcoin:``, ``smsto:`` — and handing an
+    arbitrary one to xdg-open on a press is not something to do on the strength
+    of a colon.  http and https only; everything else is copied, which is still
+    what was asked for and cannot surprise anybody.
+    """
+    link = looks_like_url(payload)
+    return link if urlparse(link).scheme in ("http", "https") else ""
+
+
+def _chip_label(payload: str, link: str) -> str:
+    """What the pill says: the host for a link, the payload for anything else.
+
+    The host, not the URL, because that is the part a person reads to decide
+    whether they want it — and it is what the phone shows.
+    """
+    if link:
+        host = urlparse(link).netloc or link
+        return host.removeprefix("www.")
+    text = payload.strip().replace("\n", " ")
+    return text if len(text) <= _CHIP_CHARS else text[: _CHIP_CHARS - 1] + "…"
+
+
+def _spread(chips: list[CodeChip]) -> list[CodeChip]:
+    """Push overlapping pills apart, downwards, in the order they were found.
+
+    Two codes side by side put their pills in the same band, and a pill half
+    under another pill is a button nobody can press with confidence.
+    """
+    placed: list[CodeChip] = []
+    for chip in chips:
+        pill = QRect(chip.pill)
+        for other in placed:
+            if pill.intersects(other.pill):
+                pill.moveTop(other.pill.bottom() + _CHIP_GAP)
+        placed.append(
+            CodeChip(
+                payload=chip.payload,
+                link=chip.link,
+                label=chip.label,
+                code=chip.code,
+                pill=pill,
+            )
+        )
+    return placed
 
 
 class SelectionOverlay(QWidget):
@@ -291,6 +384,9 @@ class SelectionOverlay(QWidget):
     #: screenshot.  Answering means really encoding a JPEG, which is far too slow
     #: for the GUI thread, so the overlay asks and carries on drawing.
     estimate_requested = pyqtSignal(QRect)
+    #: A chip on a code was pressed: (payload, link).  The link is empty
+    #: when the code is not one, and then the payload is for the clipboard.
+    code_activated = pyqtSignal(str, str)
     #: A "sending" overlay took itself down.  Whoever kept it alive can let go.
     dismissed = pyqtSignal()
 
@@ -341,6 +437,11 @@ class SelectionOverlay(QWidget):
         self._upload_bytes = 0
         self._estimate_timer: QTimer | None = None
         self._estimated_for = QRect()
+        #: What was decoded out of the confirmed crop, if anything.  Answered by
+        #: the application off the GUI thread, on the same ask as the byte
+        #: count, and dropped the same way when it comes back about a crop that
+        #: has since been dragged somewhere else.
+        self._chips: list[CodeChip] = []
         self._estimated_marks: list[QRect] = []
         #: Bumped whenever anything that changes the answer changes — the crop,
         #: or what is blacked out inside it.  An answer that was asked for
@@ -383,6 +484,13 @@ class SelectionOverlay(QWidget):
         self._anchor = QPoint()
         self._current = QPoint()
         self._points: list[QPoint] = []
+
+        #: Selecting with no mouse at all.  ``_caret`` is where the keyboard is
+        #: pointing and ``_caret_anchor`` is the corner it has pinned; both are
+        #: None until an arrow key is pressed, so nothing about the pointer path
+        #: changes for somebody who never uses this.
+        self._caret: QPoint | None = None
+        self._caret_anchor: QPoint | None = None
 
         #: Confirmation state.  ``_box`` is in *screen* coordinates, like
         #: everything the painter draws, and becomes the selection once the drag
@@ -519,6 +627,9 @@ class SelectionOverlay(QWidget):
         return (
             not self._has_selection
             and not self._dragging
+            # A box being sized by the keyboard is a selection in progress, the
+            # same as a drag: the mode chips would be drawn over it.
+            and self._caret_anchor is None
             and not self.has_text_selection()
             and self._preview.isNull()
         )
@@ -539,6 +650,10 @@ class SelectionOverlay(QWidget):
         if self._confirming and self._has_selection:
             return tr("overlay.adjust")
         if self._showing_hint():
+            if self._caret is not None:
+                # The keyboard is in use, so the only line worth showing is the
+                # one about what to press next.
+                return tr("overlay.hint.keys")
             return tr("overlay.hint.lasso" if self._mode == MODE_LASSO else "overlay.hint.rect")
         return ""
 
@@ -1369,11 +1484,13 @@ class SelectionOverlay(QWidget):
             painter.end()
             return
 
-        if not self._has_selection and self._preview.isNull():
+        if not self._has_selection and self._preview.isNull() and self._caret_anchor is None:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._dim_around_text(painter)
             self._draw_window_outline(painter)
             self._draw_word_hints(painter)
+            self._draw_chips(painter)
+            self._draw_caret(painter)
             self._draw_action_bar(painter)
             self._draw_badge(painter)
             painter.end()
@@ -1433,6 +1550,7 @@ class SelectionOverlay(QWidget):
                 self._draw_handles(painter)
             self._draw_action_bar(painter)
         if not self._finished:
+            self._draw_caret(painter)
             self._draw_loupe(painter)
             self._draw_size_label(painter, selection)
         self._draw_badge(painter)
@@ -2073,6 +2191,56 @@ class SelectionOverlay(QWidget):
         if self._picking_colour:
             self._draw_swatch(painter)
 
+    def _draw_caret(self, painter: QPainter) -> None:
+        """The keyboard's crosshair, when the keyboard is what is aiming.
+
+        Two-tone for the reason everything drawn over a frozen screen is: what
+        is under it is somebody else's desktop and may be any colour, so a
+        single-colour crosshair looks better in a mock-up and disappears against
+        the wrong wallpaper.  Same treatment as the loupe's, and the same gap at
+        the middle so the pixel being pointed at is not covered by the thing
+        pointing at it.
+
+        A second, filled dot marks the corner that has been pinned, because two
+        crosshairs that look alike would say nothing about which is which.
+        """
+        if self._caret is None or self._finished:
+            return
+
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        centre = QPointF(self._caret_point())
+        arms = (
+            (
+                QPointF(centre.x() - _CARET_ARM, centre.y()),
+                QPointF(centre.x() - _CARET_GAP, centre.y()),
+            ),
+            (
+                QPointF(centre.x() + _CARET_GAP, centre.y()),
+                QPointF(centre.x() + _CARET_ARM, centre.y()),
+            ),
+            (
+                QPointF(centre.x(), centre.y() - _CARET_ARM),
+                QPointF(centre.x(), centre.y() - _CARET_GAP),
+            ),
+            (
+                QPointF(centre.x(), centre.y() + _CARET_GAP),
+                QPointF(centre.x(), centre.y() + _CARET_ARM),
+            ),
+        )
+        for width, colour in ((4, QColor(0, 0, 0, 130)), (2, QColor(255, 255, 255, 235))):
+            pen = QPen(colour)
+            pen.setWidth(width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            painter.setPen(pen)
+            for start, end in arms:
+                painter.drawLine(start, end)
+
+        if self._caret_anchor is not None:
+            pinned = QPointF(self._caret_anchor)
+            painter.setPen(QPen(QColor(0, 0, 0, 130), 3))
+            painter.setBrush(self._accent)
+            painter.drawEllipse(pinned, 4.0, 4.0)
+
     def _upload_line(self, physical: QRect) -> str:
         """What will actually leave, under the crop size.  Empty when nothing will.
 
@@ -2176,6 +2344,11 @@ class SelectionOverlay(QWidget):
         if event.button() != Qt.MouseButton.LeftButton:
             return
 
+        # A press is the mouse taking over.  Anything the keyboard had half-done
+        # goes with it, rather than leaving a crosshair and a pinned corner
+        # sitting on screen while a drag happens somewhere else.
+        self._drop_caret()
+
         where = event.position().toPoint() + self._offset
 
         # The bar is painted on top of everything, so it is hit-tested before
@@ -2186,6 +2359,13 @@ class SelectionOverlay(QWidget):
             self._pressed_button = button
             self._hovered_button = button
             self._repaint_bar()
+            return
+
+        chip = self._chip_at(where)
+        if chip is not None:
+            # On the code, not in the bar: pressing it is the whole gesture, so
+            # nothing about a selection starts here.
+            self._use_chip(chip)
             return
 
         if self._picking_colour:
@@ -2263,6 +2443,11 @@ class SelectionOverlay(QWidget):
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
         if self._finished:
+            return
+        if self._caret_anchor is not None:
+            # The keyboard owns the box until it is taken or dropped.  A pointer
+            # that merely moves must not take it over half-sized; a *press*
+            # does, and that is the one above.
             return
         position = event.position().toPoint()
         # Snapshotted before anything moves, so the repaint can be told exactly
@@ -2483,6 +2668,13 @@ class SelectionOverlay(QWidget):
             if self._picking_colour:
                 self._set_picking_colour(False)
                 return
+            if self._caret_anchor is not None:
+                # And again: stepping out of sizing is not throwing the capture
+                # away.  The caret stays where it was, so the corner can be put
+                # somewhere else without starting over.
+                self._caret_anchor = None
+                self._changed()
+                return
             self._cancel()
             return
 
@@ -2523,7 +2715,42 @@ class SelectionOverlay(QWidget):
                 self._copy_text()
                 return
 
+        arrows = {
+            Qt.Key.Key_Left: (-1, 0),
+            Qt.Key.Key_Right: (1, 0),
+            Qt.Key.Key_Up: (0, -1),
+            Qt.Key.Key_Down: (0, 1),
+        }
+
         if not self._confirming:
+            # One code on screen and nothing selected: Enter is unambiguous and
+            # takes it.  With two it goes back to meaning nothing here, because
+            # "the primary action" cannot be two different links.
+            if (
+                key in (Qt.Key.Key_Return, Qt.Key.Key_Enter)
+                and len(self._chips) == 1
+                and self._showing_chips()
+            ):
+                self._use_chip(self._chips[0])
+                return
+            # Nothing taken yet, and nothing else is going on: the arrows raise
+            # a caret and move it, Space pins a corner and then takes the box.
+            if self._keyboard_selecting():
+                if key in arrows:
+                    dx, dy = arrows[key]
+                    self._move_caret(dx, dy, self._caret_step(event.modifiers()))
+                    return
+                if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                    if self._caret_anchor is not None:
+                        self._take_caret_box()
+                    elif self._caret is not None:
+                        self._pin_caret()
+                    else:
+                        # No caret yet: Space is not a way to start one, because
+                        # it would take a MIN_SELECTION box wherever the pointer
+                        # happens to be.  An arrow key shows where it would go.
+                        super().keyPressEvent(event)
+                    return
             super().keyPressEvent(event)
             return
 
@@ -2548,12 +2775,6 @@ class SelectionOverlay(QWidget):
             self._undo_redaction()
             return
 
-        arrows = {
-            Qt.Key.Key_Left: (-1, 0),
-            Qt.Key.Key_Right: (1, 0),
-            Qt.Key.Key_Up: (0, -1),
-            Qt.Key.Key_Down: (0, 1),
-        }
         if key in arrows:
             fast = bool(event.modifiers() & Qt.KeyboardModifier.ControlModifier)
             step = _NUDGE_FAST if fast else _NUDGE
@@ -2638,6 +2859,12 @@ class SelectionOverlay(QWidget):
         the damage region was the outline's ring and none of this is on it.
         """
         rects = [self._trail.bounds()]
+        # The pills vanish the moment anything is being selected, and they sit
+        # in the middle of the screen with no outline near them — exactly the
+        # shape of thing the damage ring does not cover on its own.
+        rects.extend(chip.pill.adjusted(-3, -3, 3, 3) for chip in self._chips)
+        if self._caret is not None:
+            rects.append(self._caret_rect())
         if self._loupe_showing():
             rects.append(self._loupe_rect())
         selection = self._selection_rect()
@@ -2728,6 +2955,9 @@ class SelectionOverlay(QWidget):
         self._estimated_marks = marks
         self._estimate_serial += 1
         self._upload_bytes = 0
+        # The code belonged to the old crop.  Kept on the bar it would offer to
+        # open a link that is no longer inside the box.
+        self._code = self._code_kind = self._code_link = ""
         if wanted.isEmpty():
             if self._estimate_timer is not None:
                 self._estimate_timer.stop()
@@ -2744,6 +2974,124 @@ class SelectionOverlay(QWidget):
             return
         self._estimate_asked = self._estimate_serial
         self.estimate_requested.emit(QRect(self._estimated_for))
+
+    # ------------------------------------------------- codes on the frozen screen
+    #
+    # Read off the *whole* screen the moment it freezes rather than out of a
+    # selection, because a code is a thing you point at, not a thing you frame:
+    # on a phone this is what Circle to Search does, and framing a code you were
+    # only ever going to open is three gestures too many.
+    #
+    # A button per code, on the code.  One in the action bar would have to say
+    # "Open the link" about whichever one it decided to mean, and nothing stops
+    # a screen from holding two.
+
+    def chips(self) -> list[CodeChip]:
+        return list(self._chips)
+
+    def set_codes(self, codes: list[Code]) -> None:
+        """Hand over what was decoded, in physical pixels of the screenshot."""
+        font = self._chip_font()
+        metrics = QFontMetrics(font)
+        chips: list[CodeChip] = []
+        for found in codes:
+            if not found.located:
+                # No corners to put a button on.  The payload is still real, but
+                # a chip in the middle of the screen would be pointing at
+                # nothing, and there is no honest place to draw it.
+                log.debug("a %s was decoded but not located", found.kind)
+                continue
+            left, top, width, height = found.bounds
+            code = physical_rect_to_logical(QRect(left, top, width, height), self._metrics)
+            if code.width() < 1 or code.height() < 1:
+                continue
+            link = _openable(found.payload)
+            label = _chip_label(found.payload, link)
+            chips.append(
+                CodeChip(
+                    payload=found.payload,
+                    link=link,
+                    label=label,
+                    code=code,
+                    pill=self._chip_pill(code, metrics.horizontalAdvance(label), metrics.height()),
+                )
+            )
+        self._chips = _spread(chips)
+        if self._chips:
+            log.info("%d code(s) on screen", len(self._chips))
+            self.update()
+
+    def _chip_font(self) -> QFont:
+        font = QFont(self.font())
+        font.setPointSizeF(max(10.0, font.pointSizeF() + 0.5))
+        font.setBold(True)
+        return font
+
+    @staticmethod
+    def _chip_pill(code: QRect, text_width: int, text_height: int) -> QRect:
+        """Centred on the code, or under it when the code is too small to hold it."""
+        width = text_width + 2 * _CHIP_PAD_X
+        height = text_height + 2 * _CHIP_PAD_Y
+        pill = QRect(0, 0, width, height)
+        pill.moveCenter(code.center())
+        if width > code.width() - 2 * _CHIP_GAP or height > code.height() - 2 * _CHIP_GAP:
+            pill.moveTop(code.bottom() + _CHIP_GAP)
+        return pill
+
+    def _showing_chips(self) -> bool:
+        """Only while nothing has been taken.
+
+        Once a selection is being drawn or waiting, the bar is what is being
+        read and buttons scattered over the screen behind it are noise.
+        """
+        return bool(self._chips) and self._showing_hint() and not self._picking_colour
+
+    def _chip_at(self, point: QPoint) -> CodeChip | None:
+        if not self._showing_chips():
+            return None
+        for chip in self._chips:
+            if chip.pill.contains(point):
+                return chip
+        return None
+
+    def _use_chip(self, chip: CodeChip) -> None:
+        """Press a chip: hand the payload over and get out of the way at once.
+
+        No badge, unlike every other way out of here — and the difference is
+        the point.  The badge exists because preparing an image and writing a
+        launcher page take a moment, and an overlay that vanishes before
+        anything appears is indistinguishable from one that threw the selection
+        away.  Here there is nothing to prepare: the URL was decoded before the
+        press, and all that is left is one xdg-open.
+
+        What remains after that is the browser's own cold start, which is the
+        browser's — and a full-screen window sitting in front of it with a
+        spinner is not reporting on that wait, it is *covering the window that
+        is arriving*.  Pressing a link and having the thing it was in go away
+        is what a link does everywhere else.
+        """
+        log.info("taking the %s from the screen", "link" if chip.link else "code")
+        self._finish(lambda: self.code_activated.emit(chip.payload, chip.link))
+
+    def _draw_chips(self, painter: QPainter) -> None:
+        if not self._showing_chips():
+            return
+        font = self._chip_font()
+        painter.setFont(font)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        for chip in self._chips:
+            pill = chip.pill
+            radius = pill.height() / 2
+            # A light rim under the dark pill, for the same reason everything
+            # else here has two tones: what is behind it is somebody else's
+            # screen and may be any colour.
+            painter.setPen(Qt.PenStyle.NoPen)
+            painter.setBrush(QColor(255, 255, 255, 90))
+            painter.drawRoundedRect(pill.adjusted(-2, -2, 2, 2), radius + 2, radius + 2)
+            painter.setBrush(QColor(24, 24, 27, 235))
+            painter.drawRoundedRect(pill, radius, radius)
+            painter.setPen(QPen(QColor(255, 255, 255)))
+            painter.drawText(pill, int(Qt.AlignmentFlag.AlignCenter), chip.label)
 
     def set_upload_size(self, crop: QRect, nbytes: int) -> None:
         """The answer to :attr:`estimate_requested`, for the crop it was asked about.
@@ -2777,6 +3125,117 @@ class SelectionOverlay(QWidget):
             return self._group_bounds.translated(-self._origin)
         return self.rect().translated(self._offset)
 
+    # ------------------------------------------------ selecting with no mouse
+    #
+    # Half of this was already here: the arrow keys move and resize a box that
+    # has been *taken*, and the bar advertises them.  The half that was missing
+    # is the half that makes the program usable with no pointer at all — there
+    # was no way to take one in the first place.
+    #
+    # Arrows raise a caret and move it, Space pins a corner, arrows size from
+    # it, Space again takes the box.  What it hands over is the same rectangle
+    # a drag hands over, through the same _use_rect() the "same area as last
+    # time" chip uses, so everything after this point is code that already ran.
+    #
+    # It is always a rectangle, whatever the mode chip says.  A lasso is a hand
+    # gesture; there is no arrow-key drawing of one that would not be a worse
+    # rectangle.
+
+    def _keyboard_selecting(self) -> bool:
+        """True when the arrows belong to the caret rather than to anything else."""
+        return self._caret is not None or self._showing_hint()
+
+    def _caret_point(self) -> QPoint:
+        """Where the caret is, or where it would appear if it were raised now."""
+        if self._caret is not None:
+            return self._caret
+        # The pointer, if it has been anywhere: the shake happened under it and
+        # it is the one place on screen the user was already looking.
+        if not self._current.isNull():
+            return QPoint(self._current)
+        return self.rect().center() + self._offset
+
+    @staticmethod
+    def _caret_step(modifiers: Qt.KeyboardModifier) -> int:
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
+            return _CARET_STEP_FAST
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
+            return _CARET_STEP_FINE
+        return _CARET_STEP
+
+    def _caret_rect(self, point: QPoint | None = None) -> QRect:
+        """What the caret covers, for the repaint to erase and redraw."""
+        if self._caret is None and point is None:
+            return QRect()
+        where = point if point is not None else self._caret_point()
+        reach = _CARET_ARM + 2
+        return QRect(where.x() - reach, where.y() - reach, reach * 2, reach * 2)
+
+    def _caret_box(self) -> QRect:
+        """The rectangle between the pinned corner and the caret.
+
+        Built from its corners by hand for the same reason
+        :meth:`_selection_rect` gives: ``QRect(topLeft, bottomRight)`` is
+        inclusive at both ends, and the size label would then disagree with the
+        crop by a pixel in each direction.
+        """
+        anchor = self._caret_anchor
+        if anchor is None:
+            return QRect()
+        caret = self._caret_point()
+        left, right = sorted((anchor.x(), caret.x()))
+        top, bottom = sorted((anchor.y(), caret.y()))
+        return QRect(left, top, right - left, bottom - top)
+
+    def _move_caret(self, dx: int, dy: int, step: int) -> None:
+        bounds = self._clamp_bounds()
+        start = self._caret_point()
+        point = QPoint(
+            min(max(start.x() + dx * step, bounds.left()), bounds.right()),
+            min(max(start.y() + dy * step, bounds.top()), bounds.bottom()),
+        )
+        if self._caret is not None and point == self._caret:
+            return
+        was_box = self._selection_rect()
+        was_floating = self._floating_rects()
+        self._caret = point
+        # The caret is in _floating_rects(), so the snapshot above and the
+        # recomputation inside cover both where it was and where it now is.
+        self._changed(self._drag_damage(was_box, was_floating, start))
+
+    def _pin_caret(self) -> None:
+        """Space, the first time: this corner."""
+        self._caret_anchor = QPoint(self._caret_point())
+        self._changed()
+
+    def _take_caret_box(self) -> None:
+        """Space, the second time: take what is between the two points.
+
+        Too small is not an error and not a selection either — the same answer
+        a stray click gets, which is to leave the overlay open so it can be
+        tried again rather than silently doing nothing.
+        """
+        box = self._caret_box()
+        self._caret_anchor = None
+        if box.width() < MIN_SELECTION or box.height() < MIN_SELECTION:
+            log.debug("ignoring a %dx%d keyboard selection", box.width(), box.height())
+            self._changed()
+            return
+        log.info("keyboard selection %dx%d at %d,%d", box.width(), box.height(), box.x(), box.y())
+        self._caret = None
+        self._use_rect(box)
+
+    def _drop_caret(self) -> None:
+        """Put the keyboard away — a press, or Esc with nothing pinned."""
+        if self._caret is None and self._caret_anchor is None:
+            return
+        was_box = self._selection_rect()
+        was_floating = self._floating_rects()
+        start = self._caret_point()
+        self._caret = None
+        self._caret_anchor = None
+        self._changed(self._drag_damage(was_box, was_floating, start))
+
     def _selection_rect(self) -> QRect:
         """Selection bounding box in widget-logical pixels.
 
@@ -2789,6 +3248,11 @@ class SelectionOverlay(QWidget):
         ends, so dragging from x=100 to x=300 would come out 201 px wide and the
         size label would disagree with the crop the user asked for.
         """
+        if self._caret_anchor is not None:
+            # Being sized by the keyboard.  Nothing has been *taken* yet, so
+            # _has_selection is still False and the action bar stays away —
+            # exactly where a rectangle drag is between press and release.
+            return self._caret_box()
         if not self._has_selection:
             # A group member showing someone else's selection: only the part
             # that lands on this screen, so the seam falls exactly on the edge.

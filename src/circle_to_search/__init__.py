@@ -13,35 +13,35 @@ debugged on its own:
 
 from __future__ import annotations
 
-__version__ = "1.2.0"
+__version__ = "1.3.0"
 
 #: What this release is *called*.  The number says what changed in relation to
 #: the last one; the name says which one it is, which is the question somebody
 #: running `install.sh update` is actually asking.
 #:
 #: Kept beside the number rather than inside it, and joined only for display.
-#: "1.2.0-better-version-control" is not a version pip will take — under PEP 440
-#: a hyphen introduces a *pre-release*, so that string sorts *below* 1.2.0 — and
+#: "1.3.0-another-way" is not a version pip will take — under PEP 440
+#: a hyphen introduces a *pre-release*, so that string sorts *below* 1.3.0 — and
 #: RPM will not take it at all, because its Version field uses the hyphen to
 #: separate the version from the release.
-RELEASE_NAME = "better-version-control"
+RELEASE_NAME = "another-way"
 
 #: A parallel count, and the only one a machine compares.
 #:
 #: Five digits, flat, and up by one on every push — it says nothing about what
 #: changed, only which of two copies is the later one.  ``__version__`` cannot
-#: answer that on its own: dev and deploy sit on the same 1.2.0 for as long as
+#: answer that on its own: dev and deploy sit on the same version for as long as
 #: the work takes, so "is this older than what I have" has no answer there, and
 #: that is exactly the moment somebody is about to install the wrong one.
 #:
 #: Deliberately not derived from ``__version__`` for that reason.  It starts at
 #: 10000 so it is five digits from the first one, and 89,999 of them is more
 #: pushes than this will ever see.
-BUILD = 10000
+BUILD = 10010
 
 
 def version_label() -> str:
-    """``1.2.0 “better-version-control” (build 10000)``, for people to read."""
+    """``1.3.0 “another-way” (build 10010)``, for people to read."""
     named = f"{__version__} “{RELEASE_NAME}”" if RELEASE_NAME else __version__
     return f"{named} (build {BUILD})"
 

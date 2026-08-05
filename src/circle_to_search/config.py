@@ -552,6 +552,22 @@ class AppSettings:
         self._settings.setValue("ocr_languages", value)
 
     @property
+    def qr_enabled(self) -> bool:
+        """Read a QR code out of the crop instead of uploading a picture of it.
+
+        On by default, which is the other way round from text recognition, and
+        deliberately: recognition needs a package the user may not want and
+        reads their whole screen, while this needs a package they very likely
+        have and its entire effect is to *stop* a picture going to Google.
+        Nothing happens either way when zbarimg is not installed.
+        """
+        return _as_bool(str(self._settings.value("qr_enabled", "true")))
+
+    @qr_enabled.setter
+    def qr_enabled(self, value: bool) -> None:
+        self._settings.setValue("qr_enabled", "true" if value else "false")
+
+    @property
     def lens_backend(self) -> str:
         """``browser`` (default), ``auto``, ``lens``, ``searchbyimage`` or a variant.
 
@@ -643,6 +659,20 @@ def autostart_enabled() -> bool:
     if result is None:
         return False
     return result.stdout.strip() == "enabled"
+
+
+def service_state() -> tuple[str, str] | None:
+    """``(is-active, is-enabled)`` as systemd words them, or None without it.
+
+    Both raw, because the interesting cases are the ones that are neither
+    "active" nor "failed" — "activating" while it is still coming up, and
+    "inactive" for a unit that was never enabled.
+    """
+    active = _systemctl("is-active", SERVICE_NAME)
+    enabled = _systemctl("is-enabled", SERVICE_NAME)
+    if active is None or enabled is None:
+        return None
+    return active.stdout.strip(), enabled.stdout.strip()
 
 
 def set_autostart(enabled: bool) -> bool:

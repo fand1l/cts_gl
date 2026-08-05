@@ -8,15 +8,26 @@ usually already sitting in the code or in a screenshot.
 Ordered by what I think they are worth, not by how hard they are.
 
 **Where each stands.**  Fourteen were read through and decided; 15 was added
-afterwards and is deliberately still a placeholder.
+afterwards as a placeholder and now has an answer.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** |
-| agreed, in this order | 4 `--doctor` |
-| agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
-| to be discussed | 15 a new design — after 5, 6 and 4, and not before |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** · **12 QR** · **10 drag out** |
+| agreed, in this order | — everything ordered is done |
+| last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
+
+The four that were left unordered were ordered on the same rule as before.  11
+went first and is done: it was wiring between three things that already existed
+and added no interface at all.  13 and 10 both change what a press does to a
+confirmed selection, so they were put adjacent, and 13 went first because half
+of it was already there.  10 has since moved *behind* 12: starting on it turned
+up a question the sketch had not asked — there is nowhere to drop a picture
+while a fullscreen overlay is on top of every window — and the answer decides
+what the feature is.  12 needs a decoder that is not installed, which makes it
+the only one carrying a dependency, the settings to make it optional, and three
+files of documentation, but none of that is a question.  15 comes after all of them
+because it repaints whatever they leave behind.
 
 The order is not the ranking below.  It runs smallest-change-per-return first
 and keeps anything that touches the same code adjacent, so each one lands on a
@@ -128,7 +139,7 @@ That is a real but much smaller feature than I sold.  Worth doing cheaply if at
 all: a `QTimer` in the daemon and a countdown in the tray tooltip; the capture
 path itself does not change.
 
-## 4. `circle-to-search --doctor`
+## 4. `circle-to-search --doctor` — **done**
 
 One command that checks every joint and prints what to do about each.
 
@@ -333,7 +344,7 @@ outright when nothing of it is left there.  It appears as a third chip beside
 *Lasso* and *Rectangle* — the one moment it is wanted is before a new rectangle
 has been drawn over the old one by hand — and on **R**.
 
-## 10. Drag the crop out of the overlay
+## 10. Drag the crop out — **done, out of the pin**
 
 Press on the confirmed selection and drag it into another window: a chat, a
 document, an image editor.
@@ -345,8 +356,44 @@ is four, and the overlay is already holding the image.
 
 *What to watch:* the inside of the box now starts a new selection, so this needs
 its own affordance — most likely the move grip doing double duty, or a modifier.
+`Ctrl` and a press inside the box is the one going spare, and the confirm bar's
+caption is where it would be advertised.
 
-## 11. "Try another way" when the upload fails
+*And the thing that turns out to be in the middle of it,* found while starting
+on it and worth writing down before the design is settled:
+
+**The overlay is fullscreen, so there is nowhere to drop.**  A `QDrag` has to be
+started while the button is still down, which is while the overlay is still up
+— and the overlay covers every window the picture could be dropped into.  The
+drop would land on the overlay itself.
+
+That is not a detail to be discovered halfway through; it decides the shape of
+the feature.  Three ways out, none free:
+
+* **Hide the overlay and then `exec()` the drag.**  Qt allows it — the drag
+  manager holds the grab, not the widget — and it is the smallest change.  But
+  it is a fullscreen Wayland surface dropping its own grab mid-gesture, which
+  is precisely the kind of thing that works on one compositor and not another,
+  and it cannot be tested from here at all: `offscreen` has no drag-and-drop.
+* **Drag out of the pinned window instead** (idea 5, already shipped).  A pin is
+  a small ordinary window with the crop in it and nothing underneath it; a drag
+  from there is an ordinary drag with an ordinary drop target, and *P* then
+  drag is two gestures rather than four.  Cheapest and safest, and it moves the
+  feature to where it is not fighting the compositor.
+* **Both**, with the pinned window first.
+
+*What shipped:* the second one.  **Ctrl and a press on a pinned crop carries it
+out**, with the picture under the pointer and the same image the clipboard
+would have had.  Ctrl because a plain press on a pin has meant "move me" since
+that window existed.
+
+The first option is still not started, and now probably never needs to be: *P*
+then drag is two gestures where copy-switch-paste is four, which was the whole
+argument, and it costs no fight with the compositor.  If dragging straight off
+the overlay is still wanted, it is the same `mime()` and a hidden surface, and
+it can only be settled on real hardware.
+
+## 11. "Try another way" when the upload fails — **done**
 
 The failure notification gets a button that retries through a different variant.
 
@@ -356,7 +403,7 @@ matters, the notification says *Google Lens request failed* and offers nothing.
 Meanwhile `notify.py` already has the whole action-button machinery, built for
 the misfire survey, sitting unused for anything else.
 
-## 12. Decode a QR code instead of uploading it
+## 12. Decode a QR code instead of uploading it — **done**
 
 If the crop contains one, offer *Open the link* before offering to send it
 anywhere.
@@ -370,7 +417,7 @@ is a real dependency for a narrow feature, so it belongs behind the same
 treatment as the text recognition: optional, off unless the library is there, and
 never a hard requirement.
 
-## 13. Select without a mouse
+## 13. Select without a mouse — **done**
 
 *Space* starts a selection at the pointer, arrows size it, *Space* again
 finishes.
@@ -392,12 +439,69 @@ editor does it better.
 
 ---
 
-## 15. A new design — **to be discussed, after 5, 6 and 4**
+## 15. A new design, on Material 3 — **decided, last**
 
-A placeholder, on purpose.  What it should look like has not been decided yet,
-and guessing at it here would turn a conversation into a fait accompli.  Written
-down so it is not forgotten, and so the discussion starts from what is actually
-on screen today rather than from memory.
+The placeholder that was here has an answer now: **Material Design 3**.
+
+*How I knew:* it was picked rather than deduced, and the reason given was that
+this program is already tied to Google — it opens Google Lens, in a gesture
+Google shipped on Android — so Google's own interface rules are the ones with a
+claim on it.  That is a better reason than it sounds: the gesture this imitates
+is *Circle to Search*, which on a phone is drawn in MD3, and somebody who knows
+what that looks like already has an expectation this can either meet or not.
+
+**The specification is the source; the skill is a convenience.**  The rules to
+follow are the ones at <https://m3.material.io/> — that is what "on Material 3"
+means here.  The `material-3` skill installed alongside is a condensed reference
+to reach for, not the authority: where the two differ, or where the skill is
+silent, the spec decides.  It is also Compose-shaped in places the spec is not,
+which is the next paragraph's problem.
+
+**What actually transfers, and what does not.**  The MD3 reference is
+Compose-first: Jetpack Compose is the primary target, Flutter second, and the
+web components are explicitly in maintenance mode.  This is PyQt6 on Plasma, so
+**none of the three implementation targets apply** and not one line of the
+example code will move across.  What moves is the part that is platform-neutral
+— which is also the part the spec states directly, independently of any
+implementation:
+
+| transfers | does not |
+|---|---|
+| the colour roles, and the rule that colours only pair as `X` + `on-X` | `MaterialTheme`, `@material/web`, every `md-*` element |
+| the type scale — display / headline / title / body / label | Roboto as the typeface (see below) |
+| the shape corners, as one small set of radii instead of the seven this uses now | `MaterialTheme.shapes` |
+| elevation as *tone* rather than shadow | the dp table, mostly (see below) |
+| the motion easings and durations, which are plain cubic-béziers | spring physics; Qt has no equivalent worth faking |
+| the 8 dp spacing grid | adaptive scaffolds, window size classes — there is one window and it is the screen |
+
+**Three places where MD3 and this program actually disagree**, and each needs an
+answer before any of it is drawn:
+
+* **Dynamic colour is already done, differently.** MD3 generates a scheme from
+  the wallpaper; `_accent` already comes from the Qt palette's Highlight, which
+  is the KDE accent colour the user chose.  Same idea, and the Plasma answer is
+  the better one here — it agrees with the rest of their desktop.  So: take the
+  MD3 *roles*, keep the KDE *seed*.
+* **Tonal elevation needs a surface, and there is not one.**  MD3 replaces
+  shadows with tinted surfaces — but everything this program draws sits on a
+  frozen screenshot of somebody else's screen, which is any colour at all.  The
+  dimming layer is the only surface there is.  Either the dimming becomes the
+  MD3 surface and everything above it is toned against that, or the elevation
+  system does not apply and shadows stay.  The first is more interesting and
+  more work.
+* **Roboto is the MD3 typeface, and using it would be wrong here.**  A KDE
+  application that overrides the font the user set in System Settings is a
+  badly behaved KDE application.  Take the *scale* — five roles, three sizes —
+  and apply it to whatever `QFont` the desktop hands over.
+
+**Where the work actually lands.**  The two plain dialogs are where MD3 would be
+most visible and most of the effort, because they are currently whatever the
+platform style gives; the overlay is already a designed thing and would be
+re-tuned rather than rebuilt.  The table below is unchanged and is still the
+inventory.
+
+Everything under it still holds — in particular the three constraints, which
+MD3 does not override.
 
 **What a redesign would be touching.**  The look is not in a stylesheet — there
 is no QSS in the project — so every one of these is a decision already made in

@@ -338,8 +338,15 @@ The order is the rest of the point:
 * a **detached HEAD** is no longer a problem: there is a branch to move to;
 * it prints the **commits it brought**, so "what did I just get" is answered
   without going to look;
-* it **reinstalls even when nothing arrived**, because that is the guarantee
-  being asked for: no file left over from a version that no longer ships it.
+* and it **stops when there is nothing to do**. Nothing arrived *and* the
+  version installed is the version here means the work is already done, and
+  doing it anyway — stopping the daemon, taking the installation out, putting
+  the identical thing back — is a minute of churn to arrive where it started.
+  When the two *differ* a reinstall is exactly the answer, and it happens
+  without asking: an installation from another branch, a half-finished one, or
+  one from before a file stopped shipping. So is any update that brought
+  commits, even if they left the version alone. `--force`, or plain
+  `reinstall`, puts it in again regardless.
 
 Then it **`exec`s the installer it just fetched**. Two reasons, and the second is
 the one that bites: the new code is what knows where the new code goes — an old
@@ -935,6 +942,131 @@ with it.
 Everything above is read **fresh** every time the menu is opened. Caching it
 would reintroduce precisely the bug it is there to expose.
 
+### QR codes wear their own button
+
+`qr.py` is `ocr.py`'s shape and for the same reasons: an outside program called
+through a pipe rather than a Python dependency, optional, never a hard
+requirement. `zbarimg` ships in every distribution this targets and pulls in
+nothing, where the alternatives are a compiled binding (`pyzbar`) or OpenCV,
+and neither belongs in `requirements.txt` for one button.
+
+**It is on by default and is never asked about, which is the opposite of text
+recognition — deliberately.** Recognition needs a package the user may not want
+and reads their whole screen, so it asks first. This needs a package they very
+likely already have, and its entire effect is to *stop* a picture going to
+Google. There is nothing to ask.
+
+**The whole screen is scanned as it freezes, not the selection.** A code is a
+thing you point at rather than frame, and framing one you were only ever going
+to open is three gestures too many — which is also how the phone behaves. It
+runs off the GUI thread beside the text layer and nothing waits for it: the
+buttons appear when they appear.
+
+**The button is on the code.** One in the action bar is what this had first, and
+it was dishonest: it can only say "Open the link" about whichever code it
+decided to mean, and nothing stops a screen from holding two. A pill centred on
+each code says which one it is by being there. Where a code is too small to
+hold its pill, the pill sits just underneath; where two pills would overlap,
+`_spread()` pushes the later one down, because a button half under another
+button is one nobody can press with confidence.
+
+*Enter* takes the only code when there is exactly one and goes back to meaning
+nothing there when there are several — "the primary action" cannot be two
+different links. The chips stay pressable either way. They are drawn only while
+nothing has been taken: once a selection is being made, the bar is what is
+being read and buttons scattered behind it are noise.
+
+**Pressing a chip leaves no badge behind**, which is the one way out of the
+overlay that does not. Everywhere else the badge is earned: preparing an image
+and writing a launcher page take a moment, and a window that vanishes before
+anything appears is indistinguishable from one that threw the selection away.
+Here there is nothing to prepare — the URL was decoded before the press — so
+what is left is the browser's own cold start, and a full-screen window sitting
+in front of it with a spinner is not reporting on that wait, it is covering the
+window that is arriving.
+
+Two more things were between the press and `xdg-open`, and both are gone:
+`_finish_opening()` — which offers text recognition and asks about misfires, a
+synchronous D-Bus round trip apiece — now runs *after* the browser is started
+rather than in front of it; and the open task goes into the thread pool at a
+priority above the whole-screen reading, which takes seconds and is started the
+moment the overlay opens.
+
+Four details that are not obvious:
+
+* **`--polygon` changes the shape of the line, in the middle.** zbar prints
+  `TYPE:POLYGON:payload` with it and `TYPE:payload` without, so the field
+  arrives *between* the two that were there before. Splitting once — which this
+  did on purpose, so a URL keeps its own colons — hands back the corners as
+  part of the payload. The parser takes the second field as a polygon only when
+  it really is one, which is also what keeps it right on a zbar too old to have
+  the flag.
+* **Only http and https are opened.** A code can carry any URI at all —
+  `WIFI:`, `geo:`, `bitcoin:`, `smsto:` — and handing an arbitrary one to
+  `xdg-open` on a press is not a thing to do on the strength of a colon.
+  Everything else is copied, which is still what was asked for.
+* **`zbarimg` exits 4 when it read the image and found nothing**, which is the
+  ordinary case: most screens have no codes on them.
+* **The pills are in `_floating_rects()`.** They sit in the middle of the
+  screen with no outline near them and they vanish the moment a drag starts —
+  exactly the shape of thing the damage ring does not cover on its own.
+
+### Dragging a crop out
+
+*Ctrl* and a press on a pinned crop starts a `QDrag` carrying the picture.
+`setImageData` and nothing else: Qt turns one `QImage` into every image format
+the target asks for, and a hand-rolled `image/png` beside it would be the same
+bytes twice under a name Qt already offers.
+
+**Out of the pin rather than out of the overlay**, and that is not a shortcut.
+A drag has to begin while the button is still down — which over the overlay is
+while a full-screen window is covering every window the picture could be
+dropped into, so the drop lands on the overlay itself. The ways around that are
+to hide a full-screen Wayland surface mid-gesture and hope the grab survives,
+which cannot be tested from here at all, or to drag out of a small ordinary
+window with nothing underneath it. A pin is exactly that, and *P* then drag is
+two gestures where copy-switch-paste is four — which was the whole argument for
+the feature.
+
+*Ctrl* because a plain press on a pin has meant "move me" since that window
+existed, and on Wayland that press is handed to the compositor
+(`startSystemMove`) and never comes back.
+
+### Selecting without a mouse
+
+Half of this was already here — the arrow keys move and resize a box that has
+been *taken*, and the bar advertises them. What was missing was the half that
+makes the program usable with no pointer at all: there was no way to take one.
+
+Arrows raise a caret and move it, *Space* pins a corner, arrows size from it,
+*Space* again takes the box. *Esc* lets go of the corner without letting go of
+the capture, which is the bargain the redaction and colour modes already make.
+
+Three decisions in it are worth the words:
+
+* **Its own step sizes.** `_NUDGE` is 1 px and `_NUDGE_FAST` is 10, which is
+  right for correcting a finished box and useless for crossing a screen — at a
+  key-repeat rate, 1 px is four thousand presses to reach the far side of a 4K
+  display. The caret uses 16 plain, **96 with Ctrl** and **1 with Shift**:
+  Ctrl is how you travel, Shift is how you land.
+* **It is always a rectangle**, whatever the mode chip says. A lasso is a hand
+  gesture, and there is no arrow-key drawing of one that would not be a worse
+  rectangle. What it hands over goes through the same `_use_rect()` the "same
+  area as last time" chip uses, so everything downstream is code that already
+  ran — confirm-or-send, groups, badges and all.
+* **A press hands over; a move does not.** `mousePressEvent` drops the caret,
+  because a press is the mouse taking the job. A pointer that merely moves is
+  ignored while a corner is pinned — otherwise brushing the mouse would take
+  over a box half-sized by the keyboard.
+
+While a corner is pinned, `_selection_rect()` returns the caret box and
+`_showing_hint()` is false, so the state is exactly the one a rectangle drag is
+in between press and release: the box is drawn, the mode chips are out of the
+way, and the action bar has not appeared. And the caret is in
+`_floating_rects()` — it is a thing drawn in the middle of the screen with no
+outline near it, which is precisely the shape of the bug that once smeared the
+handles across the overlay.
+
 ### Getting the keyboard back
 
 The overlay takes the focus while it is up — it has to, or *Enter* and *Esc*
@@ -1183,7 +1315,7 @@ stops recording altogether.
 
 ```bash
 ruff check src tests               # lint (clean)
-python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, raw decode, overlay, lasso
+python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, overlay, lasso, doctor
 node    tests/test_detection.js    # the real main.js against a fake KWin API
 node    tests/replay-trace.js FILE # replay a recorded cursor trace
 python3 tests/test_browser_upload.py   # the launcher page, in a real Chromium
@@ -1225,6 +1357,64 @@ python3 src/circle_to_search/__main__.py --verbose
 ---
 
 ## What can break, and how to debug it
+
+### Start here: `circle-to-search --doctor`
+
+Everything below this line, in one command, with the fix printed next to
+whichever part is wrong. Exit code 1 when something is broken, so it is usable
+from a script.
+
+```
+Circle to Search 1.2.0 “better-version-control” (build 10001)
+
+  ✓  session           Wayland, KDE
+  ✓  daemon            io.github.fand1l.CircleToSearch is on the bus
+  ✓  service           circle-to-search.service is active and enabled
+  ✗  KWin script       KWin is running v1.10.0, but v1.11.0 is installed
+                       KWin loads a script once, at login, and keeps running that copy.
+                       Toggle it off and on in System Settings → Window Management →
+                       KWin Scripts, or log out and back in.
+  ✓  shortcut          kwin/CircleToSearch — Meta+Shift+L
+  ✓  screen capture    kwin-screenshot2, 3840×2160 px in 84 ms
+  ✓  result page       text/html opens in firefox.desktop
+  ·  text recognition  tesseract is there (eng, ukr); switched off
+
+1 of 8 broken. Start at the first ✗.
+```
+
+Four statuses, and the difference between them is the point: `✗` is why nothing
+happens, `!` works but will bite later, `·` is an optional part that is simply
+switched off, and only the first two ever print a fix — advice under something
+that works is noise pretending to be help.
+
+The order is the order a failure cascades: the session, then the two processes,
+then the compositor, then the things that are only reached once all of that
+works. Read top to bottom and the first `✗` is the cause rather than the
+loudest symptom.
+
+Three things about it are deliberate:
+
+* **The screen capture is really taken**, because "should work" is what this
+  command exists to stop being an answer. The back ends are tried in the same
+  order the daemon tries them and the first that answers wins — so the portal
+  is not reached while something above it works, since it is the one that can
+  raise a permission dialog and provoking that to confirm a path nothing will
+  take is not a diagnostic.
+* **"Could not tell" is its own answer.** `allActionsForComponent` is declared
+  `as` → `aas`, and a plain Python list would go out as `av` — the signature
+  mismatch `notify.py` was written around, which fails with `UnknownMethod` and
+  looks from here exactly like "the shortcut is not registered". When the
+  question cannot be answered it says so rather than inventing bad news. Same
+  for a KWin script that has never announced its version: silence is not
+  evidence, which is the rule `traystate.py` already follows.
+* **The report is English** while the rest of the interface follows the system
+  language. It is written to be pasted into a bug report, and so are the other
+  two diagnostic surfaces here — `install.sh` and this document.
+
+Nearly none of it is new code. It calls the same functions the daemon calls —
+`kwin_script_version()`, `capture_screen`'s back-end loop, `ocr.is_available()`
+— and prints what they say; what is new is that they are all called at once, in
+a fixed order, by somebody who has not yet worked out which one to suspect.
 
 ### A setting has no effect, or a new feature is missing
 
@@ -1508,6 +1698,32 @@ Each row is marked `usable` (no session id — it will work anywhere) or
 `session-bound`, with the URLs printed so you can click them. Pin a winner with
 `lens_backend=<variant>` (`lens-ccm`, `lens-crs`, `lens-subb`, `lens-v1`,
 `searchbyimage`).
+
+#### “Try another way”
+
+When an upload fails the notification carries a button that sends the same
+picture by the **other mechanism** — if the browser was posting it, the daemon
+uploads; if the daemon was, the browser gets a launcher page. That is the only
+swap worth offering, because the two fail for unrelated reasons: a request from
+the daemon is refused by Google or blocked by the network, while the browser
+path is a local file that a content blocker or a sandboxed browser can decline
+to post. Retrying a different *variant* would not be a second attempt at all —
+`BACKEND_AUTO` already walked all five before it reported failure. `other_way()`
+in `lens.py` is that one line, and it is an involution.
+
+Two rules around it, and both are the interesting part:
+
+* **Offered once.** The retry task is marked, and a marked one that fails
+  reports plainly. A button that reappears after failing is a loop with a
+  person in it.
+* **Only when there is something to press.** `supports_actions()` gates it, the
+  same way it gates the misfire question — a question nobody can answer is not
+  a question, and a notification server without `actions` in its capabilities
+  would show the body with the offer in it and no way to take it up.
+
+The crop is still in memory at that point: `_UploadTask` keeps `image`,
+`backend` and `retry` public for exactly this, because the only thing missing
+at the moment of failure was somewhere to put the picture.
 
 ### It worked, then it did not, then it worked again
 

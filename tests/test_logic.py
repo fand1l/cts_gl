@@ -1548,6 +1548,44 @@ check("it has a rim", edge.pixelColor(0, 0) != QColor("#336699"), edge.pixelColo
 check("and the crop is inside it", edge.pixelColor(100, 50) == QColor("#336699"),
       edge.pixelColor(100, 50).name())
 
+# Dragging it out of the pin, which is where this can happen at all: the overlay
+# is full screen, so a drag started over there has every window it could be
+# dropped into underneath it.  A pin has nothing under it.
+carrier = PinnedCrop(small)
+_mime = carrier.mime()
+check("the drag carries the picture", _mime.hasImage(), str(_mime.formats()))
+check("which is the crop, not a thumbnail of it",
+      _mime.imageData().size() == QSize(200, 100), str(_mime.imageData().size()))
+
+# Ctrl is what tells it apart from moving the window, which a plain press has
+# meant since this window existed.
+dragged: list[str] = []
+moved: list[str] = []
+carrier.drag_out = lambda: dragged.append("out")
+_window = carrier.windowHandle()
+if _window is not None:
+    _window.startSystemMove = lambda: bool(moved.append("move")) or True
+
+
+def _press(widget, modifiers) -> None:
+    widget.mousePressEvent(
+        QMouseEvent(
+            QEvent.Type.MouseButtonPress,
+            QPointF(10.0, 10.0),
+            QPointF(10.0, 10.0),
+            Qt.MouseButton.LeftButton,
+            Qt.MouseButton.LeftButton,
+            modifiers,
+        )
+    )
+
+
+_press(carrier, Qt.KeyboardModifier.ControlModifier)
+check("Ctrl and a press carries it out", dragged == ["out"], str(dragged))
+check("and does not move the window", moved == [], str(moved))
+_press(carrier, Qt.KeyboardModifier.NoModifier)
+check("a plain press still moves it", dragged == ["out"], str(dragged))
+
 # --- the same area as last time --------------------------------------------
 # Comparing a number that changes means taking the same rectangle twice, and a
 # rectangle drawn by hand is never quite the same twice — which is exactly what
@@ -3417,22 +3455,27 @@ def _git(*args: str) -> str | None:
 
 
 # The one mistake a hand-maintained counter invites: pushing work without
-# bumping it, so nothing downstream can tell this copy from the deployed one —
+# bumping it, so nothing downstream can tell this copy from the published one —
 # and the downgrade guard, which is the whole reason the number exists, reads
 # them as the same build.
-_deployed = _git("show", "origin/deploy:src/circle_to_search/__init__.py")
-_found = re.search(r"^BUILD = (\d+)$", _deployed or "", re.MULTILINE)
-if _found is None:
-    print(f"note: no build number on origin/deploy to compare {BUILD} against")
-else:
-    _deployed_build = int(_found.group(1))
-    if _git("merge-base", "--is-ancestor", "HEAD", "origin/deploy") is not None:
-        # Already deployed: the same number is right, a lower one never is.
-        check("the build is not below the deployed one",
-              _deployed_build <= BUILD, f"{BUILD} vs {_deployed_build} on deploy")
+#
+# Both branches, because they catch different halves of "up by one on every
+# push": dev says whether this change bumped it, deploy whether the release
+# did.  Being *contained in* a branch is the one case where equal is right —
+# that is the same code, not a second one wearing its number.
+for _branch in ("dev", "deploy"):
+    _published = _git("show", f"origin/{_branch}:src/circle_to_search/__init__.py")
+    _found = re.search(r"^BUILD = (\d+)$", _published or "", re.MULTILINE)
+    if _found is None:
+        print(f"note: no build number on origin/{_branch} to compare {BUILD} against")
+        continue
+    _published_build = int(_found.group(1))
+    if _git("merge-base", "--is-ancestor", "HEAD", f"origin/{_branch}") is not None:
+        check(f"the build is not below the one on {_branch}",
+              _published_build <= BUILD, f"{BUILD} vs {_published_build} on {_branch}")
     else:
-        check("the build is above the deployed one",
-              _deployed_build < BUILD, f"{BUILD} vs {_deployed_build} on deploy")
+        check(f"the build is above the one on {_branch}",
+              _published_build < BUILD, f"{BUILD} vs {_published_build} on {_branch}")
 
 # --- recent captures -------------------------------------------------------
 from circle_to_search.history import RecentCaptures  # noqa: E402
@@ -3810,6 +3853,634 @@ check("and it is the first thing init does",
       re.search(r"function init\(\)\s*\{\s*\n\s*loadConfig\(\);", source) is not None)
 check("with the version it is really running",
       '"ScriptReady", SCRIPT_VERSION' in source)
+
+# --- reading a QR code instead of uploading it ------------------------------
+# Circling a code and sending it to Google is a network round trip for
+# something that decodes locally in a millisecond — and it hands a picture of
+# the code to a third party on the way, which for a Wi-Fi password or a payment
+# link is worse than useless.
+from circle_to_search import qr  # noqa: E402
+
+_codes = qr.parse(
+    "QR-Code:https://example.com/a:b?q=1\nEAN-13:4006381333931\nnot a line\n:\nQR-Code:"
+)
+check("zbar's lines are parsed", [c.kind for c in _codes] == ["QR-Code", "EAN-13"], str(_codes))
+
+# The real thing, pasted out of a terminal on the machine this runs on.  With
+# --polygon the line grows a field *between* the type and the data, so a parser
+# that split once would have handed back the corners as part of the payload.
+_real = qr.parse(
+    "QR-Code:+68,+67 +68,+230 +233,+232 +231,+67:https://uk.m.wikipedia.org/\n"
+)
+check("a polygon line is read", len(_real) == 1, str(_real))
+check("the payload survives it", _real[0].payload == "https://uk.m.wikipedia.org/",
+      _real[0].payload)
+check("with its corners", _real[0].points == ((68, 67), (68, 230), (233, 232), (231, 67)),
+      str(_real[0].points))
+check("and a box around them", _real[0].bounds == (68, 67, 165, 165), str(_real[0].bounds))
+check("which is big enough to point at", _real[0].located)
+# An older zbar without --polygon still answers, and the payload is still worth
+# having — it simply cannot be pointed at.
+check("a line with no polygon is still a code", _codes[0].points == (), str(_codes[0].points))
+check("and knows it cannot be pointed at", not _codes[0].located)
+# A payload that starts with something polygon-shaped must not be eaten.
+_tricky = qr.parse("QR-Code:1,2 3,4:rest")
+check("two corners are not a polygon",
+      _tricky[0].payload == "1,2 3,4:rest" and _tricky[0].points == (),
+      str(_tricky[0]))
+# A payload is very often a URL and full of colons of its own; splitting on all
+# of them would hand back a hostname.
+check("a payload keeps its own colons", _codes[0].payload == "https://example.com/a:b?q=1",
+      _codes[0].payload)
+check("junk is dropped, not guessed at", len(_codes) == 2, str(_codes))
+check("and a QR code knows it is one", _codes[0].is_qr and not _codes[1].is_qr)
+
+# More than one in the crop: somebody who circled a shelf label with both on it
+# meant the square one, and nobody wants a 13-digit EAN opened.
+check("the QR code wins over a barcode", qr.best(_codes) is _codes[0], str(qr.best(_codes)))
+check("a barcode alone is still offered", qr.best(_codes[1:]) is _codes[1])
+check("and nothing is nothing", qr.best([]) is None)
+
+with tempfile.TemporaryDirectory() as tmp:
+    fake_dir = Path(tmp)
+    os.environ["PATH"] = str(fake_dir)
+    check("a missing decoder is detected", not qr.is_available())
+    try:
+        qr.decode(Image.new("RGB", (60, 60), "white"))
+    except qr.QrError as exc:
+        check("and decoding without it raises", "not installed" in str(exc), str(exc))
+    else:
+        check("and decoding without it raises", False)
+
+    def fake_zbarimg(body: str) -> None:
+        binary = fake_dir / "zbarimg"
+        binary.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        binary.chmod(0o755)
+
+    fake_zbarimg('echo "QR-Code:https://example.com/thing"\n')
+    check("the binary is found", qr.is_available())
+    found = qr.decode(Image.new("RGB", (60, 60), "white"))
+    check("a code comes back through the pipe",
+          [c.payload for c in found] == ["https://example.com/thing"], str(found))
+
+    # The ordinary case: most selections are not codes.  zbarimg says so with
+    # exit 4, and that is not an error to be reported at anybody.
+    fake_zbarimg("exit 4\n")
+    check("nothing found is not a failure", qr.decode(Image.new("RGB", (60, 60), "white")) == [])
+
+    fake_zbarimg('echo "zbarimg: fell over" >&2\nexit 1\n')
+    try:
+        qr.decode(Image.new("RGB", (60, 60), "white"))
+    except qr.QrError as exc:
+        check("a real failure carries the reason", "fell over" in str(exc), str(exc))
+    else:
+        check("a real failure carries the reason", False)
+
+    fake_zbarimg('echo "QR-Code:x"\n')
+    check("a crop too small to hold one is not even asked about",
+          qr.decode(Image.new("RGB", (8, 8), "white")) == [])
+
+    for manager, expected in (("dnf", "dnf install zbar"), ("apt-get", "apt install zbar-tools"),
+                              ("pacman", "pacman -S zbar"), ("zypper", "zypper install zbar")):
+        (fake_dir / manager).write_text("#!/bin/sh\n", encoding="utf-8")
+        (fake_dir / manager).chmod(0o755)
+        check(f"the {manager} hint", expected in qr.install_hint(), qr.install_hint())
+        (fake_dir / manager).unlink()
+os.environ["PATH"] = original_path
+
+# What the screen does about it.  A button per code, on the code — one in the
+# action bar would have to say "Open the link" about whichever one it decided to
+# mean, and nothing stops a screen from holding two.
+
+
+def screen_code(payload: str, left: int = 100, top: int = 120, side: int = 240) -> qr.Code:
+    """A code at a place, in physical pixels of the screenshot (2x here)."""
+    return qr.Code(
+        kind="QR-Code",
+        payload=payload,
+        points=((left, top), (left, top + side), (left + side, top + side), (left + side, top)),
+    )
+
+
+chipped = make_overlay(MODE_RECTANGLE)
+check("no chips until something is found", chipped.chips() == [])
+chipped.set_codes([screen_code("https://uk.m.wikipedia.org/")])
+_chips = chipped.chips()
+check("a code becomes a chip", len(_chips) == 1, str(_chips))
+check("labelled with the host, not the URL", _chips[0].label == "uk.m.wikipedia.org",
+      _chips[0].label)
+check("and it knows it is a link", _chips[0].link == "https://uk.m.wikipedia.org/")
+# Physical to logical: the fixture is a 2x screen, so a 240 px code is 120 wide.
+check("placed where the code is", _chips[0].code == QRect(50, 60, 120, 120),
+      str(_chips[0].code))
+# A code big enough to hold the pill wears it in the middle, like the phone.
+roomy = make_overlay(MODE_RECTANGLE)
+roomy.set_codes([screen_code("https://ex.io/", left=100, top=120, side=900)])
+check("a roomy code wears the pill in the middle",
+      roomy.chips()[0].code.contains(roomy.chips()[0].pill),
+      f"{roomy.chips()[0].pill} vs {roomy.chips()[0].code}")
+
+# A code with no corners cannot be pointed at, so it gets no button: a chip in
+# the middle of the screen would be pointing at nothing.
+unplaced = make_overlay(MODE_RECTANGLE)
+unplaced.set_codes([qr.Code(kind="QR-Code", payload="https://example.com/")])
+check("a code with no corners gets no chip", unplaced.chips() == [], str(unplaced.chips()))
+
+# A code too small to hold its own pill wears it underneath instead.
+small = make_overlay(MODE_RECTANGLE)
+small.set_codes([screen_code("https://example.com/", left=400, top=400, side=60)])
+_small = small.chips()[0]
+check("a small code wears the pill below it", _small.pill.top() > _small.code.bottom(),
+      f"{_small.pill} vs {_small.code}")
+
+# Not a link: the pill says the payload and pressing it will copy.
+wifi = make_overlay(MODE_RECTANGLE)
+wifi.set_codes([screen_code("WIFI:S=home;T=WPA;P=hunter2;;")])
+check("a code that is not a link says so", wifi.chips()[0].link == "")
+check("and shows what it holds", wifi.chips()[0].label.startswith("WIFI:S=home"),
+      wifi.chips()[0].label)
+# A code can carry any URI at all, and handing an arbitrary one to xdg-open on
+# a press is not something to do on the strength of a colon.
+for _uri in ("WIFI:S=x;;", "geo:50.45,30.52", "bitcoin:1abc", "smsto:+380"):
+    _one = make_overlay(MODE_RECTANGLE)
+    _one.set_codes([screen_code(_uri)])
+    check(f"{_uri.split(':')[0]} is copied, not opened", _one.chips()[0].link == "",
+          _one.chips()[0].link)
+_mail = make_overlay(MODE_RECTANGLE)
+_mail.set_codes([screen_code("http://example.com/plain")])
+check("but plain http is opened", _mail.chips()[0].link == "http://example.com/plain")
+long_one = make_overlay(MODE_RECTANGLE)
+long_one.set_codes([screen_code("x" * 200)])
+check("a payload nobody would read off a pill is cut",
+      long_one.chips()[0].label.endswith("…") and len(long_one.chips()[0].label) <= 34,
+      long_one.chips()[0].label)
+
+# Two codes: both get one, and pills that would overlap are pushed apart.
+two = make_overlay(MODE_RECTANGLE)
+two.set_codes([
+    screen_code("https://example.com/one", left=100, top=120, side=240),
+    screen_code("https://example.com/two", left=120, top=140, side=240),
+])
+check("two codes, two chips", len(two.chips()) == 2, str(len(two.chips())))
+check("and the pills do not overlap",
+      not two.chips()[0].pill.intersects(two.chips()[1].pill),
+      f"{two.chips()[0].pill} vs {two.chips()[1].pill}")
+
+# Pressing one is the whole gesture.
+pressed = make_overlay(MODE_RECTANGLE)
+pressed.set_codes([screen_code("https://uk.m.wikipedia.org/")])
+taken: list[tuple[str, str]] = []
+pressed.code_activated.connect(lambda payload, link: taken.append((payload, link)))
+chip = pressed.chips()[0]
+click(pressed, (chip.pill.center().x(), chip.pill.center().y()))
+check("pressing a chip takes the code",
+      taken == [("https://uk.m.wikipedia.org/", "https://uk.m.wikipedia.org/")], str(taken))
+check("and nothing was selected by pressing it", not pressed._has_selection)
+# No badge, unlike every other way out of here.  There is nothing to prepare —
+# the URL was decoded before the press — so an overlay left in front of the
+# browser would be covering the window it is waiting for rather than reporting
+# on it.
+check("and the overlay is gone at once, not waiting on anything",
+      not pressed.is_sending(), pressed._badge)
+
+# Enter takes the only one; with two it is ambiguous and means nothing here.
+alone = make_overlay(MODE_RECTANGLE)
+alone.set_codes([screen_code("https://example.com/only")])
+by_key: list[str] = []
+alone.code_activated.connect(lambda payload, _link: by_key.append(payload))
+press_key(alone, Qt.Key.Key_Return)
+check("Enter takes the only code", by_key == ["https://example.com/only"], str(by_key))
+
+ambiguous = make_overlay(MODE_RECTANGLE)
+ambiguous.set_codes([
+    screen_code("https://example.com/one", left=100, top=120, side=240),
+    screen_code("https://example.com/two", left=600, top=120, side=240),
+])
+never: list[str] = []
+ambiguous.code_activated.connect(lambda payload, _link: never.append(payload))
+press_key(ambiguous, Qt.Key.Key_Return)
+check("but not one of two", never == [], str(never))
+
+# They belong to the untouched screen: once anything is being selected the bar
+# is what is being read, and buttons scattered behind it are noise.
+busy = make_overlay(MODE_RECTANGLE)
+busy.set_codes([screen_code("https://example.com/x")])
+check("chips are showing while nothing is taken", busy._showing_chips())
+drag(busy, (500, 500), (700, 650))
+check("and gone once something is", not busy._showing_chips())
+check("but the repaint knows where they were",
+      any(chip.pill.intersects(rect) for chip in busy.chips()
+          for rect in busy._floating_rects()),
+      str(busy._floating_rects()))
+busy.render(QPixmap(busy.size()))
+chipped.render(QPixmap(chipped.size()))
+check("both states paint", True)
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    for key in ("notify.qr_copied", "settings.qr", "settings.qr.hint",
+                "settings.qr.missing"):
+        check(f"{code}: {key} has words", i18n.tr(key) != key, i18n.tr(key)[:40])
+i18n.set_language("en")
+
+# --- selecting without a mouse ----------------------------------------------
+# Half of this was already here: the arrows move and resize a box that has been
+# *taken*, and the bar says so.  The missing half was that there was no way to
+# take one without a pointer at all.
+
+
+def keying(mode: str = MODE_RECTANGLE) -> SelectionOverlay:
+    view = make_overlay(mode)
+    view._current = QPoint(400, 300)  # the pointer has been somewhere
+    return view
+
+
+keys = keying()
+check("no caret until an arrow key", keys._caret is None)
+check("and the hint is the ordinary one",
+      "arrow keys" in keys._bar_caption(), keys._bar_caption())
+press_key(keys, Qt.Key.Key_Right)
+check("an arrow raises one", keys._caret is not None, str(keys._caret))
+check("at the pointer, one step over",
+      keys._caret == QPoint(400 + 16, 300), str(keys._caret))
+check("the hint changes to what to press next",
+      "Space" in keys._bar_caption(), keys._bar_caption())
+check("and nothing is selected by pointing at it",
+      not keys._has_selection and keys._selection_rect().isEmpty())
+
+press_key(keys, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+check("Ctrl travels", keys._caret == QPoint(400 + 16 + 96, 300), str(keys._caret))
+press_key(keys, Qt.Key.Key_Left, Qt.KeyboardModifier.ShiftModifier)
+check("Shift lands", keys._caret == QPoint(400 + 16 + 96 - 1, 300), str(keys._caret))
+
+# Space pins one corner; the box appears and grows with the caret, and the mode
+# chips get out of its way exactly as they do during a drag.
+keys = keying()
+press_key(keys, Qt.Key.Key_Down)
+press_key(keys, Qt.Key.Key_Space)
+check("Space pins a corner", keys._caret_anchor == QPoint(400, 300 + 16),
+      str(keys._caret_anchor))
+check("which is a selection in progress, not a taken one",
+      not keys._has_selection and not keys._confirming)
+check("so the mode chips are out of the way", not keys._showing_hint())
+for _ in range(2):
+    press_key(keys, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+press_key(keys, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+check("and the box follows the caret",
+      keys._selection_rect() == QRect(400, 316, 192, 96), str(keys._selection_rect()))
+
+press_key(keys, Qt.Key.Key_Space)
+check("Space again takes it", keys._confirming and keys._has_selection)
+check("as exactly the box that was on screen",
+      keys._selection_rect() == QRect(400, 316, 192, 96), str(keys._selection_rect()))
+check("always a rectangle, whatever the mode chip said",
+      keys.selection_polygon().count() == 0)
+check("and the caret is put away", keys._caret is None and keys._caret_anchor is None)
+# Which lands in the state a finished drag lands in, arrow keys and all.
+press_key(keys, Qt.Key.Key_Right)
+check("the arrows go back to nudging the taken box",
+      keys._selection_rect() == QRect(401, 316, 192, 96), str(keys._selection_rect()))
+
+# A lasso overlay gives a rectangle too: there is no arrow-key drawing of a
+# lasso that would not be a worse rectangle.
+lasso_keys = keying(MODE_LASSO)
+press_key(lasso_keys, Qt.Key.Key_Right)
+press_key(lasso_keys, Qt.Key.Key_Space)
+for _ in range(2):
+    press_key(lasso_keys, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+    press_key(lasso_keys, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+press_key(lasso_keys, Qt.Key.Key_Space)
+check("a lasso overlay still hands over a rectangle",
+      lasso_keys._confirming and lasso_keys.selection_polygon().count() == 0)
+
+# Esc steps out of sizing without throwing the capture away — the same bargain
+# the redaction and colour modes make.
+stepping = keying()
+press_key(stepping, Qt.Key.Key_Right)
+press_key(stepping, Qt.Key.Key_Space)
+press_key(stepping, Qt.Key.Key_Escape)
+check("Esc drops the pinned corner", stepping._caret_anchor is None)
+check("and keeps the caret", stepping._caret is not None)
+check("and the overlay", not stepping._finished)
+press_key(stepping, Qt.Key.Key_Escape)
+check("the next Esc closes it", stepping._finished)
+
+# Too small is the same answer a stray click gets: not an error, not a
+# selection, and the overlay stays open to try again.
+tiny = keying()
+press_key(tiny, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+press_key(tiny, Qt.Key.Key_Space)
+press_key(tiny, Qt.Key.Key_Right, Qt.KeyboardModifier.ShiftModifier)
+press_key(tiny, Qt.Key.Key_Space)
+check("a one-pixel keyboard box is ignored",
+      not tiny._confirming and not tiny._finished)
+check("and the caret is still there to try again", tiny._caret is not None)
+
+# The caret cannot be pushed off the screen it belongs to.
+edging = keying()
+for _ in range(200):
+    press_key(edging, Qt.Key.Key_Left, Qt.KeyboardModifier.ControlModifier)
+    press_key(edging, Qt.Key.Key_Up, Qt.KeyboardModifier.ControlModifier)
+bounds = edging._clamp_bounds()
+check("the caret stops at the edge",
+      edging._caret.x() == bounds.left() and edging._caret.y() == bounds.top(),
+      f"{edging._caret} vs {bounds}")
+
+# A press is the mouse taking over: nothing keyboard-shaped is left behind.
+handing_over = keying()
+press_key(handing_over, Qt.Key.Key_Right)
+press_key(handing_over, Qt.Key.Key_Space)
+click(handing_over, (300, 200), release=(500, 340))
+check("a press clears the caret",
+      handing_over._caret is None and handing_over._caret_anchor is None)
+check("and the drag is the one that counts",
+      handing_over._selection_rect() == QRect(300, 200, 200, 140),
+      str(handing_over._selection_rect()))
+
+# Moving the pointer does not: the keyboard owns the box until it is taken.
+undisturbed = keying()
+press_key(undisturbed, Qt.Key.Key_Right)
+press_key(undisturbed, Qt.Key.Key_Space)
+for _ in range(2):
+    press_key(undisturbed, Qt.Key.Key_Right, Qt.KeyboardModifier.ControlModifier)
+    press_key(undisturbed, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+before_move = QRect(undisturbed._selection_rect())
+hover(undisturbed, (100, 100))
+check("a stray pointer move leaves it alone",
+      undisturbed._selection_rect() == before_move, str(undisturbed._selection_rect()))
+
+# And the repaint knows about it.  The caret is drawn *near* nothing — it is a
+# floating thing in the middle of the screen, which is exactly the shape of the
+# bug that smeared the handles across the overlay.
+moving_caret = keying()
+press_key(moving_caret, Qt.Key.Key_Right)
+was_caret = QRect(moving_caret._caret_rect())
+check("the caret names itself to the repaint",
+      was_caret in moving_caret._floating_rects(), str(moving_caret._floating_rects()))
+was_box_k = QRect(moving_caret._selection_rect())
+was_floating_k = moving_caret._floating_rects()
+start_k = moving_caret._caret_point()
+moving_caret._caret = QPoint(start_k.x() + 1, start_k.y())
+damage_k = moving_caret._drag_damage(was_box_k, was_floating_k, start_k)
+check("so one step erases where it was",
+      repainted(damage_k, was_caret.translated(-moving_caret._offset)), str(was_caret))
+check("and paints where it now is",
+      repainted(damage_k, moving_caret._caret_rect().translated(-moving_caret._offset)),
+      str(moving_caret._caret_rect()))
+
+# It has to paint without a selection and with one being sized.
+painting = keying()
+press_key(painting, Qt.Key.Key_Right)
+painting.render(QPixmap(painting.size()))
+press_key(painting, Qt.Key.Key_Space)
+for _ in range(2):
+    press_key(painting, Qt.Key.Key_Down, Qt.KeyboardModifier.ControlModifier)
+painting.render(QPixmap(painting.size()))
+check("it paints in both states", True)
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    check(f"{code}: the keyboard hint has words",
+          i18n.tr("overlay.hint.keys") != "overlay.hint.keys", i18n.tr("overlay.hint.keys"))
+i18n.set_language("en")
+
+# --- trying another way when the upload fails -------------------------------
+# lens.py has known four upload variants for a long time and --backend has been
+# able to choose between them from the command line — but at the moment it
+# actually mattered, the notification said "Google Lens request failed" and
+# offered nothing, while notify.py's action buttons sat unused since the
+# misfire survey.
+import circle_to_search.app as app_module  # noqa: E402
+from circle_to_search.lens import BACKEND_AUTO, BACKEND_BROWSER, other_way  # noqa: E402
+
+check("the other way round from the browser is doing it here",
+      other_way(BACKEND_BROWSER) == BACKEND_AUTO, other_way(BACKEND_BROWSER))
+check("and from here it is the browser", other_way(BACKEND_AUTO) == BACKEND_BROWSER,
+      other_way(BACKEND_AUTO))
+# Trying a different *variant* would not be a second attempt: auto already
+# walked all five before it gave up.
+check("a named variant swaps mechanism too, not variant",
+      other_way("lens-ccm") == BACKEND_BROWSER, other_way("lens-ccm"))
+check("and it is an involution", other_way(other_way(BACKEND_BROWSER)) == BACKEND_BROWSER)
+
+
+class _FakeUpload:
+    def __init__(self, backend: str, retry: bool = False) -> None:
+        self.backend = backend
+        self.retry = retry
+        self.image = "the crop that did not arrive"
+
+
+class _UploadHost:
+    """Just enough of the application to fail an upload and be offered another."""
+
+    _offer_another_way = CircleToSearchApp._offer_another_way
+    _retry_upload = CircleToSearchApp._retry_upload
+
+    def __init__(self) -> None:
+        self.started: list[tuple[object, str, bool]] = []
+
+    def _start_upload(self, image: object, backend: str, *, retry: bool = False) -> None:
+        self.started.append((image, backend, retry))
+
+
+_shown: list[dict] = []
+_plain: list[tuple[str, str]] = []
+_saved_notify = (app_module.notify, app_module.notify_error, app_module.supports_actions)
+try:
+    app_module.notify = lambda summary, body="", **kw: (
+        _shown.append({"summary": summary, "body": body, **kw}) or 1
+    )
+    app_module.notify_error = lambda summary, body="": _plain.append((summary, body))
+    app_module.supports_actions = lambda: True
+
+    host = _UploadHost()
+    host._offer_another_way(_FakeUpload(BACKEND_BROWSER), "the browser never posted it")
+    check("a failure offers a button", bool(_shown) and bool(_shown[0].get("actions")),
+          str(_shown))
+    check("labelled in words, not in a key",
+          _shown[0]["actions"][0][1] == "Try another way", str(_shown[0]["actions"]))
+    check("and the body says which way that is",
+          "through your browser" not in _shown[0]["body"]
+          and "without the browser" in _shown[0]["body"], _shown[0]["body"])
+    check("with the error still in it",
+          "the browser never posted it" in _shown[0]["body"], _shown[0]["body"])
+    check("nothing has been sent yet — it is an offer", host.started == [])
+
+    # Pressing it sends the same picture the other way.
+    _shown[0]["on_action"]("retry")
+    check("pressing it retries with the crop that failed",
+          host.started == [("the crop that did not arrive", BACKEND_AUTO, True)],
+          str(host.started))
+    check("and marks it as the second attempt", host.started[0][2])
+
+    # Anything else coming back from the notification is not a press.
+    host.started.clear()
+    _shown[0]["on_action"]("default")
+    check("a dismissal is not a press", host.started == [], str(host.started))
+
+    # Offered once.  A button that comes back after failing is a loop with a
+    # person in it.
+    _shown.clear()
+    host._offer_another_way(_FakeUpload(BACKEND_AUTO, retry=True), "that did not work either")
+    check("the second failure offers nothing", _shown == [], str(_shown))
+    check("and reports plainly instead",
+          len(_plain) == 1 and "that did not work either" in _plain[0][1], str(_plain))
+
+    # A notification server with no buttons cannot be asked a question — the
+    # misfire survey is skipped for the same reason.
+    _shown.clear()
+    _plain.clear()
+    app_module.supports_actions = lambda: False
+    host._offer_another_way(_FakeUpload(BACKEND_BROWSER), "no buttons here")
+    check("no action buttons, no offer", _shown == [] and len(_plain) == 1, str(_plain))
+finally:
+    (app_module.notify, app_module.notify_error, app_module.supports_actions) = _saved_notify
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    for key in ("notify.lens_retry", "notify.lens_way.browser", "notify.lens_way.auto"):
+        check(f"{code}: {key} has words", i18n.tr(key) != key, i18n.tr(key))
+    body = i18n.tr("notify.lens_failed_retry", error="E", how=i18n.tr("notify.lens_way.auto"))
+    check(f"{code}: the retry body reads as a sentence",
+          "E" in body and "{" not in body, body)
+i18n.set_language("en")
+
+# --- --doctor --------------------------------------------------------------
+# Six moving parts in four processes, and when one is wrong the symptom is
+# silence.  Every check here is a function of what it was told, so the whole
+# report can be driven from a table instead of from a broken desktop.
+from circle_to_search import DBUS_SERVICE, doctor  # noqa: E402
+
+check("no session bus is a failure of its own",
+      doctor.check_daemon(None).status == doctor.FAIL)
+check("the daemon on the bus is what OK means",
+      doctor.check_daemon(["org.freedesktop.DBus", DBUS_SERVICE]).status == doctor.OK)
+check("and its absence names the unit to look at",
+      "journalctl" in " ".join(doctor.check_daemon(["org.freedesktop.DBus"]).fix))
+
+check("no systemctl is not a fault", doctor.check_service(None).status == doctor.NOTE)
+check("active and enabled is OK",
+      doctor.check_service(("active", "enabled")).status == doctor.OK)
+check("running but not enabled is a warning, not a failure",
+      doctor.check_service(("active", "disabled")).status == doctor.WARN)
+check("and not running at all is a failure",
+      doctor.check_service(("inactive", "enabled")).status == doctor.FAIL)
+check("which repeats what systemd called it",
+      "inactive" in doctor.check_service(("inactive", "enabled")).detail)
+
+# The one this whole command exists for.
+_saved_kwin = (doctor.kwin_script_installed, doctor.kwin_script_enabled,
+               doctor.kwin_script_version)
+try:
+    doctor.kwin_script_installed = lambda: None
+    doctor.kwin_script_enabled = lambda: True
+    doctor.kwin_script_version = lambda: ""
+    check("no script at all is a failure", doctor.check_kwin_script("").status == doctor.FAIL)
+
+    doctor.kwin_script_installed = lambda: Path("/tmp/x")
+    doctor.kwin_script_enabled = lambda: False
+    check("installed but switched off, too",
+          doctor.check_kwin_script("").status == doctor.FAIL)
+    check("and it says where the switch is",
+          "KWin Scripts" in " ".join(doctor.check_kwin_script("").fix))
+
+    doctor.kwin_script_enabled = lambda: True
+    doctor.kwin_script_version = lambda: "1.11.0"
+    stale = doctor.check_kwin_script("1.10.0")
+    check("a stale script is the failure it was written for",
+          stale.status == doctor.FAIL, stale.status)
+    check("with both versions in the line",
+          "1.10.0" in stale.detail and "1.11.0" in stale.detail, stale.detail)
+    check("and the fix that actually works",
+          "log out" in " ".join(stale.fix).lower(), str(stale.fix))
+    check("a matching one is OK",
+          doctor.check_kwin_script("1.11.0").status == doctor.OK)
+    # Silence is not evidence — the same rule the tray icon follows.
+    check("and never having heard is not a fault",
+          doctor.check_kwin_script("").status == doctor.NOTE)
+finally:
+    (doctor.kwin_script_installed, doctor.kwin_script_enabled,
+     doctor.kwin_script_version) = _saved_kwin
+
+_saved_actions = doctor._shortcut_actions
+try:
+    doctor._shortcut_actions = lambda: ["CircleToSearch", "Switch Window Up"]
+    check("kglobalaccel knowing the action is OK",
+          doctor.check_shortcut(["org.kde.kglobalaccel"]).status == doctor.OK)
+    doctor._shortcut_actions = lambda: ["Switch Window Up"]
+    check("not knowing it is a failure",
+          doctor.check_shortcut(["org.kde.kglobalaccel"]).status == doctor.FAIL)
+    # A wrong D-Bus signature answers like an unregistered action, so "could
+    # not tell" has to be its own answer rather than bad news.
+    doctor._shortcut_actions = lambda: None
+    check("and an unanswered question is neither",
+          doctor.check_shortcut(["org.kde.kglobalaccel"]).status == doctor.NOTE)
+    check("kglobalaccel missing only warns — shaking does not go through it",
+          doctor.check_shortcut([]).status == doctor.WARN)
+finally:
+    doctor._shortcut_actions = _saved_actions
+
+check("no display at all is a failure with a reason",
+      doctor.check_capture(None).status == doctor.FAIL
+      and bool(doctor.check_capture(None).fix))
+
+_saved_ocr = (ocr.is_available, ocr.installed_languages)
+try:
+    ocr.is_available = lambda: False
+    check("no tesseract while it is off is only a note",
+          doctor.check_ocr(False).status == doctor.NOTE)
+    check("but switched on without it is a failure",
+          doctor.check_ocr(True).status == doctor.FAIL)
+    ocr.is_available = lambda: True
+    ocr.installed_languages = lambda: []
+    check("installed with no language data is a failure too",
+          doctor.check_ocr(True).status == doctor.FAIL)
+    ocr.installed_languages = lambda: ["eng", "ukr"]
+    check("and with them it is OK", doctor.check_ocr(True).status == doctor.OK)
+    check("off but present is a note that says so",
+          doctor.check_ocr(False).status == doctor.NOTE
+          and "switched off" in doctor.check_ocr(False).detail)
+finally:
+    (ocr.is_available, ocr.installed_languages) = _saved_ocr
+
+# The promise the command makes: the fix is next to the failure.  A report that
+# says something is broken and stops there is the thing it was meant to replace.
+_every = [
+    doctor.check_daemon(None),
+    doctor.check_daemon(["x"]),
+    doctor.check_service(("inactive", "enabled")),
+    doctor.check_service(("active", "disabled")),
+    doctor.check_capture(None),
+    doctor.check_session(),
+]
+for _finding in _every:
+    if _finding.status in (doctor.WARN, doctor.FAIL):
+        check(f"{_finding.label!r} says what to do about it", bool(_finding.fix),
+              _finding.detail)
+
+_report = doctor.format_report([
+    doctor.Finding("session", doctor.OK, "Wayland, KDE"),
+    doctor.Finding("daemon", doctor.FAIL, "not on the bus", ("start it",)),
+    doctor.Finding("text recognition", doctor.NOTE, "off"),
+], colour=False)
+check("the report names the build it is reporting on", version_label() in _report, _report)
+check("a failure carries its fix into the text", "start it" in _report, _report)
+check("and a note does not pretend to be a problem",
+      "1 of 3 broken" in _report, _report)
+_clean = doctor.format_report([doctor.Finding("session", doctor.OK, "fine")], colour=False)
+check("all clear says so", "Everything is working" in _clean, _clean)
+_warned = doctor.format_report(
+    [doctor.Finding("service", doctor.WARN, "not enabled", ("enable it",))], colour=False)
+check("a warning alone is not broken", "Nothing is broken" in _warned, _warned)
+check("but it still carries its fix", "enable it" in _warned, _warned)
+
+# --doctor is a real flag on the real parser, and it does not need a display to
+# be one.
+from circle_to_search.__main__ import parse_args  # noqa: E402
+
+check("--doctor is a flag", parse_args(["--doctor"]).doctor)
+check("and it is off by default", not parse_args([]).doctor)
 
 print()
 if failures:

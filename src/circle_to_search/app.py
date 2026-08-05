@@ -33,7 +33,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import APP_ID, DBUS_SERVICE, ocr, version_label, websearch
+from . import APP_ID, DBUS_SERVICE, ocr, qr, version_label, websearch
 from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
@@ -60,6 +60,7 @@ from .lastarea import EVERY_SCREEN, format_area, parse_area
 from .lens import (
     BACKEND_BROWSER,
     LensError,
+    other_way,
     prepare_image,
     upload,
     write_browser_launcher,
@@ -75,7 +76,7 @@ from .misfires import (
     still_learning,
 )
 from .multiscreen import OverlayGroup, ScreenShot, VirtualDesktop
-from .notify import notify, notify_error, supports_actions
+from .notify import URGENCY_CRITICAL, notify, notify_error, supports_actions
 from .overlay import (
     ACTION_COPY,
     ACTION_PIN,
@@ -133,6 +134,7 @@ class _UploadTask(QRunnable):
         backend: str,
         language: str,
         launcher_strings: dict[str, str] | None = None,
+        retry: bool = False,
     ) -> None:
         super().__init__()
         # QThreadPool deletes an auto-delete runnable as soon as run() returns,
@@ -141,18 +143,22 @@ class _UploadTask(QRunnable):
         # instead and drops it once the result has been handled.
         self.setAutoDelete(False)
         self.signals = _UploadSignals()
-        self._image = image
+        #: Public, and the two below with it, because the failure path offers to
+        #: try again: it needs the picture that did not arrive, the route that
+        #: did not work, and whether this *was* the second attempt.
+        self.image = image
+        self.backend = backend
+        self.retry = retry
         self._max_side = max_side
         self._quality = quality
-        self._backend = backend
         self._language = language
         self._launcher_strings = launcher_strings or {}
 
     @pyqtSlot()
     def run(self) -> None:
         try:
-            prepared = prepare_image(self._image, max_side=self._max_side, quality=self._quality)
-            if self._backend == BACKEND_BROWSER:
+            prepared = prepare_image(self.image, max_side=self._max_side, quality=self._quality)
+            if self.backend == BACKEND_BROWSER:
                 # Nothing is uploaded from here: the browser posts the image
                 # itself, so the session that uploads is the session that shows
                 # the result.  See the long comment in lens.py.
@@ -163,7 +169,7 @@ class _UploadTask(QRunnable):
                 )
                 target = path.as_uri()
             else:
-                target = upload(prepared, backend=self._backend, language=self._language)
+                target = upload(prepared, backend=self.backend, language=self._language)
         except LensError as exc:
             self.signals.failed.emit(str(exc))
         except OSError as exc:
@@ -299,8 +305,46 @@ class _EstimateTask(QRunnable):
         self.signals.finished.emit(self._crop, len(prepared.payload))
 
 
+class _QrSignals(QObject):
+    finished = pyqtSignal(list)
+
+
+class _QrTask(QRunnable):
+    """Ask zbarimg whether the confirmed crop is a code, off the GUI thread.
+
+    Rides the same question the byte count does, because it is asked at the same
+    moment and about the same rectangle: once the box has settled.  A process
+    per settle is affordable — the crop is small and zbar is fast — and the
+    alternative is deciding after the user has already pressed Search, which is
+    too late to offer them anything.
+    """
+
+    def __init__(self, image: Image.Image):
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = _QrSignals()
+        self._image = image
+
+    @pyqtSlot()
+    def run(self) -> None:
+        try:
+            found = qr.decode(self._image)
+        except Exception:
+            # Nothing depends on this: without an answer no chips appear, which
+            # is the same as a screen with no codes on it.  Answered with
+            # nothing so the caller can let go of the task either way.
+            log.debug("could not scan the screen for codes", exc_info=True)
+            self.signals.finished.emit([])
+            return
+        self.signals.finished.emit([code for code in found if code.located])
+
+
 class _OpenSignals(QObject):
     failed = pyqtSignal(str)
+
+
+#: Ahead of the background reading and scanning, which are not being waited on.
+_OPEN_PRIORITY = 10
 
 
 class _OpenTask(QRunnable):
@@ -829,6 +873,7 @@ class CircleToSearchApp(QObject):
         overlay.text_selected.connect(self._on_text_selected)
         overlay.text_search_requested.connect(self._on_text_search)
         overlay.colour_picked.connect(self._on_colour_picked)
+        overlay.code_activated.connect(self._on_code_activated)
         overlay.mode_changed.connect(self._on_mode_changed)
         overlay.estimate_requested.connect(
             lambda crop, ref=overlay: self._estimate_upload(ref, capture.image, crop)
@@ -859,6 +904,7 @@ class CircleToSearchApp(QObject):
         # so a capture that failed cannot leave a trace behind for the next one.
         self._opening_trace = trace
         self._start_reading(overlay, capture.image)
+        self._start_scanning_codes(overlay, capture.image)
         QTimer.singleShot(500, lambda: self._check_overlay_geometry(screen))
         try:
             overlay.show_on_screen()
@@ -925,12 +971,14 @@ class CircleToSearchApp(QObject):
             overlay.text_selected.connect(self._on_text_selected)
             overlay.text_search_requested.connect(self._on_text_search)
             overlay.colour_picked.connect(self._on_colour_picked)
+            overlay.code_activated.connect(self._on_code_activated)
             overlay.mode_changed.connect(self._on_mode_changed)
         self._group = group
         self._desktop = desktop
         self._opening_trace = trace
         for overlay, shot in zip(overlays, shots, strict=True):
             self._start_reading(overlay, shot.image)
+            self._start_scanning_codes(overlay, shot.image)
         try:
             group.show()
         except Exception as exc:
@@ -1153,17 +1201,20 @@ class CircleToSearchApp(QObject):
         if action == ACTION_TEXT:
             self._extract_text(cropped)
             return
-
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
 
+        self._start_upload(cropped, self._settings.lens_backend)
+
+    def _start_upload(self, image: Image.Image, backend: str, *, retry: bool = False) -> None:
+        """Send one crop by one route.  Called again, once, if that route fails."""
         notify(tr("notify.uploading"), transient=True, timeout_ms=3000)
 
         task = _UploadTask(
-            cropped,
+            image,
             self._settings.max_side,
             self._settings.jpeg_quality,
-            self._settings.lens_backend,
+            backend,
             current_language(),
             launcher_strings={
                 "title": tr("app.name"),
@@ -1172,6 +1223,7 @@ class CircleToSearchApp(QObject):
                 "failed": tr("launcher.failed"),
                 "retry": tr("launcher.retry"),
             },
+            retry=retry,
         )
         task.signals.finished.connect(lambda url, ref=task: self._finish_upload(ref, url=url))
         task.signals.failed.connect(lambda error, ref=task: self._finish_upload(ref, error=error))
@@ -1188,7 +1240,7 @@ class CircleToSearchApp(QObject):
         # front of it.
         self._stop_sending()
         if error is not None:
-            notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=error))
+            self._offer_another_way(task, error)
             return
         if not url:
             return
@@ -1200,6 +1252,44 @@ class CircleToSearchApp(QObject):
             path = Path(QUrl(url).toLocalFile())
             QTimer.singleShot(LAUNCHER_LIFETIME_MS, lambda: self._remove_launcher(path))
 
+    def _offer_another_way(self, task: _UploadTask, error: str) -> None:
+        """Report the failure, and offer the other route if there is one left.
+
+        There are two mechanisms — this program uploads, or the browser does —
+        and they fail for unrelated reasons, so the second attempt swaps them
+        rather than retrying the same one.  The picture is still here; the only
+        thing that was ever missing at this moment was somewhere to put it.
+
+        Offered once.  A button that reappears after failing is a loop with a
+        person in it.
+        """
+        instead = other_way(task.backend)
+        if task.retry or not supports_actions():
+            # Either this *was* the second attempt, or the notification server
+            # has no buttons to press — the misfire question is skipped for the
+            # same reason, since a question nobody can answer is not one.
+            notify_error(tr("notify.lens_failed"), tr("notify.lens_failed_body", error=error))
+            return
+
+        notify(
+            tr("notify.lens_failed"),
+            tr(
+                "notify.lens_failed_retry",
+                error=error,
+                how=tr(f"notify.lens_way.{instead}"),
+            ),
+            urgency=URGENCY_CRITICAL,
+            timeout_ms=30000,
+            actions=(("retry", tr("notify.lens_retry")),),
+            on_action=lambda key, ref=task, way=instead: self._retry_upload(key, ref, way),
+        )
+
+    def _retry_upload(self, key: str, task: _UploadTask, backend: str) -> None:
+        if key != "retry":
+            return
+        log.info("retrying the upload through %s after %s failed", backend, task.backend)
+        self._start_upload(task.image, backend, retry=True)
+
     @staticmethod
     def _remove_launcher(path: Path) -> None:
         try:
@@ -1209,6 +1299,52 @@ class CircleToSearchApp(QObject):
             log.debug("could not remove %s: %s", path, exc)
 
     # ------------------------------------------------ optional text (OCR)
+
+    def _start_scanning_codes(self, overlay: SelectionOverlay, image: Image.Image) -> None:
+        """Look for codes on the *whole* frozen screen, as it opens.
+
+        Not on the selection: a code is a thing you point at rather than frame,
+        and framing one you were only ever going to open is three gestures too
+        many.  Off the GUI thread, and nothing waits for it — the chips appear
+        when they appear, which for a screenful is a few tens of milliseconds.
+        """
+        if not self._settings.qr_enabled or not qr.is_available():
+            return
+        task = _QrTask(image)
+        task.signals.finished.connect(
+            lambda codes, ref=task, target=overlay: self._codes_ready(ref, target, codes)
+        )
+        self._tasks.add(task)
+        QThreadPool.globalInstance().start(task)
+
+    def _codes_ready(
+        self, task: QRunnable, overlay: SelectionOverlay, codes: list[qr.Code]
+    ) -> None:
+        self._tasks.discard(task)
+        if not codes:
+            return
+        # The overlay may have closed while zbar worked.  Handing chips to the
+        # *next* one would put them where nothing is.
+        if overlay is not self._overlay and overlay not in self._group_overlays():
+            log.debug("the overlay closed before the codes were ready")
+            return
+        overlay.set_codes(codes)
+
+    @pyqtSlot(str, str)
+    def _on_code_activated(self, payload: str, link: str) -> None:
+        """A chip on a code was pressed.
+
+        The browser is started *first* and the bookkeeping happens after it.
+        _finish_opening() offers text recognition and asks about misfires, and
+        both of those reach the notification server over D-Bus, synchronously,
+        on this thread — a round trip apiece in front of the one call the user
+        is actually waiting on.  Nothing in it is urgent and none of it is
+        about this press.
+        """
+        self._release_overlay()
+        self._release_group()
+        self._use_code(payload, link)
+        self._finish_opening()
 
     def _start_reading(self, overlay: SelectionOverlay, image: Image.Image) -> None:
         """Begin reading the frozen screen, if the user has allowed it.
@@ -1330,6 +1466,51 @@ class CircleToSearchApp(QObject):
         )
         self._tasks.add(task)
         QThreadPool.globalInstance().start(task)
+
+        # The same ask, answered twice: "how big would this be" and "is it a
+        # code".  Only the first has to happen; the second is skipped entirely
+        # when the decoder is not installed or has been turned off.
+        if self._settings.qr_enabled and qr.is_available():
+            reader = _QrTask(image, crop, overlay.redactions())
+            reader.signals.finished.connect(
+                lambda measured, kind, payload, ref=reader, view=overlay: self._finish_qr(
+                    ref, view, measured, kind, payload
+                )
+            )
+            self._tasks.add(reader)
+            QThreadPool.globalInstance().start(reader)
+
+    def _finish_qr(
+        self, task: QRunnable, overlay: SelectionOverlay, crop: QRect, kind: str, payload: str
+    ) -> None:
+        self._tasks.discard(task)
+        if not payload:
+            return
+        # A code that is a link is worth opening; one that is a Wi-Fi password
+        # or a plain string is worth copying, and neither is worth uploading.
+        link = websearch.looks_like_url(payload)
+        # Kept here as well as on the overlay: the overlay is gone by the time
+        # the button it drew is acted on.  It cannot go stale — nothing can ask
+        # for it unless that same button is on screen.
+        self._pending_code = (payload, link)
+        overlay.set_code(crop, kind, payload, link)
+
+    def _use_code(self, payload: str, link: str) -> None:
+        """Do what the code says, which is never to upload a picture of it.
+
+        A link is opened; anything else — a Wi-Fi password, a plain string, a
+        13-digit barcode — goes to the clipboard, because there is nothing
+        sensible to open and it is still the thing that was asked for.
+        """
+        if link:
+            log.info("opening the link out of the code instead of uploading it")
+            self._open_url(link)
+            return
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(payload)
+        log.info("copied %d characters out of the code", len(payload))
+        notify(tr("notify.qr_copied"), ocr.summarise(payload), timeout_ms=8000)
 
     def _finish_estimate(
         self, task: QRunnable, overlay: SelectionOverlay, crop: QRect, nbytes: int
@@ -1573,7 +1754,11 @@ class CircleToSearchApp(QObject):
         task = _OpenTask(url)
         task.signals.failed.connect(lambda error, ref=task: self._open_failed(ref, error))
         self._tasks.add(task)
-        QThreadPool.globalInstance().start(task)
+        # In front of whatever else is in the pool.  Reading a whole 4K screen
+        # with tesseract takes seconds and is started the moment the overlay
+        # opens; on a four-thread pool that is enough to leave the one task the
+        # user is waiting on queued behind work nobody asked to wait for.
+        QThreadPool.globalInstance().start(task, _OPEN_PRIORITY)
 
     def _open_failed(self, task: QRunnable, error: str) -> None:
         self._tasks.discard(task)

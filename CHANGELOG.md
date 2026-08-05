@@ -21,6 +21,44 @@ the release.
 
 ---
 
+## 1.3.0 — “another-way”
+
+* **A QR code wears its own button.** The whole screen is read as it freezes,
+  and every code found gets a small pill on it saying where it goes — press it
+  and you are there, with nothing uploaded and nothing to select first. Two
+  codes get two buttons, because one button in the action bar can only say
+  "Open the link" about whichever it decided to mean. *Enter* takes the only
+  code when there is one. A code that is not an http link is copied instead,
+  because handing an arbitrary `WIFI:` or `bitcoin:` URI to the browser on a
+  press is not a thing to do on the strength of a colon. It needs `zbar`, which
+  the installer now offers; unlike text recognition it is on by default and is
+  not asked about first, because the trade is the other way round — it costs
+  nothing and its whole effect is to stop an upload. Pressing one is immediate:
+  no badge, nothing queued in front of it, and the overlay out of the way
+  before the browser arrives rather than on top of it.
+* **Drag a pinned crop out of the window.** *Ctrl* and a press on a pin
+  carries the picture into a chat, a document or an editor — the same image
+  the clipboard would have had, by a route that is one gesture where
+  copy-switch-paste is four. It is the pin rather than the overlay because the
+  overlay is full screen: a drag has to begin while the button is down, which
+  over there is while every window the picture could be dropped into is
+  underneath it.
+* **Select without a mouse.** The arrow keys raise a crosshair and move it —
+  *Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
+  the arrows size the box from it, *Space* again takes it, and from there it is
+  the same waiting selection with the same keys on it. *Esc* lets go of the
+  corner without letting go of the capture. Half of this existed: the arrows
+  already moved a box that had been taken, and there was no way to take one.
+* **“Try another way” when an upload fails.** The notification gets a button
+  that sends the same picture by the *other* mechanism — if your browser was
+  posting it, the daemon uploads; if the daemon was, your browser gets the
+  page. They fail for unrelated reasons, so swapping them is a real second
+  attempt, where retrying a different endpoint would not be: the automatic mode
+  already walked all of them before it gave up. Offered once, and only when the
+  notification server has buttons to press.
+
+---
+
 ## 1.2.0 — “better-version-control”
 
 What 1.1.0 started, finished: it gave releases names, this makes them
@@ -38,11 +76,21 @@ comparable, and quietens the installer that reports them.
   wrote settings the older one has never heard of, and reading those back
   through older code fails in ways that look like a bug and are not. Captures
   and saved traces are kept, and it asks again before erasing anything.
+* **`update` stops when there is nothing to do.** Nothing fetched *and* the
+  version installed is the version here means the work is already done;
+  stopping the daemon to put the identical thing back was a minute of churn to
+  arrive where it started. It still reinstalls without asking when the two
+  differ, or when any commit arrived. `--force` does it regardless.
 * **The installer stopped shouting.** Five numbered steps and a tick each,
   instead of forty lines. What a step's commands print is held back and shown
   only if that step failed — its warnings are shown either way. The long
   "if nothing happens" list now appears only when the final check found
   something. `--debug` (or `--verbose`) prints all of it as before.
+* **`circle-to-search --doctor`.** One command that checks every joint — the
+  session, the daemon, its service, the KWin script *and whether KWin is
+  running the copy that is installed*, the shortcut, the screen capture by
+  really taking one, the browser, the text recognition — and prints the fix
+  next to whichever line is wrong. Exit code 1 when something is broken.
 * The build is visible everywhere the version is: `circle-to-search --version`,
   the tray's *About*, the daemon's first line in the journal, and both of
   `update`'s version lines.

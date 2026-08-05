@@ -65,6 +65,12 @@ _EN: dict[str, str] = {
     "notify.open_failed_body": "{error}",
     "notify.lens_failed": "Google Lens request failed",
     "notify.lens_failed_body": "{error}",
+    "notify.lens_failed_retry": "{error}\nThe selection is still here — it can go {how}.",
+    "notify.lens_retry": "Try another way",
+    # How the *other* route works, in the words of what it does rather than of
+    # what it is called in the settings.
+    "notify.lens_way.browser": "through your browser instead",
+    "notify.lens_way.auto": "from here instead, without the browser",
     "notify.no_screen": "Cannot find the screen",
     "notify.no_screen_body": "KWin reported the screen “{name}”, but Qt does not know it.",
     "notify.kwin_missing": "The KWin script is not installed",
@@ -87,6 +93,14 @@ _EN: dict[str, str] = {
     "notify.ocr_failed_body": "{error}",
     "notify.ocr_missing": "Text recognition is not installed",
     "notify.ocr_missing_body": "It needs tesseract:\n{command}",
+    "settings.qr": "Read a QR code instead of uploading it",
+    "settings.qr.hint": (
+        "A code anywhere on the frozen screen gets a button on it, offering the "
+        "link before anything offers to send Google a picture of it. Decoded "
+        "here, on your machine, and nothing is uploaded."
+    ),
+    "settings.qr.missing": "It needs zbar, which is not installed:\n{command}",
+    "notify.qr_copied": "The code was copied to the clipboard",
     "notify.ocr_off": "Text recognition is switched off",
     "notify.ocr_off_body": "Turn it on in Settings → General if you want it.",
     "about.text": (
@@ -363,12 +377,18 @@ _EN: dict[str, str] = {
     "launcher.failed": "The browser could not start the upload.",
     "launcher.retry": "Try again",
     "overlay.hint.lasso": (
-        "Circle what you want · drag across text to take the text · "
+        "Circle what you want · arrow keys to aim without a mouse · "
         "Esc or right-click to cancel"
     ),
     "overlay.hint.rect": (
-        "Drag to select · drag across text to take the text · "
+        "Drag to select · arrow keys to aim without a mouse · "
         "Esc or right-click to cancel"
+    ),
+    # Shown the moment the caret is raised, in place of the line above: the
+    # next thing to press is the only thing worth saying at that point.
+    "overlay.hint.keys": (
+        "arrows to aim · Ctrl faster, Shift by the pixel · "
+        "Space for one corner, then the other"
     ),
     "overlay.hint.colour": (
         "click any pixel to copy its colour · Shift for rgb(…) · Esc to go back"
@@ -458,6 +478,10 @@ _UK: dict[str, str] = {
     "notify.open_failed_body": "{error}",
     "notify.lens_failed": "Помилка запиту до Google Lens",
     "notify.lens_failed_body": "{error}",
+    "notify.lens_failed_retry": "{error}\nВиділення нікуди не зникло — його можна надіслати {how}.",
+    "notify.lens_retry": "Спробувати інакше",
+    "notify.lens_way.browser": "натомість через ваш браузер",
+    "notify.lens_way.auto": "натомість звідси, без браузера",
     "notify.no_screen": "Не знайдено екран",
     "notify.no_screen_body": "KWin повідомив про екран «{name}», але Qt його не бачить.",
     "notify.kwin_missing": "KWin-скрипт не встановлено",
@@ -481,6 +505,14 @@ _UK: dict[str, str] = {
     "notify.ocr_failed_body": "{error}",
     "notify.ocr_missing": "Розпізнавання тексту не встановлено",
     "notify.ocr_missing_body": "Потрібен tesseract:\n{command}",
+    "settings.qr": "Читати QR-код замість того, щоб надсилати його",
+    "settings.qr.hint": (
+        "Код будь-де на застиглому екрані отримує кнопку прямо на собі — з "
+        "посиланням, ще до того, як щось запропонує надіслати Google його "
+        "картинку. Розшифровується тут, на вашій машині, і нікуди не йде."
+    ),
+    "settings.qr.missing": "Потрібен zbar, якого немає:\n{command}",
+    "notify.qr_copied": "Код скопійовано в буфер обміну",
     "notify.ocr_off": "Розпізнавання тексту вимкнене",
     "notify.ocr_off_body": "Увімкніть його в Налаштуваннях → Загальні, якщо потрібно.",
     "about.text": (
@@ -759,12 +791,16 @@ _UK: dict[str, str] = {
     "launcher.failed": "Браузер не зміг почати вивантаження.",
     "launcher.retry": "Спробувати ще раз",
     "overlay.hint.lasso": (
-        "Обведіть потрібне · проведіть по тексту, щоб узяти текст · "
+        "Обведіть потрібне · стрілки — навести без миші · "
         "Esc або права кнопка — скасувати"
     ),
     "overlay.hint.rect": (
-        "Потягніть, щоб виділити · проведіть по тексту, щоб узяти текст · "
+        "Потягніть, щоб виділити · стрілки — навести без миші · "
         "Esc або права кнопка — скасувати"
+    ),
+    "overlay.hint.keys": (
+        "стрілки — навести · Ctrl — швидше, Shift — по пікселю · "
+        "Пробіл — один кут, потім другий"
     ),
     "overlay.hint.colour": (
         "клацніть будь-який піксель, щоб скопіювати колір · Shift — rgb(…) · Esc — назад"
