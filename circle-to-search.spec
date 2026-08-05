@@ -8,7 +8,7 @@
 #         -o ~/rpmbuild/SOURCES/circle-to-search-1.0.0.tar.gz HEAD
 #     rpmbuild -ba circle-to-search.spec
 #
-# COPR (see README.md for the click-by-click version):
+# COPR (see docs/TECHNICAL.md for the click-by-click version):
 #     dnf install copr-cli && copr-cli create circle-to-search --chroot fedora-44-x86_64
 #     rpmbuild -bs circle-to-search.spec
 #     copr-cli build circle-to-search ~/rpmbuild/SRPMS/circle-to-search-1.0.0-1.*.src.rpm
@@ -131,7 +131,7 @@ EOF
 
 %files
 %license LICENSE
-%doc README.md
+%doc README.md README.uk.md docs/TECHNICAL.md
 %{_bindir}/%{name}
 %{appdir}/
 %{_datadir}/kwin/scripts/%{scriptid}/

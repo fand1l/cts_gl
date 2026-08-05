@@ -611,7 +611,7 @@ ${GREEN}${BOLD}Done.${RESET}
     3. busctl --user call $APP_ID \\
            /io/github/fand1l/CircleToSearch $APP_ID Trigger iis 100 100 ""
        should open the overlay straight away.
-    4. See "What can break" in README.md.
+    4. See "What can break" in docs/TECHNICAL.md.
 EOF
 }
 
