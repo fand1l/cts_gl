@@ -1,0 +1,1370 @@
+/* Circle to Search — the site.
+ *
+ * The program is drawn on Material 3, so this is too, and not "in the style
+ * of": every token below is taken from src/circle_to_search/material.py.
+ *
+ *   shape      SHAPE_* — 4 / 8 / 12 / 16 / 28 and full
+ *   type       _TYPE_SCALE — each role as its ratio to body-medium, 14 px
+ *   spacing    SPACE = 8, half steps allowed, nothing else
+ *   colour     scheme_for(), whose output these hexes literally are
+ *   motion     EASING_* and DURATION_*
+ *   state      STATE_HOVER / FOCUS / PRESSED
+ *
+ * The colours here are the *default* scheme, grown from the blue at the top of
+ * the lasso's ramp (#4285F4).  js/md3.js regrows the whole scheme from wherever
+ * you are down the page — blue, red, yellow, green, the same ramp the glow under
+ * the stroke reads off height on screen.  With JavaScript off the page simply
+ * stays blue, which is a finished page.
+ *
+ * No webfont, no CDN, no network of any kind: a program that makes no
+ * connections of its own has no business having a website that does.
+ */
+
+/* ========================================================== tokens: colour */
+
+:root {
+  color-scheme: light;
+
+  /* scheme_for((0x42, 0x85, 0xF4), dark=False) */
+  --primary: #005cba;
+  --on-primary: #ffffff;
+  --primary-container: #dbe1ff;
+  --on-primary-container: #001b3f;
+  --secondary: #575d77;
+  --on-secondary: #ffffff;
+  --secondary-container: #dbe1ff;
+  --on-secondary-container: #131b30;
+  --tertiary: #7e5069;
+  --on-tertiary: #ffffff;
+  --error: #bf0031;
+  --on-error: #ffffff;
+  --surface: #f8f9ff;
+  --on-surface: #1a1b21;
+  --surface-variant: #dfe2f1;
+  --on-surface-variant: #444653;
+  --surface-container-lowest: #ffffff;
+  --surface-container-low: #f2f3fb;
+  --surface-container: #ecedf5;
+  --surface-container-high: #e6e8ef;
+  --surface-container-highest: #e1e2ea;
+  --inverse-surface: #2f3036;
+  --inverse-on-surface: #eff0f8;
+  --outline: #747684;
+  --outline-variant: #c3c6d5;
+  --scrim: #000003;
+}
+
+:root[data-theme='dark'] {
+  color-scheme: dark;
+
+  /* scheme_for((0x42, 0x85, 0xF4), dark=True) */
+  --primary: #b5c4ff;
+  --on-primary: #002f65;
+  --primary-container: #00458e;
+  --on-primary-container: #dbe1ff;
+  --secondary: #bfc5e3;
+  --on-secondary: #283047;
+  --secondary-container: #3f465f;
+  --on-secondary-container: #dbe1ff;
+  --tertiary: #ecb8d3;
+  --on-tertiary: #4c223a;
+  --error: #ffb3b0;
+  --on-error: #680016;
+  --surface: #121319;
+  --on-surface: #e1e2ea;
+  --surface-variant: #444653;
+  --on-surface-variant: #c3c6d5;
+  --surface-container-lowest: #0d0e15;
+  --surface-container-low: #1a1b21;
+  --surface-container: #1e1f25;
+  --surface-container-high: #292a2f;
+  --surface-container-highest: #33343a;
+  --inverse-surface: #e1e2ea;
+  --inverse-on-surface: #2f3036;
+  --outline: #8d909e;
+  --outline-variant: #444653;
+  --scrim: #000003;
+}
+
+/* The desktop's own preference, unless the switch in the header has been used. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) {
+    color-scheme: dark;
+
+    --primary: #b5c4ff;
+    --on-primary: #002f65;
+    --primary-container: #00458e;
+    --on-primary-container: #dbe1ff;
+    --secondary: #bfc5e3;
+    --on-secondary: #283047;
+    --secondary-container: #3f465f;
+    --on-secondary-container: #dbe1ff;
+    --tertiary: #ecb8d3;
+    --on-tertiary: #4c223a;
+    --error: #ffb3b0;
+    --on-error: #680016;
+    --surface: #121319;
+    --on-surface: #e1e2ea;
+    --surface-variant: #444653;
+    --on-surface-variant: #c3c6d5;
+    --surface-container-lowest: #0d0e15;
+    --surface-container-low: #1a1b21;
+    --surface-container: #1e1f25;
+    --surface-container-high: #292a2f;
+    --surface-container-highest: #33343a;
+    --inverse-surface: #e1e2ea;
+    --inverse-on-surface: #2f3036;
+    --outline: #8d909e;
+    --outline-variant: #444653;
+    --scrim: #000003;
+  }
+}
+
+/* ============================================ tokens: shape, space, motion */
+
+:root {
+  /* material.py SHAPE_*.  FULL is not a radius but an instruction — half of
+   * whatever it is applied to, capped at the extra-large corner — which is what
+   * CSS does anyway when a radius is larger than the box allows. */
+  --shape-xs: 4px;
+  --shape-sm: 8px;
+  --shape-md: 12px;
+  --shape-lg: 16px;
+  --shape-xl: 28px;
+  --shape-full: 28px;
+
+  /* SPACE = 8, half steps allowed and nothing else. */
+  --space-05: 4px;
+  --space-1: 8px;
+  --space-15: 12px;
+  --space-2: 16px;
+  --space-3: 24px;
+  --space-4: 32px;
+  --space-5: 40px;
+  --space-6: 48px;
+  --space-8: 64px;
+  --space-10: 80px;
+  --space-12: 96px;
+
+  /* EASING_* — the specification's own cubic-béziers. */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-accelerate: cubic-bezier(0.3, 0, 1, 1);
+  --ease-decelerate: cubic-bezier(0, 0, 0, 1);
+  --ease-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ease-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
+
+  /* DURATION_* */
+  --duration-short-2: 100ms;
+  --duration-short-3: 150ms;
+  --duration-short-4: 200ms;
+  --duration-medium-1: 250ms;
+  --duration-medium-2: 300ms;
+  --duration-long-2: 500ms;
+
+  /* STATE_HOVER / STATE_FOCUS / STATE_PRESSED — a film of the thing's own
+   * on- colour, never a lighter or darker fill. */
+  --state-hover: 0.08;
+  --state-focus: 0.1;
+  --state-pressed: 0.12;
+
+  /* The type scale, as material.py states it: every role is a ratio against
+   * body-medium, so the whole thing grows with the reader's own font size
+   * instead of being pinned to Google's pixels.  1rem is that font size. */
+  --type-anchor: 0.875rem;
+
+  --font-sans: system-ui, -apple-system, 'Segoe UI', 'Noto Sans', Cantarell,
+    'Liberation Sans', 'DejaVu Sans', sans-serif;
+  --font-mono: ui-monospace, 'JetBrains Mono', 'Fira Code', 'Liberation Mono',
+    'DejaVu Sans Mono', monospace;
+
+  --measure: 66ch;
+  --page: 1180px;
+}
+
+/* ==================================================================== base */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  background: var(--surface);
+  color: var(--on-surface);
+  font-family: var(--font-sans);
+  /* body-large: 16/14 of the anchor, tracking 0.5 px at 16 px */
+  font-size: calc(1.142857 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0.03125em;
+  line-height: 1.5;
+  overflow-wrap: break-word;
+}
+
+/* The sticky header must not land on top of whatever was linked to — and the
+ * troubleshooting entries on the install page are exactly what people paste at
+ * each other. */
+:target,
+[id] {
+  scroll-margin-top: 84px;
+}
+
+:focus-visible {
+  outline: 3px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: var(--shape-xs);
+}
+
+img {
+  max-width: 100%;
+  height: auto;
+}
+
+/* The browser's own rule for `hidden` is a bare element selector, so any class
+ * that sets a display beats it.  The things this page hides are the ones only
+ * JavaScript can honour — the theme switch, the copy buttons, the invitation to
+ * draw on the hero — and with scripting off every one of them would be a lie
+ * left on the page. */
+[hidden] {
+  display: none !important;
+}
+
+a {
+  color: var(--primary);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+a:hover {
+  text-decoration-thickness: 2px;
+}
+
+hr {
+  border: 0;
+  border-top: 1px solid var(--outline-variant);
+  margin: var(--space-8) 0;
+}
+
+/* ============================================================ type roles */
+
+.display-large,
+.display-medium,
+.display-small,
+.headline-large,
+.headline-medium,
+.headline-small,
+.title-large,
+.title-medium,
+.title-small,
+.body-large,
+.body-medium,
+.body-small,
+.label-large,
+.label-medium,
+.label-small {
+  margin: 0;
+}
+
+.display-large {
+  font-size: calc(4.071429 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: -0.004386em;
+  line-height: 1.12;
+}
+
+.display-medium {
+  font-size: calc(3.214286 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.16;
+}
+
+.display-small {
+  font-size: calc(2.571429 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.22;
+}
+
+.headline-large {
+  font-size: calc(2.285714 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.25;
+}
+
+.headline-medium {
+  font-size: calc(2 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.29;
+}
+
+.headline-small {
+  font-size: calc(1.714286 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.33;
+}
+
+.title-large {
+  font-size: calc(1.571429 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0;
+  line-height: 1.27;
+}
+
+.title-medium {
+  font-size: calc(1.142857 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.009375em;
+  line-height: 1.5;
+}
+
+.title-small {
+  font-size: var(--type-anchor);
+  font-weight: 500;
+  letter-spacing: 0.007143em;
+  line-height: 1.43;
+}
+
+.body-large {
+  font-size: calc(1.142857 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0.03125em;
+  line-height: 1.5;
+}
+
+.body-medium {
+  font-size: var(--type-anchor);
+  font-weight: 400;
+  letter-spacing: 0.017857em;
+  line-height: 1.5;
+}
+
+.body-small {
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 400;
+  letter-spacing: 0.033333em;
+  line-height: 1.45;
+}
+
+.label-large {
+  font-size: var(--type-anchor);
+  font-weight: 500;
+  letter-spacing: 0.007143em;
+  line-height: 1.43;
+}
+
+.label-medium {
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.041667em;
+  line-height: 1.34;
+}
+
+.label-small {
+  font-size: calc(0.785714 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.045455em;
+  line-height: 1.46;
+}
+
+/* The headings are on the scale rather than at the browser's sizes. */
+h1 {
+  font-size: calc(2.571429 * var(--type-anchor));
+  font-weight: 400;
+  line-height: 1.22;
+  margin: 0;
+}
+
+h2 {
+  font-size: calc(2 * var(--type-anchor));
+  font-weight: 400;
+  line-height: 1.29;
+  margin: 0 0 var(--space-3);
+}
+
+h3 {
+  font-size: calc(1.571429 * var(--type-anchor));
+  font-weight: 400;
+  line-height: 1.27;
+  margin: 0 0 var(--space-15);
+}
+
+h4 {
+  font-size: calc(1.142857 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.009375em;
+  line-height: 1.5;
+  margin: 0 0 var(--space-1);
+}
+
+p {
+  margin: 0 0 var(--space-2);
+  max-width: var(--measure);
+}
+
+.supporting {
+  color: var(--on-surface-variant);
+  font-size: calc(0.857143 * var(--type-anchor));
+  letter-spacing: 0.033333em;
+  line-height: 1.45;
+  max-width: var(--measure);
+}
+
+.eyebrow {
+  color: var(--on-surface-variant);
+  display: block;
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.041667em;
+  margin-bottom: var(--space-1);
+  text-transform: uppercase;
+}
+
+/* =================================================================== shell */
+
+.skip-link {
+  background: var(--primary);
+  border-radius: 0 0 var(--shape-sm) 0;
+  color: var(--on-primary);
+  left: 0;
+  padding: var(--space-15) var(--space-2);
+  position: absolute;
+  top: 0;
+  transform: translateY(-110%);
+  z-index: 100;
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+.container {
+  margin-inline: auto;
+  max-width: var(--page);
+  padding-inline: var(--space-3);
+  width: 100%;
+}
+
+.topbar {
+  backdrop-filter: blur(12px);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+  border-bottom: 1px solid var(--outline-variant);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+}
+
+@supports not (backdrop-filter: blur(1px)) {
+  .topbar {
+    background: var(--surface);
+  }
+}
+
+.topbar__inner {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 64px;
+  padding-block: var(--space-1);
+}
+
+.brand {
+  align-items: center;
+  color: var(--on-surface);
+  display: flex;
+  font-weight: 500;
+  gap: var(--space-15);
+  margin-right: auto;
+  text-decoration: none;
+}
+
+.brand__mark {
+  display: block;
+  height: 32px;
+  width: 32px;
+}
+
+.nav {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-05);
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.nav a {
+  border-radius: var(--shape-full);
+  color: var(--on-surface-variant);
+  display: block;
+  padding: var(--space-1) var(--space-2);
+  position: relative;
+  text-decoration: none;
+}
+
+.nav a[aria-current='page'] {
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
+}
+
+.nav a::after,
+.iconbutton::after,
+.btn::after,
+.langswitch a::after {
+  border-radius: inherit;
+  content: '';
+  inset: 0;
+  opacity: 0;
+  pointer-events: none;
+  position: absolute;
+  transition: opacity var(--duration-short-2) var(--ease-standard);
+}
+
+/* MD3's state layer: a film of the thing's own ink, at the specified
+ * opacities, rather than a different fill. */
+.nav a::after,
+.langswitch a::after {
+  background: currentColor;
+}
+
+.nav a:hover::after,
+.langswitch a:hover::after {
+  opacity: var(--state-hover);
+}
+
+.nav a:active::after,
+.langswitch a:active::after {
+  opacity: var(--state-pressed);
+}
+
+.topbar__tools {
+  align-items: center;
+  display: flex;
+  gap: var(--space-1);
+}
+
+/* On a phone the header was wrapping into three rows and taking a quarter of
+ * the screen with it.  The brand and the switches stay on one line; the section
+ * links get a line of their own and scroll sideways if they do not fit. */
+@media (max-width: 760px) {
+  .topbar__inner {
+    column-gap: var(--space-1);
+    min-height: 56px;
+    row-gap: var(--space-05);
+  }
+
+  .topbar__inner .nav {
+    flex-wrap: nowrap;
+    margin-inline: calc(-1 * var(--space-1));
+    order: 3;
+    overflow-x: auto;
+    padding-inline: var(--space-1);
+    scrollbar-width: none;
+    width: 100%;
+  }
+
+  .topbar__inner .nav::-webkit-scrollbar {
+    display: none;
+  }
+
+  .topbar__inner .nav a {
+    white-space: nowrap;
+  }
+
+  .topbar__inner nav {
+    order: 3;
+    width: 100%;
+  }
+}
+
+.langswitch {
+  align-items: center;
+  background: var(--surface-container-high);
+  border-radius: var(--shape-full);
+  display: flex;
+  gap: 2px;
+  padding: 3px;
+}
+
+.langswitch a {
+  border-radius: var(--shape-full);
+  color: var(--on-surface-variant);
+  display: block;
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.041667em;
+  padding: var(--space-05) var(--space-15);
+  position: relative;
+  text-decoration: none;
+}
+
+.langswitch a[aria-current='true'] {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.iconbutton {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--shape-full);
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  display: inline-flex;
+  height: 44px;
+  justify-content: center;
+  padding: 0;
+  position: relative;
+  width: 44px;
+}
+
+.iconbutton::after {
+  background: currentColor;
+}
+
+.iconbutton:hover::after {
+  opacity: var(--state-hover);
+}
+
+.iconbutton:active::after {
+  opacity: var(--state-pressed);
+}
+
+.iconbutton svg {
+  height: 24px;
+  pointer-events: none;
+  width: 24px;
+}
+
+/* Whichever half of the switch does not apply right now is not drawn. */
+:root[data-theme='dark'] .iconbutton__sun,
+:root:not([data-theme='dark']) .iconbutton__moon {
+  display: none;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme='light']) .iconbutton__sun {
+    display: none;
+  }
+
+  :root:not([data-theme='light']) .iconbutton__moon {
+    display: block;
+  }
+
+  :root[data-theme='dark'] .iconbutton__moon {
+    display: block;
+  }
+}
+
+/* ================================================================= buttons */
+
+.btn {
+  align-items: center;
+  border: 0;
+  border-radius: var(--shape-full);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: var(--type-anchor);
+  font-weight: 500;
+  gap: var(--space-1);
+  justify-content: center;
+  letter-spacing: 0.007143em;
+  line-height: 1.43;
+  min-height: 48px;
+  padding: var(--space-15) var(--space-3);
+  position: relative;
+  text-decoration: none;
+  touch-action: manipulation;
+  transition: transform var(--duration-short-2) var(--ease-standard);
+}
+
+.btn:active {
+  transform: scale(0.97);
+}
+
+.btn::after {
+  background: currentColor;
+}
+
+.btn:hover::after {
+  opacity: var(--state-hover);
+}
+
+.btn:active::after {
+  opacity: var(--state-pressed);
+}
+
+.btn svg {
+  height: 20px;
+  width: 20px;
+}
+
+.btn--filled {
+  background: var(--primary);
+  color: var(--on-primary);
+}
+
+.btn--tonal {
+  background: var(--secondary-container);
+  color: var(--on-secondary-container);
+}
+
+.btn--outlined {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--outline);
+  color: var(--primary);
+}
+
+.btn--text {
+  background: transparent;
+  color: var(--primary);
+  padding-inline: var(--space-2);
+}
+
+.actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-15);
+}
+
+/* ==================================================================== hero */
+
+.hero {
+  border-bottom: 1px solid var(--outline-variant);
+  overflow: hidden;
+  position: relative;
+}
+
+/* z-index, declared once so the canvas, the header and the skip link never
+ * fight: content 1, the stroke over it 2, the things you can press 3, the
+ * sticky header 40, the skip link 100. */
+.hero__canvas {
+  height: 100%;
+  inset: 0;
+  position: absolute;
+  /* A finger that starts moving up or down scrolls the page; one that starts
+   * sideways draws.  Never trap the scroll on a full-height hero. */
+  touch-action: pan-y;
+  width: 100%;
+  z-index: 2;
+}
+
+/* Positioned, but deliberately without a z-index of its own: a z-index here
+ * would open a stacking context, and everything inside it — including the
+ * buttons — would be trapped below the canvas however high they asked to be.
+ * That is exactly how Install and GitHub stopped being clickable once. */
+.hero__inner {
+  min-height: min(76vh, 720px);
+  min-height: min(76svh, 720px);
+  padding-block: var(--space-12) var(--space-10);
+  position: relative;
+}
+
+/* The stroke is drawn over the words, the way it is drawn over your screen —
+ * so the pointer belongs to the canvas, and only the things you can press take
+ * it back. */
+.hero__content {
+  max-width: 40ch;
+  pointer-events: none;
+}
+
+/* The things you can press sit above the stroke, so drawing over the hero never
+ * eats a click on Install. */
+.hero__content .actions,
+.hero__content .hero__hint {
+  pointer-events: auto;
+  position: relative;
+  z-index: 3;
+}
+
+/* The gap under the name is what the loop drawn round it needs: with motion
+ * turned down the stroke stays on the page, and at the old spacing it lay
+ * across the first line of the tagline. */
+.hero__title {
+  margin: 0 0 var(--space-5);
+}
+
+.hero__tagline {
+  font-weight: 500;
+  margin-bottom: var(--space-2);
+  max-width: 24ch;
+}
+
+.hero__sub {
+  color: var(--on-surface-variant);
+  margin-bottom: var(--space-4);
+}
+
+.hero__hint {
+  align-items: flex-start;
+  color: var(--on-surface-variant);
+  display: inline-flex;
+  gap: var(--space-15);
+  margin-top: var(--space-4);
+  max-width: 34ch;
+}
+
+.hero__hint::before {
+  background: var(--primary);
+  border-radius: var(--shape-full);
+  content: '';
+  flex: none;
+  height: 8px;
+  margin-top: 0.45em;
+  width: 8px;
+}
+
+@media (pointer: coarse) {
+  /* The canvas swallows touch so a finger can draw on it.  It is deliberately
+   * short of a full screen, so there is always somewhere else to start a swipe
+   * from when what you wanted was to scroll. */
+  .hero__inner {
+    min-height: min(62svh, 560px);
+  }
+}
+
+/* ================================================================ sections */
+
+.section {
+  padding-block: var(--space-12);
+}
+
+.section--tight {
+  padding-block: var(--space-8);
+}
+
+.section--tinted {
+  background: var(--surface-container-low);
+}
+
+.section__head {
+  margin-bottom: var(--space-6);
+  max-width: var(--measure);
+}
+
+.lede {
+  font-size: calc(1.571429 * var(--type-anchor));
+  letter-spacing: 0;
+  line-height: 1.45;
+  max-width: 46ch;
+}
+
+.lede + .lede {
+  margin-top: var(--space-3);
+}
+
+/* ================================================================ features */
+
+.feature {
+  align-items: center;
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: 1fr;
+  padding-block: var(--space-6);
+}
+
+.feature + .feature {
+  border-top: 1px solid var(--outline-variant);
+}
+
+.feature__body {
+  max-width: var(--measure);
+}
+
+.feature__figure {
+  margin: 0;
+}
+
+.feature__figure img {
+  background: var(--surface-container);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-lg);
+  display: block;
+  width: 100%;
+}
+
+.feature__figure figcaption {
+  color: var(--on-surface-variant);
+  font-size: calc(0.857143 * var(--type-anchor));
+  letter-spacing: 0.033333em;
+  margin-top: var(--space-1);
+}
+
+@media (min-width: 900px) {
+  .feature {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  /* A portrait window does not deserve half the page. */
+  .feature--portrait {
+    grid-template-columns: 1.7fr 1fr;
+  }
+
+  .feature--flip .feature__figure {
+    order: -1;
+  }
+}
+
+/* =================================================================== cards */
+
+.cards {
+  display: grid;
+  gap: var(--space-3);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.card {
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-lg);
+  padding: var(--space-3);
+}
+
+.card h3,
+.card h4 {
+  margin-bottom: var(--space-1);
+}
+
+.card p:last-child {
+  margin-bottom: 0;
+}
+
+.card--filled {
+  background: var(--surface-container-high);
+  border-color: transparent;
+}
+
+/* ================================================================ callouts */
+
+.callout {
+  background: var(--surface-container-high);
+  border-radius: var(--shape-lg);
+  border-left: 6px solid var(--primary);
+  margin-block: var(--space-4);
+  padding: var(--space-3);
+}
+
+.callout h3,
+.callout h4 {
+  margin-bottom: var(--space-1);
+}
+
+.callout p:last-child {
+  margin-bottom: 0;
+}
+
+/* The one that is genuinely the most common cause of "nothing works". */
+.callout--loud {
+  background: var(--primary-container);
+  border-left-color: var(--primary);
+  color: var(--on-primary-container);
+}
+
+.callout--loud a {
+  color: inherit;
+}
+
+.callout--quiet {
+  background: var(--surface-container);
+  border-left-color: var(--outline);
+}
+
+/* ==================================================================== code */
+
+.codeblock {
+  background: var(--surface-container-highest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-md);
+  margin-block: var(--space-3);
+  overflow: hidden;
+  position: relative;
+}
+
+.codeblock__bar {
+  align-items: center;
+  background: var(--surface-container-high);
+  border-bottom: 1px solid var(--outline-variant);
+  color: var(--on-surface-variant);
+  display: flex;
+  gap: var(--space-2);
+  justify-content: space-between;
+  padding: var(--space-05) var(--space-05) var(--space-05) var(--space-2);
+}
+
+.codeblock pre {
+  margin: 0;
+  overflow-x: auto;
+  padding: var(--space-2);
+}
+
+.codeblock code,
+code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+}
+
+:not(pre) > code {
+  background: var(--surface-container-high);
+  border-radius: var(--shape-xs);
+  padding: 0.1em 0.35em;
+}
+
+.codeblock--big pre {
+  font-size: calc(1.142857 * var(--type-anchor));
+  padding: var(--space-3);
+}
+
+.copy {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: var(--shape-full);
+  color: var(--on-surface-variant);
+  cursor: pointer;
+  display: inline-flex;
+  font-family: inherit;
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 500;
+  gap: var(--space-1);
+  letter-spacing: 0.041667em;
+  min-height: 40px;
+  padding: var(--space-1) var(--space-2);
+  position: relative;
+}
+
+.copy::after {
+  background: currentColor;
+  border-radius: inherit;
+  content: '';
+  inset: 0;
+  opacity: 0;
+  position: absolute;
+  transition: opacity var(--duration-short-2) var(--ease-standard);
+}
+
+.copy:hover::after {
+  opacity: var(--state-hover);
+}
+
+.copy[data-copied='true'] {
+  color: var(--primary);
+}
+
+/* ================================================================== tables */
+
+.table-wrap {
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-md);
+  margin-block: var(--space-3);
+  overflow-x: auto;
+}
+
+table {
+  border-collapse: collapse;
+  min-width: 100%;
+  text-align: left;
+}
+
+th,
+td {
+  border-bottom: 1px solid var(--outline-variant);
+  padding: var(--space-15) var(--space-2);
+  vertical-align: top;
+}
+
+thead th {
+  background: var(--surface-container-high);
+  font-size: var(--type-anchor);
+  font-weight: 500;
+  letter-spacing: 0.007143em;
+}
+
+tbody tr:last-child th,
+tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+td code,
+th code {
+  white-space: nowrap;
+}
+
+.kbd {
+  background: var(--surface-container-highest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-xs);
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  padding: 0.1em 0.4em;
+  white-space: nowrap;
+}
+
+/* ================================================================= gesture */
+
+.gesture {
+  align-items: center;
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 900px) {
+  .gesture {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
+.gesture__panel {
+  background: var(--surface-container-low);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-md);
+  display: block;
+  width: 100%;
+}
+
+/* ================================================================ releases */
+
+.release {
+  border-top: 1px solid var(--outline-variant);
+  padding-block: var(--space-6);
+}
+
+.release__head {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-bottom: var(--space-3);
+}
+
+.release__name {
+  background: var(--primary-container);
+  border-radius: var(--shape-full);
+  color: var(--on-primary-container);
+  font-size: var(--type-anchor);
+  font-weight: 500;
+  letter-spacing: 0.007143em;
+  padding: var(--space-05) var(--space-2);
+}
+
+.release ul {
+  margin: 0;
+  max-width: var(--measure);
+  padding-left: var(--space-3);
+}
+
+.release li {
+  margin-bottom: var(--space-15);
+}
+
+/* ================================================================== lists */
+
+.plain-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.bullets {
+  margin: 0 0 var(--space-2);
+  max-width: var(--measure);
+  padding-left: var(--space-3);
+}
+
+.bullets li {
+  margin-bottom: var(--space-15);
+}
+
+/* ================================================================== author */
+
+.author {
+  background: var(--surface-container-high);
+  border-radius: var(--shape-xl);
+  padding: var(--space-6);
+}
+
+.author p {
+  font-size: calc(1.142857 * var(--type-anchor));
+  max-width: 60ch;
+}
+
+.author p:last-child {
+  margin-bottom: 0;
+}
+
+/* ================================================================== footer */
+
+.footer {
+  background: var(--surface-container-low);
+  border-top: 1px solid var(--outline-variant);
+  padding-block: var(--space-8);
+}
+
+.footer__grid {
+  display: grid;
+  gap: var(--space-6);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
+}
+
+.footer h2 {
+  font-size: calc(0.857143 * var(--type-anchor));
+  font-weight: 500;
+  letter-spacing: 0.041667em;
+  margin-bottom: var(--space-2);
+  text-transform: uppercase;
+}
+
+.footer ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.footer li {
+  margin-bottom: var(--space-1);
+}
+
+.footer a {
+  color: var(--on-surface-variant);
+}
+
+.footer__bottom {
+  border-top: 1px solid var(--outline-variant);
+  color: var(--on-surface-variant);
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+}
+
+.footer__bottom p {
+  max-width: 70ch;
+}
+
+/* =============================================================== disclosure */
+
+details {
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-md);
+  margin-block: var(--space-4);
+}
+
+summary {
+  align-items: center;
+  border-radius: var(--shape-md);
+  cursor: pointer;
+  display: flex;
+  gap: var(--space-15);
+  list-style: none;
+  min-height: 48px;
+  padding: var(--space-15) var(--space-2);
+}
+
+summary::-webkit-details-marker {
+  display: none;
+}
+
+summary::before {
+  border-bottom: 2px solid currentColor;
+  border-right: 2px solid currentColor;
+  content: '';
+  flex: none;
+  height: 8px;
+  margin-left: var(--space-05);
+  rotate: -45deg;
+  transition: rotate var(--duration-short-3) var(--ease-standard);
+  width: 8px;
+}
+
+details[open] > summary::before {
+  rotate: 45deg;
+}
+
+summary:hover {
+  background: var(--surface-container-high);
+}
+
+details > :not(summary) {
+  margin-inline: var(--space-2);
+}
+
+details > :last-child {
+  margin-bottom: var(--space-2);
+}
+
+/* =================================================================== misc */
+
+.visually-hidden {
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  height: 1px;
+  overflow: hidden;
+  position: absolute;
+  white-space: nowrap;
+  width: 1px;
+}
+
+.stack > * + * {
+  margin-top: var(--space-3);
+}
+
+.doctor {
+  background: var(--surface-container-highest);
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--shape-md);
+  margin-block: var(--space-3);
+  overflow-x: auto;
+  padding: var(--space-3);
+}
+
+.doctor pre {
+  margin: 0;
+}
+
+.doctor .ok {
+  color: var(--primary);
+}
+
+.doctor .bad {
+  color: var(--error);
+}
+
+/* ========================================================= reduced motion */
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ================================================================== print */
+
+@media print {
+  .topbar,
+  .hero__canvas,
+  .footer {
+    display: none;
+  }
+}

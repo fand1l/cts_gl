@@ -58,6 +58,35 @@ jobs:
             python3 -m json.tool "$trace" > /dev/null
           done
 
+  site:
+    name: the website
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      # The site's own promises: it fetches nothing from off the site, every
+      # relative path lands, every fragment exists, and the command blocks are
+      # the README's command blocks character for character.
+      - run: python3 tools/check-site.py
+      - name: Parse the site's JavaScript
+        run: |
+          set -eux
+          for script in site/js/*.js; do node --check "$script"; done
+      # The colours and the stroke on the site are the program's own numbers,
+      # so they cannot be changed in one place and not the other.
+      - name: System libraries for headless Qt
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 libgl1 libxkbcommon0 libdbus-1-3 libfontconfig1 libfreetype6
+      - run: pip install -r requirements.txt
+      - run: python3 tests/test_site.py
+
   detection:
     name: gesture detection (node)
     runs-on: ubuntu-latest

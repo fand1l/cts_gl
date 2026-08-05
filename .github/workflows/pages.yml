@@ -1,0 +1,77 @@
+# Publish site/ to GitHub Pages.
+#
+# It follows **deploy**, not dev, for the same reason `./install.sh update` does:
+# deploy is the branch somebody has decided is fit to run, and a public page is
+# a thing people arrive at without having chosen a branch.  Work lands on dev
+# first and is published when it is merged — with `workflow_dispatch` here for
+# when a branch really does need to be looked at in a browser before that.
+#
+# One-time setup, in the repository's own settings, because a workflow cannot do
+# it for you: Settings → Pages → Build and deployment → Source: GitHub Actions.
+name: Pages
+
+on:
+  push:
+    branches: [deploy]
+    paths:
+      - "site/**"
+      - "docs/images/**"
+      - ".github/workflows/pages.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# One publish at a time, and never cancel one half way: the site is either the
+# old one or the new one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: assemble
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      # The same check CI runs: nothing is fetched from off the site, every
+      # relative path lands, and the commands are the README's commands.
+      - name: Check the site
+        run: python3 tools/check-site.py
+
+      - name: Assemble
+        run: |
+          set -eux
+          mkdir -p _site
+          # site/images is a symlink to docs/images, so the screenshots exist
+          # once in the repository and are made by tools/make-screenshots.py.
+          # -L resolves it into real files for the artifact.
+          cp -rL site/. _site/
+          test -f _site/images/overlay-drawing.png
+          test -f _site/images/overlay-drawing-uk.png
+          # A directory listing is not a page; a missing index would publish one.
+          test -f _site/index.html
+          test -f _site/en/index.html
+          test -f _site/404.html
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    name: publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
