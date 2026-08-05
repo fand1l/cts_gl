@@ -20,6 +20,15 @@ function makeSandbox(config, options) {
     const calls = [];
     const cursor = { x: 0, y: 0 };
     const active = { fullScreen: (options && options.fullScreen) || false };
+    /* A plausible desktop, bottom-to-top the way windowList() reports it: a
+     * maximised window, a dialog on top of it, and our own overlay, which must
+     * never be offered as something to circle. */
+    const windows = (options && options.windows) || [
+        { caption: "Editor", frameGeometry: { x: 0, y: 0, width: 2560, height: 1400 } },
+        { caption: "Find", frameGeometry: { x: 400, y: 300, width: 600, height: 200 } },
+        { caption: "Circle to Search Overlay",
+          frameGeometry: { x: 0, y: 0, width: 2560, height: 1440 } },
+    ];
     let now = 0;
 
     function QTimerCtor() {
@@ -44,7 +53,7 @@ function makeSandbox(config, options) {
                 { name: "eDP-1", geometry: { x: 0, y: 0, width: 2560, height: 1440 } },
                 { name: "HDMI-A-1", geometry: { x: 2560, y: 0, width: 1920, height: 1080 } },
             ],
-            windowList: () => [],
+            windowList: () => windows,
             windowAdded: { connect: () => {} },
             activeWindow: active,
         },
@@ -331,6 +340,46 @@ run("straight move stays silent", defaults, straight(900, 1000, 12, 40), 0);
     const chatter = fromThePointer(lastHarness).length;
     console.log(`${chatter === 0 ? "PASS" : "FAIL"}  normal movement sends nothing: ${chatter}`);
     if (chatter !== 0) failures += 1;
+}
+
+/* The window layout goes out with a trigger and only with a trigger.  The
+ * overlay cannot ask for it — a Wayland client cannot see anybody else's
+ * geometry — so if it is not sent here it does not exist. */
+{
+    run("a shake reports the layout", defaults, shake(4, 200, 1000, 4, 40), 1);
+    const sent = lastHarness.calls.filter((c) => c[3] === "WindowRects");
+    const ok = sent.length === 1;
+    console.log(`${ok ? "PASS" : "FAIL"}  a trigger carries the window layout: ${sent.length}`);
+    if (!ok) failures += 1;
+
+    const encoded = ok ? sent[0][4] : "";
+    const rects = encoded.split(";");
+    /* Two windows, not three: our own overlay is not something to circle. */
+    const clean = rects.length === 2 && encoded.indexOf("2560,1440") === -1;
+    console.log(`${clean ? "PASS" : "FAIL"}  our own overlay is left out of it: ${encoded}`);
+    if (!clean) failures += 1;
+
+    /* Front-most first, so "the window under the pointer" is the first hit. */
+    const ordered = rects[0] === "400,300,600,200";
+    console.log(`${ordered ? "PASS" : "FAIL"}  front-most window first: ${rects[0]}`);
+    if (!ordered) failures += 1;
+
+    /* And it goes out before the trigger it belongs to, because D-Bus keeps
+     * the order of calls on one connection and the overlay is built from the
+     * trigger. */
+    const methods = lastHarness.calls.map((c) => c[3]);
+    const first = methods.indexOf("WindowRects") < methods.indexOf("TriggerShake");
+    console.log(`${first ? "PASS" : "FAIL"}  the layout arrives before the trigger: ` +
+                JSON.stringify(methods));
+    if (!first) failures += 1;
+}
+
+/* Ordinary movement never asks the compositor for the window list. */
+{
+    run("moving reports no layout", defaults, straight(900, 1000, 12, 40), 0);
+    const sent = lastHarness.calls.filter((c) => c[3] === "WindowRects").length;
+    console.log(`${sent === 0 ? "PASS" : "FAIL"}  no layout without a trigger: ${sent}`);
+    if (sent !== 0) failures += 1;
 }
 
 /* The version handshake is not pointer traffic: it goes out once when the

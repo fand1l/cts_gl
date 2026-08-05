@@ -174,7 +174,7 @@ at the minimum speed.  In amber, not red — it is not impossible, it means you
 will have to shake faster than the threshold, and those two numbers look
 independent until something says otherwise.
 
-## 7. Highlight the window under the pointer  ← next
+## 7. Highlight the window under the pointer  ← done
 
 Before a drag starts, outline the window the pointer is over; a click without a
 drag captures exactly it.
@@ -189,7 +189,30 @@ the case this removes.
 sent with the trigger.  Known rough edges to handle: windows partly off-screen,
 and KWin's shadows not being part of `frameGeometry`.
 
-## 8. The Android stroke  — last, and on its own
+**As built.**  Both rough edges are handled where they belong — clipping in
+`windows.py`, before anything is drawn, so a click can never ask for a crop
+outside the screenshot; and the shadow question is settled by using
+`frameGeometry`, which is documented in the module because the first bug report
+about a one-pixel gap will be about exactly that.
+
+Three decisions came out of building it:
+
+* **Text outranks it.**  Over a recognised word there is no outline, because a
+  press there takes the words.  Offering the whole window would have promised
+  something that does not happen — the same priority rule the text layer
+  already needed against the region box.
+* **Only before the drag.**  Once the button is down the user is drawing, and
+  an outline following them would be arguing with the selection they are
+  making.
+* **A dashed rectangle is not an affordance.**  Nothing else in the overlay
+  answers a plain click, so it says "click to take this window" once, inside
+  the outline, and only where there is room for it.
+
+The layout is buffered exactly like the movement trace, staleness check
+included: it arrives immediately before the trigger, and a layout left over
+from an earlier one would outline windows that have since moved.
+
+## 8. The Android stroke  — last, and on its own  ← next
 
 A wide white lasso line with a coloured glow at the pointer.  Designed in
 `docs/STROKE.md`, from two photographs of the real thing — which corrected the

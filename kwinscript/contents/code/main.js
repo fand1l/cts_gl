@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.8.0";
+var SCRIPT_VERSION = "1.9.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -54,6 +54,11 @@ var CALIBRATION_MIN_LENGTH = 40;
  * all unless the daemon asked for it with collectTraces. */
 var TRACE_RING_MS = 4000;
 var TRACE_RING_MAX = 400;
+
+/* How many window rectangles to report with a trigger.  A desktop with more
+ * open windows than this has them stacked, and the ones underneath cannot be
+ * pointed at anyway. */
+var MAX_WINDOW_RECTS = 64;
 
 /* Slow the poll timer down after this many idle ticks (~1 s at 50 ms). */
 var IDLE_TICKS = 20;
@@ -820,10 +825,72 @@ function trigger(x, y, method) {
     rememberFocus();
     print("circle-to-search: " + (method || "Trigger") + " at " + x + "," + y
         + " on '" + screenName + "'");
+    /* Sent first, so it has arrived by the time the overlay is built: D-Bus
+     * keeps the order of calls on one connection.  Nothing depends on it — an
+     * overlay with no window list simply has nothing to outline. */
+    sendWindowRects();
     /* `| 0` forces a 32-bit integer so the call matches the "iis" signature. */
     callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, method || "Trigger",
              Math.round(x) | 0, Math.round(y) | 0, screenName);
     startOverlayWatch();
+}
+
+/* -------------------------------------------------------- window outlines */
+/*
+ * Where every window is, so the overlay can outline the one under the pointer
+ * and let a click take exactly it.  A lasso drawn laboriously around a
+ * rectangular panel is the case this removes, and the compositor is the only
+ * one who can answer it: a Wayland client cannot see anybody else's geometry.
+ *
+ * Encoded like the movement trace — "x,y,w,h;…" in global logical pixels,
+ * front-most first — because a string costs one D-Bus argument and the
+ * alternative is an array of structs marshalled by hand on both sides.
+ *
+ * Sent once per trigger, never from the poll tick.
+ */
+function windowRects() {
+    var windows = allWindows();
+    var parts = [];
+    /* windowList() is bottom-to-top, and "which window is under the pointer"
+     * wants the top one first. */
+    for (var i = windows.length - 1; i >= 0; i -= 1) {
+        var window = windows[i];
+        if (!window || isOverlay(window)) {
+            continue;
+        }
+        try {
+            if (window.minimized || window.deleted || window.desktopWindow) {
+                continue;
+            }
+            /* Panels and docks are windows too, and circling one is exactly the
+             * kind of thing this is for, so they stay in. */
+            var frame = window.frameGeometry;
+            var w = Math.round(frame.width);
+            var h = Math.round(frame.height);
+            if (w < 8 || h < 8) {
+                continue;
+            }
+            parts.push(Math.round(frame.x) + "," + Math.round(frame.y) + "," + w + "," + h);
+        } catch (error) {
+            /* One window that will not answer must not lose the rest. */
+        }
+        if (parts.length >= MAX_WINDOW_RECTS) {
+            break;
+        }
+    }
+    return parts.join(";");
+}
+
+function sendWindowRects() {
+    try {
+        var encoded = windowRects();
+        if (encoded.length === 0) {
+            return;
+        }
+        callDBus(DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "WindowRects", encoded);
+    } catch (error) {
+        print("circle-to-search: cannot report the window layout: " + error);
+    }
 }
 
 /* ------------------------------------------------------------------- focus */

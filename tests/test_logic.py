@@ -1753,6 +1753,123 @@ welcome.apply()
 check("saving happens once", fake_settings.language == "uk", fake_settings.language)
 i18n.set_language("auto")
 
+# --- the window under the pointer ------------------------------------------
+# A Wayland client cannot see anybody else's geometry, so the compositor sends
+# the layout with the trigger.  The screenshot of a lasso drawn laboriously
+# around a rectangular panel is the case this removes.
+from circle_to_search.windows import (  # noqa: E402
+    MAX_RECTS,
+    parse_rects,
+    visible_on,
+    window_at,
+)
+
+parsed = parse_rects("0,0,1920,1080;100,50,800,600;1900,-20,400,300")
+check("the layout parses", len(parsed) == 3, str(parsed))
+check("and keeps the order it arrived in", parsed[1] == QRect(100, 50, 800, 600), str(parsed[1]))
+check("negative coordinates survive", parsed[2] == QRect(1900, -20, 400, 300), str(parsed[2]))
+
+check("junk entries are skipped, not fatal",
+      parse_rects("1,2,3;10,10,100,100;a,b,c,d;;20,20,200,200") ==
+      [QRect(10, 10, 100, 100), QRect(20, 20, 200, 200)],
+      str(parse_rects("1,2,3;10,10,100,100;a,b,c,d;;20,20,200,200")))
+check("nothing at all is nothing", parse_rects("") == [])
+check("slivers are not windows", parse_rects("0,0,4,900;0,0,900,4") == [])
+crowd = ";".join(f"{i},{i},100,100" for i in range(MAX_RECTS + 30))
+check("and the list has a ceiling", len(parse_rects(crowd)) == MAX_RECTS,
+      str(len(parse_rects(crowd))))
+
+# A window may hang off an edge or straddle two monitors, and a click must
+# never ask for a crop that is not in the screenshot.
+right_screen = QRect(1920, 0, 1280, 1024)
+straddling = [QRect(1800, 100, 400, 300), QRect(2000, 200, 100, 100), QRect(0, 0, 500, 500)]
+onto = visible_on(straddling, right_screen)
+check("a straddling window is clipped to the screen", onto[0] == QRect(0, 100, 280, 300),
+      str(onto[0]))
+check("one wholly inside is only moved", onto[1] == QRect(80, 200, 100, 100), str(onto[1]))
+check("and one on another screen is dropped", len(onto) == 2, str(onto))
+# Barely overlapping the seam: five pixels of a window is not a target.
+check("a window clipped to a sliver is dropped too",
+      visible_on([QRect(1825, 0, 100, 100)], right_screen) == [],
+      str(visible_on([QRect(1825, 0, 100, 100)], right_screen)))
+
+# Overlapping windows: whichever KWin would have given the click.
+stack = [QRect(100, 100, 200, 200), QRect(50, 50, 400, 400)]
+check("the front-most one wins", window_at(stack, QPoint(150, 150)) == stack[0],
+      str(window_at(stack, QPoint(150, 150))))
+check("and the one behind is still reachable",
+      window_at(stack, QPoint(60, 60)) == stack[1], str(window_at(stack, QPoint(60, 60))))
+check("empty desktop is no window", window_at(stack, QPoint(900, 900)) is None)
+check("no layout at all is no window", window_at([], QPoint(10, 10)) is None)
+
+# On the overlay: the outline, and a click that takes exactly that window.
+panes = [QRect(80, 80, 300, 200), QRect(420, 300, 200, 150)]
+picker = make_overlay(MODE_RECTANGLE)
+check("no outline before the layout arrives", picker._window_outline() is None)
+picker.set_window_rects(panes)
+picker._current = QPoint(200, 150)
+check("the window under the pointer is outlined",
+      picker._window_outline() == panes[0], str(picker._window_outline()))
+picker._current = QPoint(700, 700)
+check("and nothing is outlined over the desktop", picker._window_outline() is None)
+picker._current = QPoint(200, 150)
+picker.render(QPixmap(picker.size()))
+check("the outline paints", True)
+
+# Clicking one takes it, without a drag.
+clicker, results = confirming()
+clicker._reset_selection()
+clicker.set_window_rects(panes)
+click(clicker, (200, 150))
+check("a click takes the whole window",
+      clicker._confirming and clicker._selection_rect() == panes[0],
+      str(clicker._selection_rect()))
+check("and sends nothing by itself", results == {}, str(results))
+check("it is a rectangle, whatever the mode was",
+      clicker.selection_polygon().count() == 0, str(clicker.selection_polygon().count()))
+press_key(clicker, Qt.Key.Key_Return)
+check("and Enter then searches for it", ACTION_SEARCH in results, str(list(results)))
+
+# A click on the desktop is still a click on the desktop.
+misser, results = confirming()
+misser._reset_selection()
+misser.set_window_rects(panes)
+click(misser, (700, 700))
+check("a click on nothing selects nothing",
+      not misser._confirming and not misser._has_selection, str(misser._selection_rect()))
+
+# The outline is for *before* the drag: once the pointer is down the user is
+# drawing, and an outline arguing with them would be noise.
+busy = make_overlay(MODE_RECTANGLE)
+busy.set_window_rects(panes)
+busy._current = QPoint(200, 150)
+_mouse(busy, QEvent.Type.MouseButtonPress, (200, 150))
+_mouse(busy, QEvent.Type.MouseMove, (300, 250))
+check("no outline while dragging", busy._window_outline() is None)
+_mouse(busy, QEvent.Type.MouseButtonRelease, (300, 250))
+check("nor once there is a selection to look at", busy._window_outline() is None)
+
+# Text still wins where there is text: a press on a word takes the words, so
+# offering the whole window there would promise something that will not happen.
+worded = make_overlay(MODE_RECTANGLE)
+worded.set_window_rects([QRect(0, 0, 700, 700)])
+worded.set_words(sample_words)
+worded._current = QPoint(120, 107)          # inside "Hello"
+check("text outranks the window outline", worded._window_outline() is None,
+      str(worded._window_outline()))
+worded._current = QPoint(600, 600)          # the same window, away from the text
+check("but the outline is there everywhere else",
+      worded._window_outline() == QRect(0, 0, 700, 700), str(worded._window_outline()))
+
+# The script has to send it, with the trigger and not from the poll tick.
+script = (Path(__file__).resolve().parent.parent
+          / "kwinscript/contents/code/main.js").read_text()
+check("the script reports the window layout", '"WindowRects", encoded' in script)
+check("with the trigger, before it",
+      re.search(r"sendWindowRects\(\);[\s\S]{0,400}?method \|\| \"Trigger\"", script) is not None)
+check("and it leaves out our own overlay", "isOverlay(window)" in
+      script.split("function windowRects")[1].split("function sendWindowRects")[0])
+
 # --- the gesture, animated from the settings -------------------------------
 # The welcome window explains a physical movement in three lines of prose, and
 # the README has a placeholder for a screenshot of it that does not exist.

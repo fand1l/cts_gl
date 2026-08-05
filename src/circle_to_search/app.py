@@ -78,6 +78,7 @@ from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
 from .traystate import read_tray_state
 from .welcome import WelcomeDialog
+from .windows import parse_rects, visible_on
 
 log = get_logger("app")
 
@@ -279,6 +280,7 @@ class CircleToSearchApp(QObject):
         self._service.overlay_geometry.connect(self.on_overlay_geometry)
         self._service.calibration_sample.connect(self.on_calibration_sample)
         self._service.gesture_trace.connect(self.on_gesture_trace)
+        self._service.window_rects.connect(self.on_window_rects)
         self._service.triggered_current.connect(self.on_trigger_current)
         self._service.settings_requested.connect(self.show_settings)
 
@@ -300,6 +302,9 @@ class CircleToSearchApp(QObject):
         # the movement that opened the overlay currently on screen.
         self._survey = self._load_survey()
         self._pending_trace: tuple[str, float] | None = None
+        #: The window layout the KWin script sent with the last trigger,
+        #: and when.  Buffered like the trace, and stale for the same reason.
+        self._pending_windows: tuple[list[QRect], float] | None = None
         self._opening_trace = ""
         self._awaiting_shortcut = False
         #: What was read off the frozen screen, in physical pixels of it.
@@ -676,6 +681,7 @@ class CircleToSearchApp(QObject):
         )
         log.info("%s (back end: %s)", metrics, capture.backend)
 
+        windows = self._take_window_rects()
         pixmap = QPixmap.fromImage(pil_to_qimage(capture.image))
         overlay = SelectionOverlay(
             pixmap=pixmap,
@@ -687,6 +693,10 @@ class CircleToSearchApp(QObject):
             confirm=self._settings.confirm_selection,
             magnifier=self._settings.magnifier,
         )
+        # The compositor's answer to "what is under the pointer", clipped to
+        # this screen and moved into its coordinates.  Empty when the KWin
+        # script is old or absent, in which case there is simply no outline.
+        overlay.set_window_rects(visible_on(windows, screen.geometry()))
         overlay.text_selected.connect(self._on_text_selected)
         overlay.mode_changed.connect(self._on_mode_changed)
         for signal, action in (
@@ -743,6 +753,7 @@ class CircleToSearchApp(QObject):
         bounds = desktop.bounds
         log.info("selecting across %d screens, %s", len(shots), bounds)
 
+        windows = self._take_window_rects()
         overlays = []
         for shot, screen in zip(shots, QGuiApplication.screens(), strict=True):
             overlays.append(
@@ -762,7 +773,8 @@ class CircleToSearchApp(QObject):
         group = OverlayGroup(overlays, self)
         group.committed.connect(self._on_group_committed)
         group.cancelled.connect(self._on_group_cancelled)
-        for overlay in overlays:
+        for overlay, screen in zip(overlays, QGuiApplication.screens(), strict=True):
+            overlay.set_window_rects(visible_on(windows, screen.geometry()))
             # Taking text closes the whole group, so it cannot go through the
             # group's own committed/cancelled pair.
             overlay.text_selected.connect(self._on_text_selected)
@@ -1271,6 +1283,28 @@ class CircleToSearchApp(QObject):
     def on_gesture_trace(self, points: str) -> None:
         """The movement that is about to trigger, from the KWin script."""
         self._pending_trace = (points, time.monotonic())
+
+    @pyqtSlot(str)
+    def on_window_rects(self, encoded: str) -> None:
+        """Where the windows were when the trigger left the compositor.
+
+        Buffered exactly like the movement trace, and for the same reason: it
+        arrives immediately *before* the trigger, and a layout left over from an
+        earlier one would outline windows that have since moved.
+        """
+        self._pending_windows = (parse_rects(encoded), time.monotonic())
+
+    def _take_window_rects(self) -> list[QRect]:
+        """Consume the pending layout, if it is recent enough to belong here."""
+        pending = self._pending_windows
+        self._pending_windows = None
+        if pending is None:
+            return []
+        rects, at = pending
+        if time.monotonic() - at > TRACE_MAX_AGE_S:
+            log.debug("dropping a stale window layout")
+            return []
+        return rects
 
     def _take_trace(self) -> str:
         """Consume the pending trace, if it is recent enough to belong here."""

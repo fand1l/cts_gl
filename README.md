@@ -420,6 +420,38 @@ It appears once. Whatever you do with it — answer it or close it unread —
 circle-to-search --welcome
 ```
 
+### Click a window instead of drawing round it
+
+Before a drag starts, the window under the pointer is outlined and lifted out
+of the dimming, and a plain click takes exactly that rectangle. The case this
+removes is a lasso drawn laboriously around a rectangular panel that the
+compositor could have named in one number.
+
+It has to come from KWin: a Wayland client cannot see anybody else's geometry.
+The script already walks `workspace.windowList()`, so it sends the layout with
+the trigger as `WindowRects("x,y,w,h;…")` — global logical pixels, front-most
+first, our own overlay excluded — in the same encoding as the movement trace,
+and immediately *before* the trigger, because D-Bus keeps the order of calls on
+one connection. It is sent once per trigger and never from the poll tick, so
+the CPU budget is untouched.
+
+Three things it gets right that are easy to get wrong:
+
+* **Windows partly off screen.** A window can hang off an edge or straddle two
+  monitors, so each rectangle is clipped to the screen and moved into its
+  coordinates before it is offered — a click can never ask for a crop that is
+  not in the screenshot.
+* **Shadows are not part of the frame.** `frameGeometry` excludes KWin's drop
+  shadow, so the outline sits on the window and not on its blur.
+* **Text still wins.** Over a recognised word the outline disappears, because a
+  press there takes the words; offering the whole window would promise
+  something that will not happen.
+
+The outline is only for *before* the drag. Once the button is down you are
+drawing, and an outline arguing with the selection would be noise. If the KWin
+script is older than the daemon it simply never sends a layout, and there is no
+outline — nothing else changes.
+
 ### The tray icon says whether it will work
 
 Hovering the icon answers "is this thing on?", because there are four quite

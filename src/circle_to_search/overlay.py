@@ -69,6 +69,7 @@ from .hidpi import ScreenMetrics, logical_rect_to_physical, physical_rect_to_log
 from .i18n import tr
 from .logging_setup import get_logger
 from .ocr import Word, words_to_text
+from .windows import window_at
 
 log = get_logger("overlay")
 
@@ -322,6 +323,13 @@ class SelectionOverlay(QWidget):
         #: needed — six text measurements, cheaper than keeping it in step.
         self._hovered_button: str | None = None
         self._pressed_button: str | None = None
+
+        #: Where the other windows are, in this screen's coordinates, front-most
+        #: first.  From the compositor: a Wayland client cannot see anybody
+        #: else's geometry.  Empty until the KWin script says otherwise, and
+        #: everything that uses it degrades to "no outline".
+        self._window_rects: list[QRect] = []
+        self._window_under: QRect | None = None
 
         self.setWindowTitle(OVERLAY_WINDOW_TITLE)
         self.setObjectName("CircleToSearchOverlay")
@@ -753,6 +761,76 @@ class SelectionOverlay(QWidget):
         self._text_focus = len(self._words) - 1
         self.update()
 
+    # --------------------------------------------------- the windows below
+
+    def set_window_rects(self, rects: list[QRect]) -> None:
+        """Hand over the window layout, in this screen's logical pixels."""
+        self._window_rects = list(rects)
+        log.info("%d window(s) can be picked out on %s", len(rects), self._metrics.name)
+        self.update()
+
+    def _window_outline(self) -> QRect | None:
+        """The window a click would take, or ``None``.
+
+        Only before a drag has started.  Once the pointer is down the user is
+        drawing, and an outline that kept following them would be arguing with
+        the selection they are making.
+        """
+        if not self._window_rects or self._finished:
+            return None
+        if self._dragging or self._has_selection or self._selecting_text:
+            return None
+        if self.has_text_selection() or not self._preview.isNull():
+            return None
+        # Text wins: a press on a word takes the words, so offering the whole
+        # window there would promise something that will not happen.
+        where = self._current + self._offset
+        if self._word_at(where) is not None:
+            return None
+        return window_at(self._window_rects, where)
+
+    def _draw_window_outline(self, painter: QPainter) -> None:
+        """Outline the window under the pointer, and say it can be clicked.
+
+        The compositor knows where every window is and the user has to draw
+        around one by hand — the screenshot of a lasso laboriously circling a
+        rectangular panel is the case this removes.
+        """
+        outline = self._window_outline()
+        if outline is None:
+            return
+
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        # Lift it out of the dimming, so the outline is a preview of the crop
+        # rather than a line drawn on a dark rectangle.
+        if self._dim.alpha():
+            wash = QColor(255, 255, 255, min(60, self._dim.alpha()))
+            painter.fillRect(outline, wash)
+        pen = QPen(self._accent)
+        pen.setWidth(2)
+        pen.setCosmetic(True)
+        pen.setStyle(Qt.PenStyle.DashLine)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(outline.adjusted(1, 1, -1, -1))
+
+        # A dashed rectangle is not an affordance on its own: nothing else in
+        # the overlay answers a plain click, so it has to be said once.
+        text = tr("overlay.take_window")
+        painter.setFont(self.font())
+        metrics = painter.fontMetrics()
+        width = metrics.horizontalAdvance(text) + 3 * _LABEL_PADDING
+        height = metrics.height() + _LABEL_PADDING
+        if outline.width() > width + 2 * _LABEL_MARGIN and outline.height() > height * 3:
+            self._draw_box(
+                painter,
+                QRect(outline.left() + _LABEL_MARGIN, outline.top() + _LABEL_MARGIN,
+                      width, height),
+                text,
+            )
+        painter.restore()
+
     def set_mode(self, mode: str) -> None:
         """Follow a mode change made on another overlay of the same group."""
         if mode == self._mode:
@@ -932,6 +1010,7 @@ class SelectionOverlay(QWidget):
         if not self._has_selection and self._preview.isNull():
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._dim_around_text(painter)
+            self._draw_window_outline(painter)
             self._draw_word_hints(painter)
             self._draw_action_bar(painter)
             self._draw_badge(painter)
@@ -1525,6 +1604,15 @@ class SelectionOverlay(QWidget):
                 self.setCursor(
                     Qt.CursorShape.IBeamCursor if over_word else Qt.CursorShape.CrossCursor
                 )
+            # The outline follows the pointer from window to window, and only
+            # the two rectangles involved are repainted — the alternative is a
+            # full repaint of a 4K screenshot on every pointer move.
+            outline = self._window_outline()
+            if outline != self._window_under:
+                for rect in (self._window_under, outline):
+                    if rect is not None:
+                        self.update(rect.translated(-self._offset).adjusted(-3, -3, 3, 3))
+                self._window_under = outline
             return
         if self._drag_mode == MODE_LASSO:
             last = self._points[-1] if self._points else None
@@ -1567,6 +1655,15 @@ class SelectionOverlay(QWidget):
         selection = self._selection_rect()
 
         if selection.width() < MIN_SELECTION or selection.height() < MIN_SELECTION:
+            # Too small to be a drag — but the compositor told us where the
+            # windows are, and a click on one of them is not a mistake, it is
+            # the fastest possible way to say "that panel".
+            window = window_at(self._window_rects, self._anchor + self._offset)
+            if window is not None:
+                log.info("taking the window under the click: %dx%d",
+                         window.width(), window.height())
+                self._take_window(window)
+                return
             # A stray click, not a selection: keep the overlay open so the user
             # can try again instead of silently doing nothing.
             log.debug("ignoring %dx%d selection", selection.width(), selection.height())
@@ -1910,6 +2007,38 @@ class SelectionOverlay(QWidget):
         }
         signal = signals.get(action, self.selected)
         self._finish(lambda: signal.emit(physical, polygon), sending=sending)
+
+    def _take_window(self, window: QRect) -> None:
+        """Make one window the selection, as if it had been dragged around.
+
+        A rectangle, always: whatever the mode is, what the compositor handed
+        over is a box, and a lasso outline around it would be a fiction.
+        """
+        self._drag_mode = MODE_RECTANGLE
+        self._points = []
+        self._has_selection = True
+        self._window_under = None
+        self._box = QRect(window)
+        self._box_edited = False
+
+        if not self._confirm:
+            physical = logical_rect_to_physical(window, self._metrics)
+            if physical.width() < 1 or physical.height() < 1:
+                self._reset_selection()
+                return
+            if self.in_group:
+                global_box = window.translated(self._origin)
+                self._finish(
+                    lambda: self.committed.emit(global_box, ACTION_SEARCH), sending=True
+                )
+                return
+            self._confirming = True  # so _selection_rect() reads _box
+            self._finish(lambda: self.selected.emit(physical, QPolygon()), sending=True)
+            return
+
+        self._confirming = True
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self._changed()
 
     def _reset_selection(self) -> None:
         self._text_anchor = None

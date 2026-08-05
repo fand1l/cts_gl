@@ -106,6 +106,7 @@ service.gesture_trace.connect(lambda points: seen.__setitem__("trace", points))
 service.calibration_sample.connect(lambda *values: seen.__setitem__("sample", values))
 service.overlay_geometry.connect(lambda *values: seen.__setitem__("geometry", values))
 service.script_ready.connect(lambda version: seen.__setitem__("version", version))
+service.window_rects.connect(lambda rects: seen.__setitem__("windows", rects))
 
 introspection = bus_call(["introspect", DBUS_SERVICE, DBUS_PATH])
 
@@ -117,6 +118,7 @@ for method, signature in (
     ("TriggerCurrentScreen", "-"),
     ("CalibrationSample", "iiiiii"),
     ("GestureTrace", "s"),
+    ("WindowRects", "s"),
     ("OverlayGeometry", "iiii"),
     ("ShowSettings", "-"),
     ("ScriptReady", "s"),
@@ -150,6 +152,11 @@ check("Trigger arrives", seen.get("trigger") == (10, 20, "HDMI-A-1"), str(seen.g
 bus_call(["call", DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "GestureTrace", "s",
           "100,200,0;110,205,30"])
 check("GestureTrace arrives", seen.get("trace") == "100,200,0;110,205,30", str(seen.get("trace")))
+
+bus_call(["call", DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "WindowRects", "s",
+          "0,0,1920,1080;100,50,800,600"])
+check("WindowRects arrives", seen.get("windows") == "0,0,1920,1080;100,50,800,600",
+      str(seen.get("windows")))
 
 bus_call(["call", DBUS_SERVICE, DBUS_PATH, DBUS_INTERFACE, "CalibrationSample", "iiiiii",
           "354", "2946", "100", "0", "-1", "120"])

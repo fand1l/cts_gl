@@ -92,6 +92,18 @@ class CircleToSearchAdaptor(QDBusAbstractAdaptor):
         log.debug("GestureTrace(%d bytes)", len(points))
         self._service.gesture_trace.emit(points)
 
+    @pyqtSlot(str)
+    def WindowRects(self, rects: str) -> None:
+        """Where every window is, as ``"x,y,w,h;…"`` in global logical pixels.
+
+        Front-most first, our own overlay excluded.  Sent immediately before the
+        trigger it belongs to, so the overlay can outline the window under the
+        pointer and let a click take exactly it — a Wayland client cannot see
+        anybody else's geometry, so this is the only place it can come from.
+        """
+        log.debug("WindowRects(%d bytes)", len(rects))
+        self._service.window_rects.emit(rects)
+
     @pyqtSlot(int, int, int, int)
     def OverlayGeometry(self, x: int, y: int, width: int, height: int) -> None:
         """Where the KWin script left the overlay window, relative to its output.
@@ -141,6 +153,8 @@ class ServiceObject(QObject):
     settings_requested = pyqtSignal()
     #: The version string of the KWin script now running inside KWin.
     script_ready = pyqtSignal(str)
+    #: The window layout at the moment of the trigger, encoded.
+    window_rects = pyqtSignal(str)
 
     def __init__(self, parent: QObject | None = None) -> None:
         super().__init__(parent)
