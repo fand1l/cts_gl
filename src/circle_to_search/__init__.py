@@ -13,7 +13,23 @@ debugged on its own:
 
 from __future__ import annotations
 
-__version__ = "1.0.0"
+__version__ = "1.1.0"
+
+#: What this release is *called*.  The number says what changed in relation to
+#: the last one; the name says which one it is, which is the question somebody
+#: running `install.sh update` is actually asking.
+#:
+#: Kept beside the number rather than inside it, and joined only for display.
+#: "1.1.0-screenshot-window" is not a version pip will take — under PEP 440 a
+#: hyphen introduces a *pre-release*, so that string sorts *below* 1.1.0 — and
+#: RPM will not take it at all, because its Version field uses the hyphen to
+#: separate the version from the release.
+RELEASE_NAME = "screenshot-window"
+
+
+def version_label() -> str:
+    """``1.1.0 “screenshot-window”`` — for anywhere a person reads it."""
+    return f"{__version__} “{RELEASE_NAME}”" if RELEASE_NAME else __version__
 
 APP_NAME = "circle-to-search"
 APP_ID = "io.github.fand1l.CircleToSearch"
@@ -45,5 +61,7 @@ __all__ = [
     "KWIN_SCRIPT_ID",
     "OVERLAY_WINDOW_TITLE",
     "PINNED_WINDOW_TITLE",
+    "RELEASE_NAME",
     "__version__",
+    "version_label",
 ]

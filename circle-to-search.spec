@@ -4,21 +4,21 @@
 # Local build:
 #     sudo dnf install rpm-build rpmdevtools python3-devel
 #     rpmdev-setuptree
-#     git archive --format=tar.gz --prefix=circle-to-search-1.0.0/ \
-#         -o ~/rpmbuild/SOURCES/circle-to-search-1.0.0.tar.gz HEAD
+#     git archive --format=tar.gz --prefix=circle-to-search-1.1.0/ \
+#         -o ~/rpmbuild/SOURCES/circle-to-search-1.1.0.tar.gz HEAD
 #     rpmbuild -ba circle-to-search.spec
 #
 # COPR (see docs/TECHNICAL.md for the click-by-click version):
 #     dnf install copr-cli && copr-cli create circle-to-search --chroot fedora-44-x86_64
 #     rpmbuild -bs circle-to-search.spec
-#     copr-cli build circle-to-search ~/rpmbuild/SRPMS/circle-to-search-1.0.0-1.*.src.rpm
+#     copr-cli build circle-to-search ~/rpmbuild/SRPMS/circle-to-search-1.1.0-1.*.src.rpm
 #
 %global appid    io.github.fand1l.CircleToSearch
 %global scriptid circletosearch
 %global appdir   %{_datadir}/circle-to-search
 
 Name:           circle-to-search
-Version:        1.0.0
+Version:        1.1.0
 Release:        1%{?dist}
 Summary:        Shake the cursor to search a screen region with Google Lens
 Summary(uk):    Потрясіть курсором, щоб знайти ділянку екрана через Google Lens
@@ -140,6 +140,12 @@ EOF
 %{_userunitdir}/%{name}.service
 
 %changelog
+* Wed Aug 05 2026 fand1l <maximus171007@gmail.com> - 1.1.0-1
+- "screenshot-window": search selected text instead of a picture of it, say
+  what will actually be sent, take the same area as last time, black out part
+  of a selection before it leaves, pick a colour off the screen, pin a crop to
+  the screen, and a searchable window for the kept captures.
+
 * Mon Aug 03 2026 fand1l <maximus171007@gmail.com> - 1.0.0-1
 - Initial package: KWin shake detection, ScreenShot2/Spectacle/portal capture,
   selection overlay and Google Lens upload.

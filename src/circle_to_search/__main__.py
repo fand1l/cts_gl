@@ -21,7 +21,7 @@ from pathlib import Path
 if __package__ in (None, ""):  # started as a plain script
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from circle_to_search import APP_ID, APP_NAME, __version__
+from circle_to_search import APP_ID, APP_NAME, __version__, version_label
 from circle_to_search.logging_setup import get_logger, setup_logging
 
 log = get_logger("main")
@@ -33,7 +33,11 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         description="Select a screen region and search it with Google Lens (KDE Plasma 6/Wayland).",
     )
     parser.add_argument("-v", "--verbose", action="store_true", help="debug logging")
-    parser.add_argument("--version", action="version", version=f"{APP_NAME} {__version__}")
+    # The name as well as the number: which release this is, is the
+    # question, and three digits do not answer it.
+    parser.add_argument(
+        "--version", action="version", version=f"{APP_NAME} {version_label()}"
+    )
     parser.add_argument(
         "--settings",
         action="store_true",
