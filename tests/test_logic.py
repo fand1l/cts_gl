@@ -574,6 +574,7 @@ from circle_to_search.overlay import (  # noqa: E402
     BAR_TEXT_ALL,
     BAR_TEXT_BACK,
     BAR_TEXT_COPY,
+    BAR_TEXT_SEARCH,
     SENDING_LIMIT_MS,
 )
 
@@ -1278,8 +1279,13 @@ check("still the mode chips before anything is taken",
       str([placed.action for placed in text_bar._layout_buttons()]))
 drag(text_bar, (110, 105), (180, 135))
 actions = [placed.action for placed in text_bar._layout_buttons()]
-check("three buttons for a text selection",
-      actions == [BAR_TEXT_COPY, BAR_TEXT_ALL, BAR_TEXT_BACK], str(actions))
+check("four buttons for a text selection",
+      actions == [BAR_TEXT_SEARCH, BAR_TEXT_COPY, BAR_TEXT_ALL, BAR_TEXT_BACK], str(actions))
+check("searching leads, the way it does for an area",
+      button_named(text_bar, BAR_TEXT_SEARCH).primary
+      and button_named(text_bar, BAR_TEXT_SEARCH).key == "Enter")
+check("and copying keeps the same key as the area bar",
+      button_named(text_bar, BAR_TEXT_COPY).key == "C")
 check("the count is on the button itself",
       "3" in button_named(text_bar, BAR_TEXT_COPY).label,
       button_named(text_bar, BAR_TEXT_COPY).label)
@@ -1299,6 +1305,52 @@ target = button_named(text_bar, BAR_TEXT_COPY)
 click(text_bar, (target.rect.center().x(), target.rect.center().y()))
 check("Copy text hands over the whole run",
       copied == ["Hello there\nsecond\n\nelsewhere"], str(copied))
+
+# Searching for the words themselves, which needs no upload at all.
+searched: list[str] = []
+text_search = make_overlay(MODE_RECTANGLE)
+text_search.text_search_requested.connect(searched.append)
+text_search.set_words(sample_words)
+drag(text_search, (110, 105), (180, 135))
+target = button_named(text_search, BAR_TEXT_SEARCH)
+click(text_search, (target.rect.center().x(), target.rect.center().y()))
+check("Search hands over the words, not a picture", searched == ["Hello there\nsecond"],
+      str(searched))
+check("and stays up to say the browser is coming", text_search.is_sending())
+
+# Enter searches and C copies, the same two keys as the area bar below.
+keys = make_overlay(MODE_RECTANGLE)
+by_key: list[str] = []
+keys.text_search_requested.connect(lambda text: by_key.append(f"search:{text}"))
+keys.text_selected.connect(lambda text: by_key.append(f"copy:{text}"))
+keys.set_words(sample_words)
+drag(keys, (110, 105), (180, 135))
+press_key(keys, Qt.Key.Key_Return)
+check("Enter searches for the text", by_key == ["search:Hello there\nsecond"], str(by_key))
+
+keys2 = make_overlay(MODE_RECTANGLE)
+keys2.text_search_requested.connect(lambda text: by_key.append(f"search:{text}"))
+keys2.text_selected.connect(lambda text: by_key.append(f"copy:{text}"))
+keys2.set_words(sample_words)
+drag(keys2, (110, 105), (180, 135))
+by_key.clear()
+press_key(keys2, Qt.Key.Key_C)
+check("C still copies it", by_key == ["copy:Hello there\nsecond"], str(by_key))
+
+# A single word that is a link is offered as a link instead of a search.
+link_bar = make_overlay(MODE_RECTANGLE)
+link_bar.set_words([Word("example.com", 200, 200, 260, 30, 95.0, (1, 1, 1, 1))])
+drag(link_bar, (110, 105), (220, 112))
+check("one word selected", len(link_bar.selected_words()) == 1)
+check("the button offers to open it", button_named(link_bar, BAR_TEXT_SEARCH).label
+      == i18n.tr("bar.open_link"), button_named(link_bar, BAR_TEXT_SEARCH).label)
+
+sentence_bar = make_overlay(MODE_RECTANGLE)
+sentence_bar.set_words(sample_words)
+drag(sentence_bar, (110, 105), (180, 135))
+check("prose is a search, not a link",
+      button_named(sentence_bar, BAR_TEXT_SEARCH).label == i18n.tr("bar.search_text"),
+      button_named(sentence_bar, BAR_TEXT_SEARCH).label)
 
 # Back drops the text without throwing the capture away, exactly like Esc.
 text_bar2 = make_overlay(MODE_RECTANGLE)
@@ -1796,6 +1848,55 @@ welcome.language_combo.setCurrentIndex(welcome.language_combo.findData("en"))
 welcome.apply()
 check("saving happens once", fake_settings.language == "uk", fake_settings.language)
 i18n.set_language("auto")
+
+# --- searching for the words rather than a picture of them -----------------
+# Guessing wrong about a URL means opening something nobody asked for, so the
+# guess is deliberately conservative and every edge of it is pinned here.
+from circle_to_search import websearch  # noqa: E402
+
+for text, expected in (
+    ("https://example.com/a?b=c", "https://example.com/a?b=c"),
+    ("http://localhost:8080/x", "http://localhost:8080/x"),
+    ("www.example.com", "https://www.example.com"),
+    ("example.com", "https://example.com"),
+    ("docs.python.org/3/library/re.html", "https://docs.python.org/3/library/re.html"),
+    ("  example.com  ", "https://example.com"),
+    ("EXAMPLE.COM", "https://EXAMPLE.COM"),
+):
+    check(f"link: {text!r}", websearch.looks_like_url(text) == expected,
+          str(websearch.looks_like_url(text)))
+
+for text in (
+    "",
+    "   ",
+    "hello world",
+    "go to example.com",          # a sentence that merely contains one
+    "See Fig. 3",
+    "main.py",                    # a file, and a terminal is full of them
+    "notes.txt",
+    "README.md",
+    "Dockerfile",
+    "3.14",                       # a number, not a host
+    "photo.jpeg",
+    "archive.tar.gz",
+    "libfoo.so",
+    "-.com",
+):
+    check(f"not a link: {text!r}", websearch.looks_like_url(text) is None,
+          str(websearch.looks_like_url(text)))
+
+check("a file with a scheme is still a link",
+      websearch.looks_like_url("https://example.com/main.py")
+      == "https://example.com/main.py")
+
+check("a query is escaped",
+      websearch.search_url("a & b") == "https://www.google.com/search?q=a+%26+b&hl=",
+      websearch.search_url("a & b"))
+check("wrapped lines become one query",
+      "q=hello+there+second" in websearch.search_url("hello there\nsecond\n\n"),
+      websearch.search_url("hello there\nsecond\n\n"))
+check("the language is passed on",
+      websearch.search_url("x", "uk").endswith("&hl=uk"), websearch.search_url("x", "uk"))
 
 # --- the lasso stroke ------------------------------------------------------
 # Designed in docs/STROKE.md from photographs of the real thing, which

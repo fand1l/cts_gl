@@ -89,6 +89,7 @@ from .stroke import (
     glow_blob,
     glow_colour,
 )
+from .websearch import looks_like_url
 from .windows import window_at
 
 log = get_logger("overlay")
@@ -151,10 +152,14 @@ _CURSORS = {
 _SCAN_TICK_MS = 130
 _SCAN_DOTS = 4
 
-#: The two things the badge can be saying.
+#: The things the badge can be saying.  Only one is ever true at a time, which
+#: is why they share the one badge.
 BADGE_NONE = ""
 BADGE_SCANNING = "scanning"
 BADGE_SENDING = "sending"
+#: A text search: no upload, so saying "sending it to Google Lens" would be a
+#: lie.  The wait is the browser's, and that is what this one says.
+BADGE_OPENING = "opening"
 
 #: How long the overlay may stay up saying "sending" before it takes itself
 #: down.  A dead-man's switch and nothing else: whatever goes wrong between the
@@ -192,6 +197,7 @@ _KEY_GAP = 8             # between a label and its key
 #: Buttons only respond to a press *and* a release on the same one, the way
 #: buttons everywhere do, so sliding off one is a way to change your mind.
 BAR_CANCEL = "bar-cancel"
+BAR_TEXT_SEARCH = "bar-text-search"
 BAR_TEXT_COPY = "bar-text-copy"
 BAR_TEXT_ALL = "bar-text-all"
 BAR_TEXT_BACK = "bar-text-back"
@@ -244,6 +250,10 @@ class SelectionOverlay(QWidget):
     save_requested = pyqtSignal(QRect, QPolygon)
     #: A run of recognised words the user dragged across.
     text_selected = pyqtSignal(str)
+    #: The same words, but to be searched for as *text* rather than copied.  The
+    #: overlay has already read them, so a picture of them would be a round trip
+    #: through the network to answer a question that is already answered.
+    text_search_requested = pyqtSignal(str)
     cancelled = pyqtSignal()
     #: The mode chip was clicked.  It is a setting, shown where it is wanted, so
     #: the choice is kept rather than lasting for one capture.
@@ -470,12 +480,24 @@ class SelectionOverlay(QWidget):
                 (BAR_MODE_RECT, tr("bar.mode.rect"), "Shift" if lasso else "", not lasso),
             ]
         if self.has_text_selection():
-            # The count goes on the button rather than into a sentence beside
-            # it: it is the one fact about a text selection worth stating, and
-            # a label that carries it needs no line of prose underneath.
+            # Searching leads, as it does for a region: the whole program is a
+            # way to search for what is on the screen, and by this point the
+            # words are already in hand — so this search costs no upload at all.
+            # The count goes on the copy button rather than into a sentence
+            # beside it: it is the one fact about a text selection worth
+            # stating, and a label that carries it needs no prose underneath.
             count = len(self.selected_words())
+            # Only one word can ever be a link — anything with a space in it is
+            # a sentence — and this runs on every hover, so ask no further.
+            link = looks_like_url(self.selected_text()) if count == 1 else None
             return [
-                (BAR_TEXT_COPY, tr("bar.copy_text", count=count), "Enter", True),
+                (
+                    BAR_TEXT_SEARCH,
+                    tr("bar.open_link") if link else tr("bar.search_text"),
+                    "Enter",
+                    True,
+                ),
+                (BAR_TEXT_COPY, tr("bar.copy_text", count=count), "C", False),
                 (BAR_TEXT_ALL, tr("bar.all_text"), "T", False),
                 (BAR_TEXT_BACK, tr("bar.back"), "Esc", False),
             ]
@@ -625,13 +647,31 @@ class SelectionOverlay(QWidget):
             self._clear_text_selection()
         elif action == BAR_TEXT_ALL:
             self.select_all_text()
+        elif action == BAR_TEXT_SEARCH:
+            self._search_text()
         elif action == BAR_TEXT_COPY:
-            text = self.selected_text()
-            if text:
-                log.info("copying %d character(s) of recognised text", len(text))
-                self._finish(lambda: self.text_selected.emit(text))
+            self._copy_text()
         else:
             self._commit(action)
+
+    def _copy_text(self) -> None:
+        text = self.selected_text()
+        if not text:
+            return
+        log.info("copying %d character(s) of recognised text", len(text))
+        self._finish(lambda: self.text_selected.emit(text))
+
+    def _search_text(self) -> None:
+        """Search for the words themselves.  Nothing is uploaded to do it."""
+        text = self.selected_text()
+        if not text:
+            return
+        log.info("searching for %d character(s) of recognised text", len(text))
+        # The badge, because the wait here is the browser's cold start and an
+        # overlay that vanished into a second of nothing would look like a drop.
+        self._finish(
+            lambda: self.text_search_requested.emit(text), badge=BADGE_OPENING
+        )
 
     # ------------------------------------------------------------ text layer
 
@@ -1462,6 +1502,8 @@ class SelectionOverlay(QWidget):
     def _badge_text(self) -> str:
         if self._badge == BADGE_SENDING:
             return tr("overlay.sending")
+        if self._badge == BADGE_OPENING:
+            return tr("overlay.opening")
         if self._badge == BADGE_SCANNING:
             return tr("overlay.scanning")
         return ""
@@ -1491,7 +1533,7 @@ class SelectionOverlay(QWidget):
         dots = "." * (self._scan_phase + 1)
         painter.setFont(self.font())
         box = self._badge_rect()
-        if self._badge == BADGE_SENDING:
+        if self._badge in (BADGE_SENDING, BADGE_OPENING):
             # In the accent colour: this one is not a note about the screen, it
             # is the last thing the overlay does before it goes away.
             painter.setPen(Qt.PenStyle.NoPen)
@@ -2024,10 +2066,11 @@ class SelectionOverlay(QWidget):
             if self.in_group:
                 global_box = selection.translated(self._origin)
                 self._finish(
-                    lambda: self.committed.emit(global_box, ACTION_SEARCH), sending=True
+                    lambda: self.committed.emit(global_box, ACTION_SEARCH),
+                    badge=BADGE_SENDING,
                 )
                 return
-            self._finish(lambda: self.selected.emit(physical, polygon), sending=True)
+            self._finish(lambda: self.selected.emit(physical, polygon), badge=BADGE_SENDING)
             return
 
         # Nothing is sent yet: hold the selection, let it be adjusted, and wait
@@ -2069,17 +2112,15 @@ class SelectionOverlay(QWidget):
             self.select_all_text()
             return
 
-        if self.has_text_selection() and key in (
-            Qt.Key.Key_Return,
-            Qt.Key.Key_Enter,
-            Qt.Key.Key_C,
-            Qt.Key.Key_Space,
-        ):
-            text = self.selected_text()
-            if text:
-                log.info("copying %d character(s) of recognised text", len(text))
-                self._finish(lambda: self.text_selected.emit(text))
-            return
+        if self.has_text_selection():
+            # The same keys as the region bar below, doing the same two things:
+            # Enter is whatever the lit button says, C is the clipboard.
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                self._search_text()
+                return
+            if key == Qt.Key.Key_C:
+                self._copy_text()
+                return
 
         if not self._confirming:
             super().keyPressEvent(event)
@@ -2399,14 +2440,14 @@ class SelectionOverlay(QWidget):
         )
         # Only searching goes anywhere: copying and saving are done by the time
         # the overlay would have closed, and a badge for them would be a lie.
-        sending = action == ACTION_SEARCH
+        badge = BADGE_SENDING if action == ACTION_SEARCH else BADGE_NONE
 
         if self.in_group:
             # The app cannot use a per-screen crop box here: the selection may
             # cover parts of two screenshots at two different scales, so it is
             # handed over in global logical pixels and stitched afterwards.
             global_box = self._box.translated(self._origin)
-            self._finish(lambda: self.committed.emit(global_box, action), sending=sending)
+            self._finish(lambda: self.committed.emit(global_box, action), badge=badge)
             return
 
         signals = {
@@ -2414,7 +2455,7 @@ class SelectionOverlay(QWidget):
             ACTION_SAVE: self.save_requested,
         }
         signal = signals.get(action, self.selected)
-        self._finish(lambda: signal.emit(physical, polygon), sending=sending)
+        self._finish(lambda: signal.emit(physical, polygon), badge=badge)
 
     def _take_window(self, window: QRect) -> None:
         """Make one window the selection, as if it had been dragged around.
@@ -2437,11 +2478,14 @@ class SelectionOverlay(QWidget):
             if self.in_group:
                 global_box = window.translated(self._origin)
                 self._finish(
-                    lambda: self.committed.emit(global_box, ACTION_SEARCH), sending=True
+                    lambda: self.committed.emit(global_box, ACTION_SEARCH),
+                    badge=BADGE_SENDING,
                 )
                 return
             self._confirming = True  # so _selection_rect() reads _box
-            self._finish(lambda: self.selected.emit(physical, QPolygon()), sending=True)
+            self._finish(
+                lambda: self.selected.emit(physical, QPolygon()), badge=BADGE_SENDING
+            )
             return
 
         self._confirming = True
@@ -2468,14 +2512,14 @@ class SelectionOverlay(QWidget):
     def _cancel(self) -> None:
         self._finish(self.cancelled.emit)
 
-    def _finish(self, emit: Callable[[], None], *, sending: bool = False) -> None:
+    def _finish(self, emit: Callable[[], None], *, badge: str = BADGE_NONE) -> None:
         if self._finished:
             return
         self._finished = True
         self.releaseKeyboard()
         self._stop_stroke_animation()
 
-        if sending:
+        if badge:
             # Do not vanish into a second of nothing.  Preparing the image and
             # writing the launcher page take a moment, the browser takes longer,
             # and an overlay that disappears before anything appears is
@@ -2484,7 +2528,7 @@ class SelectionOverlay(QWidget):
             # The selection stays drawn, undimmed, under the badge: "this is
             # what is on its way" is more use than an empty frozen screen.  What
             # goes is everything that invites another click.
-            self._set_badge(BADGE_SENDING)
+            self._set_badge(badge)
             self.setCursor(Qt.CursorShape.BusyCursor)
             self.update()
             timer = QTimer(self)
@@ -2501,8 +2545,8 @@ class SelectionOverlay(QWidget):
         self.close()
 
     def is_sending(self) -> bool:
-        """True while the overlay is up only to say the selection is on its way."""
-        return self._badge == BADGE_SENDING
+        """True while the overlay is up only to say the result is on its way."""
+        return self._badge in (BADGE_SENDING, BADGE_OPENING)
 
     def dismiss(self) -> None:
         """Take a sending overlay down: the launcher is up, or time is up."""

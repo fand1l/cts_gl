@@ -33,9 +33,10 @@ That is the whole idea. Everything below is what happens around it.
   so there is a moment to check first.
 * **Copy or save instead of searching.** The same selection, three other places
   to send it.
-* **Select the text on your frozen screen** and copy it, without any of it
-  leaving the machine — an optional local text recognition, off until you turn
-  it on.
+* **Select the text on your frozen screen**, then search for the words
+  themselves rather than a picture of them — or copy them, without any of it
+  leaving the machine. An optional local text recognition, off until you turn it
+  on.
 * **Ukrainian and English**, following your system language.
 
 ---
@@ -45,7 +46,7 @@ That is the whole idea. Everything below is what happens around it.
 | | |
 |---|---|
 | ![The moment before you draw](docs/images/overlay-start.png) **Shake, and the screen freezes.** Lasso or rectangle — the chip remembers which. | ![Drawing the loop](docs/images/overlay-drawing.png) **Circle it.** A wide white line with a coloured glow that follows your hand. |
-| ![The selection waiting with its buttons](docs/images/overlay-actions.png) **Nothing has been sent yet.** Adjust the edges, then pick what happens to it. | ![Selecting text on the frozen screen](docs/images/overlay-text.png) **Drag across text and you get the text**, not a picture of it. |
+| ![The selection waiting with its buttons](docs/images/overlay-actions.png) **Nothing has been sent yet.** Adjust the edges, then pick what happens to it. | ![Selecting text on the frozen screen](docs/images/overlay-text.png) **Drag across text and you get the text** — searched for as words, not as a picture. |
 | ![The window under the pointer, outlined](docs/images/overlay-window.png) **Click a window** instead of drawing carefully around it. | ![The magnifier while dragging](docs/images/overlay-magnifier.png) **A magnifier while you aim**, so the edge lands where you meant. |
 
 ---
@@ -122,11 +123,22 @@ anywhere else to start again.
 ### Reading the text on screen
 
 Turn on **Make the text on screen selectable** and the words on the frozen screen
-become selectable, like text in a browser. Drag across a sentence and press
-*Enter* to copy it, or *T* to take everything found.
+become selectable, like text in a browser. Drag across a sentence, or press *T*
+to take everything found.
 
-It runs `tesseract` on your own machine. Nothing is uploaded, no key is needed,
-and it is off until you ask for it.
+| button | key | |
+|---|---|---|
+| **Search** | *Enter* | search for the words, not a picture of them |
+| **Copy text** | *C* | to the clipboard |
+| **All text** | *T* | take everything on screen |
+| **Back** | *Esc* | let go of the text, keep the capture |
+
+Searching here uploads nothing at all — the words are already read, so it is a
+plain web search. And if what you picked out is a link, the button says **Open
+the link** and opens it instead.
+
+The reading runs `tesseract` on your own machine. Nothing is uploaded, no key is
+needed, and it is off until you ask for it.
 
 ### The tray
 

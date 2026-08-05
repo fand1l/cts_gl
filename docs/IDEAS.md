@@ -7,14 +7,20 @@ usually already sitting in the code or in a screenshot.
 
 Ordered by what I think they are worth, not by how hard they are.
 
-**Where each stands** after the first read-through:
+**Where each stands**, after all fourteen were read through and decided:
 
 | | |
 |---|---|
-| agreed | 1 redact · 2 search the text · 4 `--doctor` · 5 pin · 6 history window · 7 colour · 8 what will be sent · 9 the same area |
-| undecided | 3 delay — the reason I gave for it was wrong (see below), so it needs deciding again on the smaller case that is left |
-| not yet discussed | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
-| dropped | 14 annotations |
+| done | **2 search the text** |
+| agreed, in this order | 8 what will be sent · 9 the same area · 1 redact · 7 colour · 5 pin · 6 history window · 4 `--doctor` |
+| agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
+| dropped | 3 delay · 14 annotations |
+
+The order is not the ranking below.  It runs smallest-change-per-return first
+and keeps anything that touches the same code adjacent, so each one lands on a
+tree the last one already tidied: 8 and 9 both live on the confirmed selection,
+1 and 7 both add a mode to the overlay, 5 and 6 are both new windows, and 4
+reads what all of them have written.
 
 ---
 
@@ -44,7 +50,7 @@ the JPEG inlined, and it stays there for ten minutes
 (`LAUNCHER_LIFETIME_MS`).  Redaction has to happen before `prepare_image`, or
 the thing it was protecting is on disk in the clear.
 
-## 2. Search the text, not the picture
+## 2. Search the text, not the picture — **done**
 
 When words are selected, offer *Search* alongside *Copy*.
 
@@ -58,6 +64,21 @@ send.
 Its sibling costs one more line: if the selected text **is** a URL, the button
 says *Open the link* instead.  Circling a link in a screenshot or a terminal and
 having it open is worth a great deal on its own.
+
+*What shipped:* `websearch.py` — two pure functions, no Qt — plus a
+`BAR_TEXT_SEARCH` button that leads the text bar, so **Enter** searches and
+**C** copies, exactly as they do on the area bar underneath.  Two things came
+out of writing it that the sketch above had not thought about:
+
+* the URL guess had to be made **conservative on purpose**, because opening
+  something nobody asked for is far worse than making them paste it themselves.
+  A bare dotted word is more often a file than a host, and a terminal full of
+  `main.py` and `notes.txt` is exactly where people circle things, so a
+  blocklist of file extensions sits in front of the bare-domain case;
+* the badge could not say *Sending it to Google Lens*, because nothing is sent.
+  It got its own line, `overlay.opening`, and the overlay stays up until the
+  browser takes the focus — the wait here is the browser's cold start, which is
+  real, and it is the only wait left.
 
 ## 3. Capture after a delay  — **the reason I gave was wrong**
 

@@ -32,7 +32,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import APP_ID, DBUS_SERVICE, __version__, ocr
+from . import APP_ID, DBUS_SERVICE, __version__, ocr, websearch
 from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
@@ -698,6 +698,7 @@ class CircleToSearchApp(QObject):
         # script is old or absent, in which case there is simply no outline.
         overlay.set_window_rects(visible_on(windows, screen.geometry()))
         overlay.text_selected.connect(self._on_text_selected)
+        overlay.text_search_requested.connect(self._on_text_search)
         overlay.mode_changed.connect(self._on_mode_changed)
         for signal, action in (
             (overlay.selected, ACTION_SEARCH),
@@ -778,6 +779,7 @@ class CircleToSearchApp(QObject):
             # Taking text closes the whole group, so it cannot go through the
             # group's own committed/cancelled pair.
             overlay.text_selected.connect(self._on_text_selected)
+            overlay.text_search_requested.connect(self._on_text_search)
             overlay.mode_changed.connect(self._on_mode_changed)
         self._group = group
         self._desktop = desktop
@@ -1106,6 +1108,25 @@ class CircleToSearchApp(QObject):
         log.info("copied %d character(s) of recognised text", len(text))
         notify(tr("notify.ocr_done"), ocr.summarise(text), timeout_ms=8000)
 
+    @pyqtSlot(str)
+    def _on_text_search(self, text: str) -> None:
+        """The user dragged across some words and asked to search for them.
+
+        No image is made and nothing is uploaded: the words are already known,
+        so this is a plain web search — or, if they picked out a link, the link.
+        The overlay is left up with its badge and takes itself down when the
+        browser window appears in front of it.
+        """
+        self._release_overlay()
+        self._release_group()
+        self._finish_opening()
+        link = websearch.looks_like_url(text)
+        if link:
+            log.info("the selected text is a link, opening it")
+            self._open_url(link)
+            return
+        self._open_url(websearch.search_url(text, current_language()))
+
     def _extract_text(self, image: Image.Image) -> None:
         """Read the text out of the selection instead of searching for it."""
         if not self._settings.ocr_enabled and not self._ask_about_ocr():
@@ -1247,6 +1268,9 @@ class CircleToSearchApp(QObject):
 
     def _open_failed(self, task: QRunnable, error: str) -> None:
         self._tasks.discard(task)
+        # Nothing is going to appear now, so an overlay still saying "opening"
+        # would be sitting in front of the notification that explains why.
+        self._stop_sending()
         log.error("could not open the result: %s", error)
         notify_error(tr("notify.open_failed"), tr("notify.open_failed_body", error=error))
 

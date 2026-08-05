@@ -631,11 +631,37 @@ and the words become selectable where they are:
   by mistake. Only the eight resize handles outrank it, so a box drawn over a
   paragraph can still be adjusted;
 * **double-click** takes one word, **T** takes everything that was found;
-* **Enter** or **C** copies the selection, **Esc** lets go of it (a second
-  **Esc** closes the overlay).  The bar changes with it: *Copy text (12)*,
-  *All text*, *Back* — the count of selected words is on the button rather than
-  in a sentence beside it;
+* **Enter** searches for the words, **C** copies them, **Esc** lets go of the
+  selection (a second **Esc** closes the overlay).  The bar changes with it:
+  *Search*, *Copy text (12)*, *All text*, *Back* — the same two keys as the
+  area bar underneath, doing the same two things, and the count of selected
+  words is on the button rather than in a sentence beside it;
 * the pointer turns into an I-beam over anything that can be taken.
+
+**Searching for the words is not the same as searching for a picture of them.**
+By the time a sentence is selected the program already has the text, so sending
+an image of it to Lens would be a round trip through the network to answer a
+question that is already answered — and a picture of a sentence is a worse query
+than the sentence. So the text bar's primary action opens a plain Google web
+search for the string (`websearch.py`, `SEARCH_URL`), with the interface
+language as `hl=`; no image is made, nothing is uploaded, and the whole thing is
+one `xdg-open`.
+
+If what you selected **is a link**, searching for it is the wrong thing
+entirely, so the button says *Open the link* and opens it. The guess is
+deliberately conservative, because opening something nobody asked for is much
+worse than making them copy and paste: it takes an explicit `http(s)://`, a
+`www.` host, or a single dotted token whose last part is not in a blocklist of
+file extensions — a terminal full of `main.py` and `notes.txt` is exactly where
+people circle things, and `README.md` is not a Moldovan website. Anything with a
+space in it is a sentence and is never a link. All of that is a pure function
+with no Qt in it (`looks_like_url`), which is why every edge of it is pinned in
+the tests.
+
+The overlay stays up with an *Opening it in the browser…* badge until the
+browser window takes the focus, exactly as it does for an image search — the
+wait here is the browser's cold start, and an overlay that vanished into a
+second of nothing would look like a dropped selection.
 
 Reading a 4K screen takes a couple of seconds, so a small badge at the bottom
 says *Читаю текст на екрані…* while it works — the overlay is usable the whole
