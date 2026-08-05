@@ -1467,34 +1467,6 @@ class CircleToSearchApp(QObject):
         self._tasks.add(task)
         QThreadPool.globalInstance().start(task)
 
-        # The same ask, answered twice: "how big would this be" and "is it a
-        # code".  Only the first has to happen; the second is skipped entirely
-        # when the decoder is not installed or has been turned off.
-        if self._settings.qr_enabled and qr.is_available():
-            reader = _QrTask(image, crop, overlay.redactions())
-            reader.signals.finished.connect(
-                lambda measured, kind, payload, ref=reader, view=overlay: self._finish_qr(
-                    ref, view, measured, kind, payload
-                )
-            )
-            self._tasks.add(reader)
-            QThreadPool.globalInstance().start(reader)
-
-    def _finish_qr(
-        self, task: QRunnable, overlay: SelectionOverlay, crop: QRect, kind: str, payload: str
-    ) -> None:
-        self._tasks.discard(task)
-        if not payload:
-            return
-        # A code that is a link is worth opening; one that is a Wi-Fi password
-        # or a plain string is worth copying, and neither is worth uploading.
-        link = websearch.looks_like_url(payload)
-        # Kept here as well as on the overlay: the overlay is gone by the time
-        # the button it drew is acted on.  It cannot go stale — nothing can ask
-        # for it unless that same button is on screen.
-        self._pending_code = (payload, link)
-        overlay.set_code(crop, kind, payload, link)
-
     def _use_code(self, payload: str, link: str) -> None:
         """Do what the code says, which is never to upload a picture of it.
 

@@ -4255,6 +4255,140 @@ for code in ("en", "uk"):
         check(f"{code}: {key} has words", i18n.tr(key) != key, i18n.tr(key)[:40])
 i18n.set_language("en")
 
+# --- the branches that only run where zbar is installed ---------------------
+# 1.4.0 aborted the daemon a second after the overlay opened, and none of the
+# above caught it: _estimate_upload still ended with the crop-time QR scan from
+# before the chips moved the scan to the whole screen, calling _QrTask with the
+# three arguments it used to take.  Behind `if qr.is_available()`, which is
+# False on every machine without zbarimg — including the one the tests run on —
+# so it was dead code everywhere except the one place it mattered.
+#
+# So: put a zbarimg on PATH, turn the setting on, and drive both of the guarded
+# paths for real.  A stale call site raises TypeError, and inside a slot PyQt
+# turns that into SIGABRT rather than a traceback.
+import ast  # noqa: E402
+
+from PyQt6.QtCore import QThreadPool  # noqa: E402
+
+from circle_to_search.app import _EstimateTask, _QrTask  # noqa: E402
+
+
+class _StubEstimateOverlay:
+    """Just enough overlay for the two things the app asks of one here."""
+
+    def __init__(self) -> None:
+        self.sizes: list[tuple[QRect, int]] = []
+        self.codes: list[qr.Code] = []
+
+    def redactions(self) -> list[QRect]:
+        return []
+
+    def set_upload_size(self, crop: QRect, nbytes: int) -> None:
+        self.sizes.append((QRect(crop), nbytes))
+
+    def set_codes(self, codes: list[qr.Code]) -> None:
+        self.codes = list(codes)
+
+
+class _ScanSettings:
+    max_side = 1000
+    jpeg_quality = 85
+    qr_enabled = True
+
+
+class _ScanHost:
+    """The daemon's two answers to a settled selection, off any real window."""
+
+    _estimate_upload = CircleToSearchApp._estimate_upload
+    _finish_estimate = CircleToSearchApp._finish_estimate
+    _start_scanning_codes = CircleToSearchApp._start_scanning_codes
+    _codes_ready = CircleToSearchApp._codes_ready
+
+    def __init__(self, overlay: _StubEstimateOverlay) -> None:
+        self._settings = _ScanSettings()
+        self._tasks: set[object] = set()
+        self._overlay = overlay
+
+    def _group_overlays(self) -> list[object]:
+        return []
+
+
+def survives(name: str, call: object) -> None:
+    """Report a raise as a failure instead of taking the whole run down with it.
+
+    This is the shape of the bug: the daemon does not see a traceback either.
+    PyQt calls qFatal on an exception that reaches a slot, so the first sign of
+    a bad call site is the process being gone.
+    """
+    try:
+        call()  # type: ignore[operator]
+    except Exception as exc:  # reporting it *is* the test
+        check(name, False, f"{type(exc).__name__}: {exc}")
+    else:
+        check(name, True)
+
+
+with tempfile.TemporaryDirectory() as tmp:
+    zbar_dir = Path(tmp)
+    zbar = zbar_dir / "zbarimg"
+    zbar.write_text(
+        '#!/bin/sh\necho "QR-Code:+10,+10 +10,+90 +90,+90 +90,+10:https://example.com/scanned"\n',
+        encoding="utf-8",
+    )
+    zbar.chmod(0o755)
+    os.environ["PATH"] = str(zbar_dir)
+    check("the fixture really looks installed", qr.is_available())
+
+    scanned = _StubEstimateOverlay()
+    host = _ScanHost(scanned)
+    frozen = Image.new("RGB", (400, 300), "white")
+    # The exact call the estimate timer makes.  Before the fix this raised
+    # TypeError here, one second after the box stopped moving.
+    survives("a settled box is measured with zbar installed",
+             lambda: host._estimate_upload(scanned, frozen, QRect(20, 20, 200, 150)))
+    check("and measuring starts one task", len(host._tasks) == 1, str(host._tasks))
+    check("which is a measurement, not a scan",
+          all(isinstance(task, _EstimateTask) for task in host._tasks) and bool(host._tasks),
+          str(host._tasks))
+    survives("the frozen screen is scanned for codes",
+             lambda: host._start_scanning_codes(scanned, frozen))
+    check("as a second task of its own", len(host._tasks) == 2, str(host._tasks))
+
+    QThreadPool.globalInstance().waitForDone(10000)
+    app.processEvents()
+    check("the size comes back", bool(scanned.sizes) and scanned.sizes[0][1] > 0,
+          str(scanned.sizes))
+    check("for the box that was asked about",
+          [box for box, _ in scanned.sizes] == [QRect(20, 20, 200, 150)], str(scanned.sizes))
+    check("the code comes back too",
+          [c.payload for c in scanned.codes] == ["https://example.com/scanned"],
+          str(scanned.codes))
+    check("and both tasks were let go of", host._tasks == set(), str(host._tasks))
+
+    # The setting still turns it off, with zbar sitting right there.
+    quiet = _StubEstimateOverlay()
+    off = _ScanHost(quiet)
+    off._settings.qr_enabled = False
+    off._start_scanning_codes(quiet, frozen)
+    check("the setting wins over an installed zbar", off._tasks == set(), str(off._tasks))
+os.environ["PATH"] = original_path
+
+# Belt and braces, and it holds for the call sites a test cannot reach: every
+# _QrTask in app.py is built the way _QrTask.__init__ says.  This is the check
+# that would have caught the crash while zbarimg was still missing here.
+_source = ast.parse((Path(__file__).resolve().parent.parent
+                     / "src" / "circle_to_search" / "app.py").read_text(encoding="utf-8"))
+_built = [node for node in ast.walk(_source)
+          if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+          and node.func.id in ("_QrTask", "_EstimateTask")]
+check("both tasks are constructed somewhere", len(_built) == 2, str(len(_built)))
+for _call in _built:
+    _wanted = {"_QrTask": _QrTask, "_EstimateTask": _EstimateTask}[_call.func.id]
+    _takes = _wanted.__init__.__code__.co_argcount - 1  # minus self
+    check(f"{_call.func.id} on line {_call.lineno} is called the way it is written",
+          len(_call.args) + len(_call.keywords) <= _takes and len(_call.args) >= 1,
+          f"{len(_call.args)} given, {_takes} taken")
+
 # --- selecting without a mouse ----------------------------------------------
 # Half of this was already here: the arrows move and resize a box that has been
 # *taken*, and the bar says so.  The missing half was that there was no way to
