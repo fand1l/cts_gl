@@ -762,12 +762,15 @@ p {
   z-index: 2;
 }
 
+/* Positioned, but deliberately without a z-index of its own: a z-index here
+ * would open a stacking context, and everything inside it — including the
+ * buttons — would be trapped below the canvas however high they asked to be.
+ * That is exactly how Install and GitHub stopped being clickable once. */
 .hero__inner {
   min-height: min(76vh, 720px);
   min-height: min(76svh, 720px);
   padding-block: var(--space-12) var(--space-10);
   position: relative;
-  z-index: 1;
 }
 
 /* The stroke is drawn over the words, the way it is drawn over your screen —
