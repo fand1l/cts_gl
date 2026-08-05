@@ -232,6 +232,10 @@ BAR_MODE_COLOUR = "bar-mode-colour"
 ACTION_SEARCH = "search"
 ACTION_COPY = "copy"
 ACTION_SAVE = "save"
+#: Leave the crop on the screen instead of sending it anywhere.  It goes through
+#: _commit like the other three, so the redaction and the lasso mask apply to it
+#: exactly as they do to an upload.
+ACTION_PIN = "pin"
 #: Only the tray's recent list uses this one now: on the overlay the text is
 #: taken by dragging across it, not by asking for a whole region to be read.
 ACTION_TEXT = "text"
@@ -269,6 +273,8 @@ class SelectionOverlay(QWidget):
     selected = pyqtSignal(QRect, QPolygon)
     copy_requested = pyqtSignal(QRect, QPolygon)
     save_requested = pyqtSignal(QRect, QPolygon)
+    #: Keep this crop on screen, above everything, until it is closed.
+    pin_requested = pyqtSignal(QRect, QPolygon)
     #: A run of recognised words the user dragged across.
     text_selected = pyqtSignal(str)
     #: The same words, but to be searched for as *text* rather than copied.  The
@@ -600,6 +606,7 @@ class SelectionOverlay(QWidget):
                 (ACTION_SEARCH, tr("bar.search"), "Enter", True),
                 (ACTION_COPY, tr("bar.copy"), "C", False),
                 (ACTION_SAVE, tr("bar.save"), "S", False),
+                (ACTION_PIN, tr("bar.pin"), "P", False),
                 (
                     BAR_REDACT,
                     tr("bar.redact_count", count=count) if count else tr("bar.redact"),
@@ -2529,6 +2536,9 @@ class SelectionOverlay(QWidget):
         if key == Qt.Key.Key_S:
             self._commit(ACTION_SAVE)
             return
+        if key == Qt.Key.Key_P:
+            self._commit(ACTION_PIN)
+            return
         if key == Qt.Key.Key_B:
             self._set_redacting(not self._redacting)
             return
@@ -2930,6 +2940,7 @@ class SelectionOverlay(QWidget):
         signals = {
             ACTION_COPY: self.copy_requested,
             ACTION_SAVE: self.save_requested,
+            ACTION_PIN: self.pin_requested,
         }
         signal = signals.get(action, self.selected)
         self._finish(lambda: signal.emit(physical, polygon), badge=badge)

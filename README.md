@@ -36,6 +36,8 @@ That is the whole idea. Everything below is what happens around it.
   with them still in ever exists.
 * **Copy or save instead of searching.** The same selection, three other places
   to send it.
+* **Or pin it to the screen** and keep it there while you work — for when what
+  you need to read is behind the window you have to type into.
 * **The same area as last time**, to the pixel — for watching a number that
   changes, where a rectangle redrawn by hand is never quite the same one.
 * **Pick a colour off the screen.** The screen is already frozen and already
@@ -147,10 +149,18 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 | **Search** | *Enter* | send it to Google Lens |
 | **Copy** | *C* | to the clipboard |
 | **Save** | *S* | a PNG in Pictures |
+| **Pin** | *P* | leave it on screen, above everything |
 | **Black out** | *B* | paint over anything that must not leave |
 | **Cancel** | *Esc* | forget it |
 
-**Black out** is worth knowing about. Turn it on and drag over the token, the
+**Pin** is the other one worth knowing about. It leaves that crop on your screen
+as a small window above everything else, which you can drag around, scroll to
+zoom, and close with *Esc* or a middle click. *Ctrl+C* on it copies it. Useful
+whenever the thing you have to read is behind the window you have to type into.
+
+![A pinned crop floating over another window](docs/images/pinned.png)
+
+**Black out** is worth knowing about too. Turn it on and drag over the token, the
 address, the name in the corner — they are filled solid *before* the image is
 made, so there is no version of it with them still in. *Backspace* undoes the
 last one, *Esc* leaves the mode. The words under them are dropped from the

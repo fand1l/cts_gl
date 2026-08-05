@@ -22,7 +22,7 @@ from pathlib import Path
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from PyQt6.QtCore import QPoint, QRect, Qt
+from PyQt6.QtCore import QPoint, QRect, QSize, Qt
 from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import QApplication
 
@@ -40,6 +40,7 @@ from circle_to_search.imageops import (  # noqa: E402
     rects_to_crop_space,
 )
 from circle_to_search.overlay import (  # noqa: E402
+    ACTION_PIN,
     MODE_LASSO,
     MODE_RECTANGLE,
     SelectionOverlay,
@@ -696,6 +697,7 @@ def confirming(mode: str = MODE_RECTANGLE, mask_outside: bool = False) -> tuple:
     overlay.selected.connect(lambda r, p: results.__setitem__(ACTION_SEARCH, (r, p)))
     overlay.copy_requested.connect(lambda r, p: results.__setitem__(ACTION_COPY, (r, p)))
     overlay.save_requested.connect(lambda r, p: results.__setitem__(ACTION_SAVE, (r, p)))
+    overlay.pin_requested.connect(lambda r, p: results.__setitem__(ACTION_PIN, (r, p)))
     overlay.text_selected.connect(lambda text: results.__setitem__(ACTION_TEXT, text))
     overlay.cancelled.connect(lambda: results.__setitem__("cancelled", ()))
     drag(overlay, (100, 100), (300, 250))
@@ -1079,11 +1081,12 @@ check("and they are gone once there is a selection",
 
 overlay, results = confirming()
 actions = [placed.action for placed in overlay._layout_buttons()]
-check("five buttons once a selection is waiting",
-      actions == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_REDACT, BAR_CANCEL], str(actions))
+check("six buttons once a selection is waiting",
+      actions == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, ACTION_PIN, BAR_REDACT, BAR_CANCEL],
+      str(actions))
 check("search is the primary one", button_named(overlay, ACTION_SEARCH).primary)
 check("the keys are still shown",
-      [placed.key for placed in overlay._layout_buttons()] == ["Enter", "C", "S", "B", "Esc"],
+      [placed.key for placed in overlay._layout_buttons()] == ["Enter", "C", "S", "P", "B", "Esc"],
       str([placed.key for placed in overlay._layout_buttons()]))
 placed_bar = overlay._layout_buttons()
 check("the buttons do not overlap",
@@ -1427,6 +1430,124 @@ busy, _ = confirming()
 busy._set_picking_colour(True)
 check("not offered once a selection is waiting", not busy._picking_colour)
 
+# --- leaving a piece of the screen on the screen -----------------------------
+# Every other thing this program does with a selection takes it away — searching
+# sends it, copying hides it in the clipboard, saving buries it in a folder — and
+# the commonest reason to capture something is to look at it while typing
+# somewhere else.
+from PyQt6.QtGui import QWheelEvent  # noqa: E402
+
+from circle_to_search import PINNED_WINDOW_TITLE  # noqa: E402
+from circle_to_search.pinned import (  # noqa: E402
+    MAX_SCALE,
+    MAX_SHARE,
+    MIN_SCALE,
+    MIN_SIDE,
+    PinnedCrop,
+)
+
+pinning, results = confirming()
+check("the bar offers it", button_named(pinning, ACTION_PIN).key == "P")
+check("and it sits with the other places a crop can go",
+      [placed.action for placed in pinning._layout_buttons()][:4]
+      == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, ACTION_PIN],
+      str([placed.action for placed in pinning._layout_buttons()]))
+target = button_named(pinning, ACTION_PIN)
+click(pinning, (target.rect.center().x(), target.rect.center().y()))
+check("clicking it hands the crop over", ACTION_PIN in results, str(list(results)))
+
+by_p, results = confirming()
+press_key(by_p, Qt.Key.Key_P)
+check("P does the same", ACTION_PIN in results, str(list(results)))
+check("and it goes through the same commit as the rest, so a redaction and a "
+      "lasso mask apply to it too",
+      results[ACTION_PIN][0] == QRect(200, 200, 400, 300), str(results[ACTION_PIN][0]))
+
+
+def wheel(widget, notches: int) -> None:
+    widget.wheelEvent(
+        QWheelEvent(
+            QPointF(10, 10), QPointF(10, 10), QPoint(0, 0), QPoint(0, notches * 120),
+            Qt.MouseButton.NoButton, Qt.KeyboardModifier.NoModifier,
+            Qt.ScrollPhase.NoScrollPhase, False,
+        )
+    )
+
+
+crop = QPixmap(320, 120)
+crop.fill(QColor("#fdfdfd"))
+pin = PinnedCrop(crop)
+check("a pin is the size of what was cropped", pin.size() == QSize(320, 120), str(pin.size()))
+check("frameless, above everything, out of the switcher",
+      bool(pin.windowFlags() & Qt.WindowType.FramelessWindowHint)
+      and bool(pin.windowFlags() & Qt.WindowType.WindowStaysOnTopHint)
+      and bool(pin.windowFlags() & Qt.WindowType.Tool))
+check("and it does not steal the focus to appear",
+      pin.testAttribute(Qt.WidgetAttribute.WA_ShowWithoutActivating))
+check("the KWin script can find it by caption",
+      pin.windowTitle() == PINNED_WINDOW_TITLE, pin.windowTitle())
+
+wheel(pin, 5)
+check("the wheel zooms", pin.scale() > 1.0 and pin.size().width() > 320, str(pin.size()))
+wheel(pin, -60)
+check("and stops at the floor", abs(pin.scale() - MIN_SCALE) < 1e-6, str(pin.scale()))
+check("without becoming too small to click",
+      pin.width() >= MIN_SIDE and pin.height() >= MIN_SIDE, str(pin.size()))
+wheel(pin, 200)
+check("and at the ceiling", abs(pin.scale() - MAX_SCALE) < 1e-6, str(pin.scale()))
+press_key(pin, Qt.Key.Key_0)
+check("0 puts it back to life size", pin.scale() == 1.0 and pin.size() == QSize(320, 120),
+      str(pin.size()))
+
+handed: list[QSize] = []
+pin.copy_requested.connect(lambda pixmap: handed.append(pixmap.size()))
+press_key(pin, Qt.Key.Key_C, Qt.KeyboardModifier.ControlModifier)
+check("Ctrl+C turns a pin into the copy action", handed == [QSize(320, 120)], str(handed))
+check("and it is the crop, not what is on screen at this zoom",
+      handed == [QSize(crop.width(), crop.height())])
+
+shut: list[bool] = []
+pin.closed.connect(lambda: shut.append(True))
+press_key(pin, Qt.Key.Key_Escape)
+check("Esc closes it", shut == [True] and not pin.isVisible())
+
+middle = PinnedCrop(crop)
+by_middle: list[bool] = []
+middle.closed.connect(lambda: by_middle.append(True))
+middle.mousePressEvent(
+    QMouseEvent(QEvent.Type.MouseButtonPress, QPointF(5, 5), QPointF(5, 5),
+                Qt.MouseButton.MiddleButton, Qt.MouseButton.MiddleButton,
+                Qt.KeyboardModifier.NoModifier)
+)
+check("a middle click closes it without needing the focus first", by_middle == [True])
+
+# A selection can be the whole panel, and pinning that at its own size would
+# cover the thing it was taken from.
+whole = QPixmap(3840, 2160)
+whole.fill(QColor("#336699"))
+huge = PinnedCrop(whole)
+huge.fit_to_screen(QRect(0, 0, 1920, 1080))
+check("a screen-sized crop is scaled down to be a pin",
+      huge.width() <= 1920 * MAX_SHARE + 1 and huge.height() <= 1080 * MAX_SHARE + 1,
+      str(huge.size()))
+check("and keeps its shape", abs(huge.width() / huge.height() - 3840 / 2160) < 0.01,
+      str(huge.size()))
+small = QPixmap(200, 100)
+small.fill(QColor("#336699"))
+untouched = PinnedCrop(small)
+untouched.fit_to_screen(QRect(0, 0, 1920, 1080))
+check("one that already fits is left at life size",
+      untouched.scale() == 1.0 and untouched.size() == QSize(200, 100), str(untouched.size()))
+
+# Drawn over an unknown window, so it needs an edge of its own — a white crop on
+# a white background otherwise has no shape at all.
+painted = QPixmap(untouched.size())
+untouched.render(painted)
+edge = painted.toImage()
+check("it has a rim", edge.pixelColor(0, 0) != QColor("#336699"), edge.pixelColor(0, 0).name())
+check("and the crop is inside it", edge.pixelColor(100, 50) == QColor("#336699"),
+      edge.pixelColor(100, 50).name())
+
 # --- the same area as last time --------------------------------------------
 # Comparing a number that changes means taking the same rectangle twice, and a
 # rectangle drawn by hand is never quite the same twice — which is exactly what
@@ -1493,7 +1614,7 @@ check("it selects exactly where the last one was",
       again._selection_rect() == QRect(120, 90, 300, 200), str(again._selection_rect()))
 check("and hands straight over to the action bar", again._confirming
       and [placed.action for placed in again._layout_buttons()]
-      == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_REDACT, BAR_CANCEL])
+      == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, ACTION_PIN, BAR_REDACT, BAR_CANCEL])
 check("as a rectangle, with no lasso outline to mask against",
       again.selection_polygon().count() == 0)
 

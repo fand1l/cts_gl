@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -43,8 +44,16 @@ from circle_to_search.imageops import black_out, rects_to_crop_space
 from circle_to_search.lens import prepare_image
 from circle_to_search.ocr import Word
 from circle_to_search.overlay import MODE_LASSO, MODE_RECTANGLE, SelectionOverlay
+from circle_to_search.pinned import PinnedCrop
 from circle_to_search.settings_dialog import SettingsDialog
 from circle_to_search.welcome import WelcomeDialog
+
+#: Read out of the KWin script rather than typed here, so the banner the mock
+#: terminal shows is the banner the script really prints.
+SCRIPT_VERSION = re.search(
+    r'var SCRIPT_VERSION = "([^"]+)"',
+    (Path(__file__).resolve().parent.parent / "kwinscript/contents/code/main.js").read_text(),
+).group(1)
 
 W, H, SCALE = 1440, 900, 2
 #: The default *Longest side*, so the readout in the pictures is the readout a
@@ -125,7 +134,7 @@ def desktop(language: str) -> QImage:
     # Real output: every one of these lines is printed by the KWin script.
     for index, line in enumerate(
         ["$ journalctl --user -u plasma-kwin_wayland -f \\", "      | grep circle",
-         "KWin script started (v1.10.0)", "watching options.configChanged",
+         "KWin script started (v" + SCRIPT_VERSION + ")", "watching options.configChanged",
          "swing 412 px at 1840 px/s, turn 173",
          "TriggerShake at 812,540 on 'eDP-1'"]):
         painter.drawText(786, 550 + index * 30, line)
@@ -323,6 +332,23 @@ for language in ("en", "uk"):
         stroke(hiding, [(TEXT_LEFT - 6, top - 22), (TEXT_LEFT + 430, top + 8)], release=True)
     measure_upload(hiding)
     save(hiding, f"overlay-redact{suffix}.png")
+
+    # 3c. A pinned crop, over the desktop it was taken from.  Composed here
+    #     rather than rendered from a live window, because a pin is placed by
+    #     the compositor and there is no compositor in an offscreen run — but
+    #     the pin itself is the real widget, painted at its real size.
+    plate = QPixmap.fromImage(desktop(language))
+    canvas = QPixmap(W, H)
+    painter = QPainter(canvas)
+    painter.drawPixmap(QRect(0, 0, W, H), plate)
+    crop = plate.copy(QRect(140 * SCALE, 230 * SCALE, 480 * SCALE, 110 * SCALE))
+    pin = PinnedCrop(crop.scaled(480, 110))
+    shown = QPixmap(pin.size())
+    pin.render(shown)
+    painter.drawPixmap(QRect(830, 600, pin.width(), pin.height()), shown)
+    painter.end()
+    canvas.save(str(OUT / f"pinned{suffix}.png"))
+    print("   ", f"pinned{suffix}.png")
 
     # 4. The text layer: words lit, a run selected, the text bar.
     reading = overlay_for(language, MODE_RECTANGLE)

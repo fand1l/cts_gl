@@ -77,11 +77,13 @@ from .multiscreen import OverlayGroup, ScreenShot, VirtualDesktop
 from .notify import notify, notify_error, supports_actions
 from .overlay import (
     ACTION_COPY,
+    ACTION_PIN,
     ACTION_SAVE,
     ACTION_SEARCH,
     ACTION_TEXT,
     SelectionOverlay,
 )
+from .pinned import PinnedCrop, open_pin
 from .screenshot import CaptureError, capture_screen
 from .settings_dialog import SettingsDialog
 from .traystate import read_tray_state
@@ -367,6 +369,10 @@ class CircleToSearchApp(QObject):
         #: reason as `_tasks`: nothing else references them, and letting Python
         #: collect one would take the badge off the screen it is drawn on.
         self._sending: set[SelectionOverlay] = set()
+        #: Crops left on the screen.  Same reason again, and this one outlives
+        #: everything else here: a pin is meant to still be there in ten
+        #: minutes, long after the capture that made it was forgotten.
+        self._pins: set[PinnedCrop] = set()
         self._busy = False
 
         # Learning from misfires: the movement the KWin script last sent, and
@@ -781,6 +787,7 @@ class CircleToSearchApp(QObject):
             (overlay.selected, ACTION_SEARCH),
             (overlay.copy_requested, ACTION_COPY),
             (overlay.save_requested, ACTION_SAVE),
+            (overlay.pin_requested, ACTION_PIN),
         ):
             signal.connect(
                 lambda rect, polygon, chosen=action, ref=overlay: self._on_selected(
@@ -1086,6 +1093,9 @@ class CircleToSearchApp(QObject):
             return
         if action == ACTION_SAVE:
             self._save_to_file(cropped)
+            return
+        if action == ACTION_PIN:
+            self._pin(cropped)
             return
         if action == ACTION_TEXT:
             self._extract_text(cropped)
@@ -1435,6 +1445,32 @@ class CircleToSearchApp(QObject):
             actions=(("open", tr("notify.open_folder")),),
             on_action=lambda _key: self._open_url(directory.as_uri()),
         )
+
+    def _pin(self, image: Image.Image) -> None:
+        """Leave the crop on the screen, above everything, until it is closed.
+
+        Under the pointer's screen rather than the primary one: on two monitors
+        the capture happened where you were looking, and so should the thing it
+        left behind.
+        """
+        pin = open_pin(QPixmap.fromImage(pil_to_qimage(image)), near=QCursor.pos())
+        self._pins.add(pin)
+        pin.closed.connect(lambda ref=pin: self._drop_pin(ref))
+        pin.copy_requested.connect(self._copy_pixmap)
+
+    def _drop_pin(self, pin: PinnedCrop) -> None:
+        self._pins.discard(pin)
+        pin.deleteLater()
+
+    @pyqtSlot(QPixmap)
+    def _copy_pixmap(self, pixmap: QPixmap) -> None:
+        """Ctrl+C on a pinned crop: it becomes the copy action, uncaptured."""
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is None:
+            return
+        clipboard.setImage(pixmap.toImage())
+        log.info("a pinned crop was copied to the clipboard")
+        notify(tr("notify.copied"), transient=True, timeout_ms=3000)
 
     def _copy_to_clipboard(self, image: Image.Image) -> None:
         clipboard = QGuiApplication.clipboard()

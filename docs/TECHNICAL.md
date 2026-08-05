@@ -618,6 +618,42 @@ which is exactly where the grip lives. What is on screen is solid black, not an
 outline or a blur, because the picture being checked has to be the picture that
 is sent.
 
+**Pin it instead of sending it** (*P*). The overlay goes and in its place a
+small frameless window is left holding exactly that crop, above every other
+window, until you close it. The case is always the same shape: the thing you
+need to read is in window A, the place you have to type it is in window B, and B
+covers A — today that is alt-tab, forget, alt-tab, forget.
+
+It goes through `_commit` like the other three, so a redaction and a lasso mask
+apply to a pin exactly as they do to an upload, and `_deliver` remembers it in
+the recent list the same way.
+
+Two Wayland facts shape `pinned.py`, and between them neither of the things that
+make a pin a pin is done by this program:
+
+* **a client cannot place its own window.** `move()` does nothing, so the pin is
+  born wherever KWin decides and dragging it is handed straight to the
+  compositor with `QWindow.startSystemMove()` on press;
+* **a client cannot keep itself above other windows** either. The KWin script
+  does it, matching `PINNED_WINDOW_TITLE` the way it matches the overlay's
+  caption — but through `floatPin()` rather than `promote()`, which is a
+  deliberately different set: `keepAbove`, `skipTaskbar`, `skipPager`,
+  `skipSwitcher`, `onAllDesktops`, and emphatically **not** `fullScreen` and not
+  `activeWindow`. Everything that makes the overlay swallow the screen would
+  make a pin useless.
+
+The rest is small and answers questions the sketch did not ask. It opens without
+taking the focus, because pinning something is not a request to stop typing where
+you were typing. A screen-sized crop is scaled down to at most 80 % of the screen
+it lands on, or a pinned full-screen selection *is* a second copy of the screen
+on top of the first. It has a two-tone rim, because a white crop pinned on a
+white background otherwise has no shape at all. The wheel zooms in proportion to
+how far it actually turned, so a high-resolution touchpad does not leap through
+the whole range; **0** is life size and the percentage is only drawn when it is
+not. **Esc** closes it, a **middle click** closes it without needing the focus
+first, and **Ctrl+C** turns it into the copy action without the screen being
+captured again.
+
 **Searching does not make the overlay vanish.** Preparing the image and writing
 the launcher page take a moment, and the browser takes longer still, so the
 frozen screen stays up with the selection still lit and a badge saying

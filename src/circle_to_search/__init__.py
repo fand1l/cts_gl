@@ -26,6 +26,12 @@ DBUS_INTERFACE = "io.github.fand1l.CircleToSearch"
 #: force ``keepAbove``/``fullScreen``/``noBorder`` on it.  Keep the two in sync.
 OVERLAY_WINDOW_TITLE = "Circle to Search Overlay"
 
+#: And this one for a pinned crop, which wants the opposite treatment: kept
+#: above everything, but at its own small size and never full screen.  A caption
+#: of its own rather than a flag, because a KWin script has nothing else to go
+#: on — it sees windows, not the program that made them.
+PINNED_WINDOW_TITLE = "Circle to Search Pin"
+
 #: KPackage plugin id of the KWin script (``kwinrc`` uses it for the
 #: ``<id>Enabled`` key in ``[Plugins]`` and for the ``[Script-<id>]`` group).
 KWIN_SCRIPT_ID = "circletosearch"
@@ -38,5 +44,6 @@ __all__ = [
     "DBUS_SERVICE",
     "KWIN_SCRIPT_ID",
     "OVERLAY_WINDOW_TITLE",
+    "PINNED_WINDOW_TITLE",
     "__version__",
 ]

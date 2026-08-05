@@ -27,7 +27,7 @@
  * disk is the version in memory:
  *   journalctl --user -u plasma-kwin_wayland | grep "script started"
  */
-var SCRIPT_VERSION = "1.10.0";
+var SCRIPT_VERSION = "1.11.0";
 
 var DBUS_SERVICE = "io.github.fand1l.CircleToSearch";
 var DBUS_PATH = "/io/github/fand1l/CircleToSearch";
@@ -35,6 +35,11 @@ var DBUS_INTERFACE = "io.github.fand1l.CircleToSearch";
 
 /* Must match OVERLAY_WINDOW_TITLE in the Python package. */
 var OVERLAY_CAPTION = "Circle to Search Overlay";
+
+/* And PINNED_WINDOW_TITLE.  A pinned crop wants the opposite of the overlay:
+ * kept above everything, but at its own small size, never full screen and
+ * never given the focus. */
+var PIN_CAPTION = "Circle to Search Pin";
 
 /* How long to keep looking for the overlay window after a trigger, in ms. */
 var OVERLAY_WATCH_MS = 6000;
@@ -1028,6 +1033,36 @@ function allWindows() {
     return [];
 }
 
+function isPin(window) {
+    if (!window) {
+        return false;
+    }
+    try {
+        return window.caption === PIN_CAPTION;
+    } catch (error) {
+        return false;
+    }
+}
+
+/*
+ * A pinned crop, kept above the rest without any of the rest of promote().
+ *
+ * Deliberately not fullScreen and deliberately not activeWindow: the whole
+ * point of a pin is that it sits in a corner of somebody else's window while
+ * they carry on typing in that window.  Everything promote() does to make the
+ * overlay swallow the screen would make a pin useless.
+ */
+function floatPin(window) {
+    setProperty(window, "keepAbove", true);
+    setProperty(window, "skipTaskbar", true);
+    setProperty(window, "skipPager", true);
+    setProperty(window, "skipSwitcher", true);
+    setProperty(window, "onAllDesktops", true);
+    if (cfg.debug) {
+        print("circle-to-search: floated a pinned crop");
+    }
+}
+
 function isOverlay(window) {
     if (!window) {
         return false;
@@ -1234,6 +1269,10 @@ function onWindowAdded(window) {
     if (isOverlay(window)) {
         promote(window, true);
         state.overlayPromoted = true;
+        return;
+    }
+    if (isPin(window)) {
+        floatPin(window);
     }
 }
 

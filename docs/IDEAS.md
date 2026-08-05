@@ -12,8 +12,8 @@ afterwards and is deliberately still a placeholder.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** |
-| agreed, in this order | 5 pin · 6 history window · 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** |
+| agreed, in this order | 6 history window · 4 `--doctor` |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | to be discussed | 15 a new design — after 5, 6 and 4, and not before |
 | dropped | 3 delay · 14 annotations |
@@ -149,7 +149,7 @@ Most of the pieces exist already — `traystate.py`, `kwin_script_version()`,
 `capture_screen`'s back-end loop, `ocr.is_available()` — it is mostly a matter
 of printing them.
 
-## 5. Pin the crop to the screen
+## 5. Pin the crop to the screen — **done**
 
 Press *P* and the selection becomes a small always-on-top window you can drag
 around and keep while you work.
@@ -178,6 +178,25 @@ to move it, and Esc to close.  The KWin script already knows how to keep our own
 windows above the panels.  Worth adding while it is there: scroll to zoom, and
 *Ctrl+C* on a pinned window to copy it, so a pin can turn into the other actions
 without being recaptured.
+
+*What shipped:* that, and the "press-and-drag handler to move it" turned out to
+be the one line of the sketch that cannot be written.  **A Wayland client cannot
+place its own window** — `move()` does nothing — so the drag is handed to the
+compositor with `QWindow.startSystemMove()` and the pin is *born* wherever KWin
+decides.  The KWin script's `promote()` was no use either: it forces
+`fullScreen` and steals the focus, which is exactly right for the overlay and
+exactly wrong for a pin, so pins get `floatPin()` and a caption of their own.
+
+Three more things came out of using it rather than designing it:
+
+* it opens **without taking the focus**, because pinning is not a request to
+  stop typing where you were typing;
+* a screen-sized crop is **scaled to at most 80 %** of the screen it lands on,
+  or a pinned full-screen selection is a second copy of the screen on top of
+  the first;
+* it needs a **two-tone rim**, for the same reason everything else drawn over
+  somebody else's screen does: a white crop pinned on a white background has no
+  shape at all.
 
 ## 6. A window for the captures, not a submenu
 
