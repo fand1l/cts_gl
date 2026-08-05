@@ -11,6 +11,22 @@ from .logging_setup import get_logger
 log = get_logger("imageops")
 
 
+def scaled_size(width: int, height: int, max_side: int = 1000) -> tuple[int, int]:
+    """The size :func:`lens.prepare_image` will produce for a crop this big.
+
+    Here rather than beside the resize it describes, so that the overlay can say
+    what is really going to be sent without importing the upload path to find
+    out — and so that what it says cannot drift away from what happens, because
+    this *is* the arithmetic that happens.  Zero or a negative ``max_side``
+    means "do not resize", which is how the setting switches resizing off.
+    """
+    longest = max(width, height)
+    if max_side <= 0 or longest <= max_side:
+        return max(1, width), max(1, height)
+    factor = max_side / longest
+    return max(1, round(width * factor)), max(1, round(height * factor))
+
+
 def pil_to_qimage(image: Image.Image) -> QImage:
     """Convert a Pillow image into a standalone ``QImage`` (owns its memory)."""
     rgb = image if image.mode == "RGB" else image.convert("RGB")

@@ -288,7 +288,10 @@ _EN: dict[str, str] = {
     "settings.shortcut.open": "Open KDE shortcut settings",
     "settings.quality": "JPEG quality:",
     "settings.maxside": "Longest side (px):",
-    "settings.maxside.hint": "Lens works with ~1000 px; smaller uploads are noticeably faster.",
+    "settings.maxside.hint": (
+        "Lens works with ~1000 px; smaller uploads are noticeably faster. The "
+        "overlay says what these two turn your selection into, before it goes."
+    ),
     "settings.clipboard": "Also copy the selection to the clipboard",
     "settings.dim": "Overlay dimming (%):",
     "settings.autostart": "Start automatically with the session",
@@ -650,7 +653,8 @@ _UK: dict[str, str] = {
     "settings.quality": "Якість JPEG:",
     "settings.maxside": "Найбільша сторона (px):",
     "settings.maxside.hint": (
-        "Lens працює приблизно з 1000 px; менший файл вантажиться помітно швидше."
+        "Lens працює приблизно з 1000 px; менший файл вантажиться помітно швидше. "
+        "Оверлей показує, на що ці два перетворять ваше виділення, перед надсиланням."
     ),
     "settings.clipboard": "Також копіювати виділення в буфер обміну",
     "settings.dim": "Затемнення оверлея (%):",

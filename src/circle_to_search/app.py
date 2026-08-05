@@ -220,6 +220,53 @@ class _WordsTask(QRunnable):
             self.signals.finished.emit(words)
 
 
+class _EstimateSignals(QObject):
+    finished = pyqtSignal(QRect, int)
+
+
+class _EstimateTask(QRunnable):
+    """Measure what a crop would weigh once it has been prepared for upload.
+
+    By really preparing it.  A guess from pixels and quality would be wrong by a
+    factor of three between a photograph and a page of text, and the point of the
+    number is to make *Longest side* and *JPEG quality* mean something — a made-up
+    one would do the opposite.
+
+    Off the GUI thread because a full-screen 4K crop takes tens of milliseconds
+    to resize and encode, and this runs again every time the box settles.
+    """
+
+    def __init__(self, image: Image.Image, crop: QRect, max_side: int, quality: int) -> None:
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = _EstimateSignals()
+        self._image = image
+        self._crop = QRect(crop)
+        self._max_side = max_side
+        self._quality = quality
+
+    @pyqtSlot()
+    def run(self) -> None:
+        box = (
+            self._crop.x(),
+            self._crop.y(),
+            self._crop.x() + self._crop.width(),
+            self._crop.y() + self._crop.height(),
+        )
+        try:
+            prepared = prepare_image(
+                self._image.crop(box), max_side=self._max_side, quality=self._quality
+            )
+        except Exception:
+            # Nothing depends on this: without an answer the readout simply says
+            # the dimensions and leaves the bytes out.  Still answered, with
+            # nothing, so that the caller can let go of the task either way.
+            log.debug("could not measure the upload size", exc_info=True)
+            self.signals.finished.emit(self._crop, 0)
+            return
+        self.signals.finished.emit(self._crop, len(prepared.payload))
+
+
 class _OpenSignals(QObject):
     failed = pyqtSignal(str)
 
@@ -692,6 +739,7 @@ class CircleToSearchApp(QObject):
             mask_outside=self._settings.lasso_mask,
             confirm=self._settings.confirm_selection,
             magnifier=self._settings.magnifier,
+            max_side=self._settings.max_side,
         )
         # The compositor's answer to "what is under the pointer", clipped to
         # this screen and moved into its coordinates.  Empty when the KWin
@@ -700,6 +748,9 @@ class CircleToSearchApp(QObject):
         overlay.text_selected.connect(self._on_text_selected)
         overlay.text_search_requested.connect(self._on_text_search)
         overlay.mode_changed.connect(self._on_mode_changed)
+        overlay.estimate_requested.connect(
+            lambda crop, ref=overlay: self._estimate_upload(ref, capture.image, crop)
+        )
         for signal, action in (
             (overlay.selected, ACTION_SEARCH),
             (overlay.copy_requested, ACTION_COPY),
@@ -1107,6 +1158,29 @@ class CircleToSearchApp(QObject):
             clipboard.setText(text)
         log.info("copied %d character(s) of recognised text", len(text))
         notify(tr("notify.ocr_done"), ocr.summarise(text), timeout_ms=8000)
+
+    def _estimate_upload(self, overlay: SelectionOverlay, image: Image.Image, crop: QRect) -> None:
+        """Answer the overlay's "how big would this be?", off the GUI thread."""
+        task = _EstimateTask(image, crop, self._settings.max_side, self._settings.jpeg_quality)
+        task.signals.finished.connect(
+            lambda measured, nbytes, ref=task, view=overlay: self._finish_estimate(
+                ref, view, measured, nbytes
+            )
+        )
+        self._tasks.add(task)
+        QThreadPool.globalInstance().start(task)
+
+    def _finish_estimate(
+        self, task: QRunnable, overlay: SelectionOverlay, crop: QRect, nbytes: int
+    ) -> None:
+        self._tasks.discard(task)
+        if overlay is not self._overlay:
+            # Released while this was being measured.  Touching it now would
+            # reach a C++ object that deleteLater() has already taken away.
+            return
+        # The overlay drops the answer itself if the box has moved on since; it
+        # is the one that knows what it is currently asking about.
+        overlay.set_upload_size(crop, nbytes)
 
     @pyqtSlot(str)
     def _on_text_search(self, text: str) -> None:

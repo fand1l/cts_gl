@@ -11,8 +11,8 @@ Ordered by what I think they are worth, not by how hard they are.
 
 | | |
 |---|---|
-| done | **2 search the text** |
-| agreed, in this order | 8 what will be sent · 9 the same area · 1 redact · 7 colour · 5 pin · 6 history window · 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** |
+| agreed, in this order | 9 the same area · 1 redact · 7 colour · 5 pin · 6 history window · 4 `--doctor` |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | dropped | 3 delay · 14 annotations |
 
@@ -217,7 +217,7 @@ frozen and already magnified under the pointer, so by the time the question
 "what colour is that" occurs to you, the answer is on screen and being thrown
 away.  It is not a new tool, it is a value that already exists being kept.
 
-## 8. Say what will actually be sent
+## 8. Say what will actually be sent — **done**
 
 Next to `1046 × 750 px`, a second line: `→ 1000 × 717, ~112 KB JPEG`.
 
@@ -230,6 +230,21 @@ otherwise meaningless spin boxes mean something.
 Cheap: `prepare_image` already returns a `PreparedImage` with the size and the
 bytes.  Run it on a scaled-down guess, or just compute the resized dimensions
 and estimate.
+
+*What shipped:* both, and separately, which the sketch above had not seen.  The
+dimensions are arithmetic (`imageops.scaled_size`, the same function
+`prepare_image` calls) and appear the instant the selection settles.  The bytes
+are **measured, not estimated** — a guess from pixels and quality is out by a
+factor of three between a photograph and a page of text, and a made-up number
+would defeat the point — so a worker thread really prepares the crop and the
+answer comes back tagged with the crop it is about.  Two consequences:
+
+* it is asked for 250 ms after the box last moves, and the count vanishes the
+  moment it moves again.  A stale weight under a box of a different size is
+  worse than no weight;
+* with `all_screens` on there is no second line at all.  The crop there is
+  stitched from several screenshots at the highest scale involved, and a number
+  that was nearly right would be worse than the honest absence of one.
 
 ## 9. The same area as last time
 

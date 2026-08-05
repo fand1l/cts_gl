@@ -78,6 +78,7 @@ from PyQt6.QtWidgets import QApplication, QWidget
 from . import OVERLAY_WINDOW_TITLE
 from .hidpi import ScreenMetrics, logical_rect_to_physical, physical_rect_to_logical
 from .i18n import tr
+from .imageops import scaled_size
 from .logging_setup import get_logger
 from .ocr import Word, words_to_text
 from .stroke import (
@@ -165,6 +166,12 @@ BADGE_OPENING = "opening"
 #: down.  A dead-man's switch and nothing else: whatever goes wrong between the
 #: release and the browser, a frozen screen that never lifts is worse.
 SENDING_LIMIT_MS = 5000
+
+#: How long the selection has to stand still before the upload size is measured.
+#: Dragging a handle changes the answer sixty times a second and encoding a JPEG
+#: costs tens of milliseconds, so the question is only worth asking once the
+#: hand has stopped.
+ESTIMATE_DELAY_MS = 250
 
 #: The loupe: how wide it is on screen, how much it magnifies, and how big the
 #: gap in the middle of its crosshair is.  Four times is enough to separate two
@@ -258,6 +265,10 @@ class SelectionOverlay(QWidget):
     #: The mode chip was clicked.  It is a setting, shown where it is wanted, so
     #: the choice is kept rather than lasting for one capture.
     mode_changed = pyqtSignal(str)
+    #: "How big would the upload for this crop be?", in physical pixels of the
+    #: screenshot.  Answering means really encoding a JPEG, which is far too slow
+    #: for the GUI thread, so the overlay asks and carries on drawing.
+    estimate_requested = pyqtSignal(QRect)
     #: A "sending" overlay took itself down.  Whoever kept it alive can let go.
     dismissed = pyqtSignal()
 
@@ -276,6 +287,7 @@ class SelectionOverlay(QWidget):
         mask_outside: bool = False,
         confirm: bool = True,
         magnifier: bool = True,
+        max_side: int = 0,
         group_bounds: QRect | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -294,6 +306,18 @@ class SelectionOverlay(QWidget):
         self._magnifier = magnifier
         self._finished = False
         self._fullscreen_attempts = 0
+
+        #: What the upload will be resized to, so the readout can say what is
+        #: really going to leave rather than how big the crop is.  Zero switches
+        #: the whole second line off — the tray's recent list and the tests build
+        #: overlays that are not going anywhere.
+        self._max_side = max_side
+        #: The measured size of that JPEG, when somebody has measured it.  The
+        #: dimensions are arithmetic and instant; the bytes need a real encode,
+        #: so they arrive later and until then the line simply does not claim it.
+        self._upload_bytes = 0
+        self._estimate_timer: QTimer | None = None
+        self._estimated_for = QRect()
 
         #: Where this window sits inside its screen, in logical pixels.  It is
         #: (0, 0) for a proper full-screen overlay; when KWin leaves the window
@@ -1778,6 +1802,26 @@ class SelectionOverlay(QWidget):
         painter.drawEllipse(QRectF(target).adjusted(1, 1, -1, -1))
         painter.restore()
 
+    def _upload_line(self, physical: QRect) -> str:
+        """What will actually leave, under the crop size.  Empty when nothing will.
+
+        The crop size is not the upload: ``prepare_image`` resizes to *Longest
+        side* and re-encodes at *JPEG quality*, and both of those are settings
+        nobody could previously evaluate, because the only number on screen was
+        the one they do not control.
+        """
+        if self._max_side <= 0 or not self._confirming or self._grab is not None:
+            return ""
+        width, height = scaled_size(physical.width(), physical.height(), self._max_side)
+        weight = f"~{max(1, self._upload_bytes // 1024)} KB JPEG" if self._upload_bytes else ""
+        if (width, height) == (physical.width(), physical.height()):
+            # Small enough that nothing is resized.  Repeating the size that is
+            # already on the line above, with an arrow in front of it, would say
+            # nothing at all — so this line is only worth drawing once the weight
+            # has been measured.
+            return f"→ {weight}" if weight else ""
+        return f"→ {width} × {height}, {weight}" if weight else f"→ {width} × {height}"
+
     def _size_label(self, selection: QRect) -> tuple[str, QFont, QRect]:
         """The pixel readout: what it says, in what, and where it goes."""
         physical = logical_rect_to_physical(selection, self._metrics)
@@ -1788,6 +1832,14 @@ class SelectionOverlay(QWidget):
         width = metrics.horizontalAdvance(text) + 2 * _LABEL_PADDING
         height = metrics.height() + _LABEL_PADDING
 
+        upload = self._upload_line(physical)
+        if upload:
+            # A second line, in the same box: it belongs to the same fact, and a
+            # separate label would be one more thing floating over the screen.
+            text = f"{text}\n{upload}"
+            width = max(width, metrics.horizontalAdvance(upload) + 2 * _LABEL_PADDING)
+            height += metrics.height()
+
         if self._confirming and self._grab is None:
             # Pinned above the box rather than to the pointer.  Once the drag is
             # over the pointer wanders off, and a readout that follows it sat
@@ -1796,6 +1848,9 @@ class SelectionOverlay(QWidget):
             y = selection.top() - height - _LABEL_MARGIN
             if y < self._offset.y() + _LABEL_MARGIN:
                 y = selection.top() + _LABEL_MARGIN
+            # A box against the right edge would otherwise push a label wider
+            # than itself off the screen, and the second line made that wider.
+            x = min(x, self._offset.x() + self.width() - width - _LABEL_MARGIN)
         else:
             # Below/right of the cursor, flipped when there is no room.
             cursor = self._current + self._offset
@@ -2012,7 +2067,9 @@ class SelectionOverlay(QWidget):
             return
         if self._grab is not None:
             self._grab = None
-            self.update()
+            # Through _changed(), so letting go of a handle is what starts the
+            # clock on measuring the upload for where the box ended up.
+            self._changed()
             return
         if not self._dragging:
             return
@@ -2272,11 +2329,63 @@ class SelectionOverlay(QWidget):
             self.update(damage)
         else:
             self.update()
+        self._reconsider_upload_size()
         if self.in_group:
             rect = self._selection_rect()
             self.preview_changed.emit(
                 rect.translated(self._origin) if not rect.isEmpty() else QRect()
             )
+
+    # -------------------------------------------- what will actually be sent
+
+    def _reconsider_upload_size(self) -> None:
+        """The selection moved: the measured size is about this box no longer.
+
+        Dropped rather than kept and corrected, because a stale byte count under
+        a box of a different size is worse than no byte count at all — the
+        dimensions on the line above it are exact and instant either way.
+        """
+        if self._max_side <= 0 or self._finished:
+            return
+        wanted = QRect()
+        if self._confirming and self._has_selection and self._grab is None:
+            wanted = logical_rect_to_physical(self._selection_rect(), self._metrics)
+        if wanted == self._estimated_for:
+            return
+        self._estimated_for = wanted
+        self._upload_bytes = 0
+        if wanted.isEmpty():
+            if self._estimate_timer is not None:
+                self._estimate_timer.stop()
+            return
+        if self._estimate_timer is None:
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.timeout.connect(self._ask_for_upload_size)
+            self._estimate_timer = timer
+        self._estimate_timer.start(ESTIMATE_DELAY_MS)
+
+    def _ask_for_upload_size(self) -> None:
+        if self._finished or self._estimated_for.isEmpty():
+            return
+        self.estimate_requested.emit(QRect(self._estimated_for))
+
+    def set_upload_size(self, crop: QRect, nbytes: int) -> None:
+        """The answer to :attr:`estimate_requested`, for the crop it was asked about.
+
+        Carrying the crop back means a slow answer about a box that has since
+        been dragged somewhere else is dropped instead of being drawn under the
+        new one.
+        """
+        if crop != self._estimated_for or nbytes <= 0:
+            return
+        was = self._size_label(self._selection_rect())[2]
+        self._upload_bytes = nbytes
+        now = self._size_label(self._selection_rect())[2]
+        log.debug("the upload for this crop would be %d bytes", nbytes)
+        # The label and nothing else: a full repaint of a 4K screenshot to add
+        # eleven characters is the sort of thing that made this slow before.
+        self.update(was.united(now).translated(-self._offset).adjusted(-2, -2, 2, 2))
 
     def _clamp_bounds(self) -> QRect:
         """Where a selection may reach, in this screen's coordinates.
@@ -2518,6 +2627,8 @@ class SelectionOverlay(QWidget):
         self._finished = True
         self.releaseKeyboard()
         self._stop_stroke_animation()
+        if self._estimate_timer is not None:
+            self._estimate_timer.stop()
 
         if badge:
             # Do not vanish into a second of nothing.  Preparing the image and

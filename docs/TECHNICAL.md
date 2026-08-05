@@ -429,6 +429,37 @@ Adjusting the box of a *lasso* selection drops the loop outline, because a loop
 that no longer matches its box would produce a wrong mask when `lasso_mask` is
 on. The selection simply becomes the rectangle you adjusted.
 
+**The readout says what will be sent, not how big the crop is.** Under
+`1200 × 480 px` there is a second line — `→ 1000 × 400, ~30 KB JPEG` — because
+those are two different numbers: `prepare_image` resizes to *Longest side* and
+re-encodes at *JPEG quality*, and neither of those settings could be judged from
+a readout that only ever showed the one number the user does not control.
+
+The two halves arrive separately, on purpose:
+
+* **the dimensions are arithmetic**, so they are there the instant the selection
+  settles. `imageops.scaled_size()` is the same function `prepare_image` calls,
+  which is why the line cannot drift away from what actually happens;
+* **the byte count needs a real JPEG**, because a guess from pixels and quality
+  is wrong by a factor of three between a photograph and a page of text — and a
+  made-up number would defeat the whole point. So the overlay emits
+  `estimate_requested`, the app really prepares the crop in a `QThreadPool`
+  worker, and the answer comes back with the crop it was measured for so a slow
+  answer about a box that has since moved is dropped instead of drawn under the
+  new one. A full-screen 4K crop costs about 200 ms of somebody else's thread.
+
+It is asked for 250 ms after the box last changed, so dragging a handle across
+the screen measures once at the end rather than sixty times a second, and the
+count disappears the moment the box moves — a stale weight under a box of a
+different size is worse than no weight at all. Small crops that are not resized
+show only `→ ~8 KB JPEG`, since repeating the size on the line above with an
+arrow in front of it would say nothing.
+
+With `all_screens` on, the second line is **not** shown. The crop there is
+stitched from several screenshots at the highest scale involved, and a number
+that was nearly right would be worse than the honest absence of one — which is
+the argument the whole readout rests on.
+
 **Searching does not make the overlay vanish.** Preparing the image and writing
 the launcher page take a moment, and the browser takes longer still, so the
 frozen screen stays up with the selection still lit and a badge saying

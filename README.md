@@ -46,7 +46,7 @@ That is the whole idea. Everything below is what happens around it.
 | | |
 |---|---|
 | ![The moment before you draw](docs/images/overlay-start.png) **Shake, and the screen freezes.** Lasso or rectangle — the chip remembers which. | ![Drawing the loop](docs/images/overlay-drawing.png) **Circle it.** A wide white line with a coloured glow that follows your hand. |
-| ![The selection waiting with its buttons](docs/images/overlay-actions.png) **Nothing has been sent yet.** Adjust the edges, then pick what happens to it. | ![Selecting text on the frozen screen](docs/images/overlay-text.png) **Drag across text and you get the text** — searched for as words, not as a picture. |
+| ![The selection waiting with its buttons](docs/images/overlay-actions.png) **Nothing has been sent yet.** It says what it is about to send, in pixels and kilobytes. | ![Selecting text on the frozen screen](docs/images/overlay-text.png) **Drag across text and you get the text** — searched for as words, not as a picture. |
 | ![The window under the pointer, outlined](docs/images/overlay-window.png) **Click a window** instead of drawing carefully around it. | ![The magnifier while dragging](docs/images/overlay-magnifier.png) **A magnifier while you aim**, so the edge lands where you meant. |
 
 ---
@@ -112,6 +112,10 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 Then the selection waits. Drag the eight handles to resize, the grip in the
 middle to move it, the arrow keys to nudge it a pixel at a time — and press
 anywhere else to start again.
+
+Above it, two lines: the size of what you have selected, and under it what will
+actually leave — `→ 1000 × 400, ~30 KB JPEG`. They are not the same number, and
+now you can see what *Longest side* and *JPEG quality* are doing.
 
 | button | key | |
 |---|---|---|

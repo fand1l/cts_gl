@@ -23,6 +23,7 @@ from pathlib import Path
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from PIL import Image
 from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, Qt
 from PyQt6.QtGui import (
     QColor,
@@ -38,12 +39,16 @@ from PyQt6.QtWidgets import QApplication
 from circle_to_search import hidpi
 from circle_to_search.config import AppSettings
 from circle_to_search.i18n import set_language
+from circle_to_search.lens import prepare_image
 from circle_to_search.ocr import Word
 from circle_to_search.overlay import MODE_LASSO, MODE_RECTANGLE, SelectionOverlay
 from circle_to_search.settings_dialog import SettingsDialog
 from circle_to_search.welcome import WelcomeDialog
 
 W, H, SCALE = 1440, 900, 2
+#: The default *Longest side*, so the readout in the pictures is the readout a
+#: fresh installation shows.
+MAX_SIDE = 1000
 OUT = Path(sys.argv[1] if len(sys.argv) > 1 else ".")
 
 app = QApplication(sys.argv)
@@ -190,9 +195,36 @@ def overlay_for(language: str, mode: str = MODE_LASSO, magnifier: bool = False):
     overlay = SelectionOverlay(
         QPixmap.fromImage(shot), metrics, screen,
         dim_percent=45, mode=mode, confirm=True, magnifier=magnifier,
+        max_side=MAX_SIDE,
     )
     overlay.resize(W, H)
+    overlay.setProperty("shot", shot)
     return overlay
+
+
+def measure_upload(overlay) -> None:
+    """Fill in the "and this is what it weighs" half of the size readout.
+
+    By really preparing the really-selected part of the really-drawn desktop:
+    the daemon does this in a worker thread, and a screenshot cannot wait for
+    one, but the number in the picture is still the number the program would
+    show for that picture.
+    """
+    crop = hidpi.logical_rect_to_physical(overlay._selection_rect(), overlay._metrics)
+    shot = overlay.property("shot")
+    box = (crop.x(), crop.y(), crop.x() + crop.width(), crop.y() + crop.height())
+    payload = qimage_to_pil(shot).crop(box)
+    prepared = prepare_image(payload, max_side=MAX_SIDE, quality=85)
+    overlay.set_upload_size(crop, len(prepared.payload))
+
+
+def qimage_to_pil(image: QImage) -> Image.Image:
+    rgb = image.convertToFormat(QImage.Format.Format_RGB888)
+    bits = rgb.constBits()
+    bits.setsize(rgb.sizeInBytes())
+    return Image.frombytes(
+        "RGB", (rgb.width(), rgb.height()), bytes(bits), "raw", "RGB", rgb.bytesPerLine()
+    )
 
 
 def send(overlay, kind, point):
@@ -242,7 +274,12 @@ for language in ("en", "uk"):
     drawing._trail.min_gap_ms = 0
     path = loop(430, 330, 300, 120)
     stroke(drawing, path[: int(len(path) * 0.82)])
+    # The trail fades with the wall clock, and how much of it survives to the
+    # moment of painting depends on how busy the machine is.  Stop the clock
+    # first, then age the blobs against it, and the picture is the same picture
+    # on every run — which is the whole point of generating them.
     now = drawing._stroke_clock()
+    drawing._stroke_clock = lambda frozen=now: frozen
     for index, blob in enumerate(drawing._trail.blobs):
         object.__setattr__(blob, "at_ms", now - (len(drawing._trail.blobs) - 1 - index) * 11)
     save(drawing, f"overlay-drawing{suffix}.png")
@@ -250,6 +287,7 @@ for language in ("en", "uk"):
     # 3. Let go: the selection waits with the action bar.
     waiting = overlay_for(language)
     stroke(waiting, loop(430, 330, 300, 120), release=True)
+    measure_upload(waiting)
     save(waiting, f"overlay-actions{suffix}.png")
 
     # 4. The text layer: words lit, a run selected, the text bar.
@@ -277,6 +315,9 @@ for language in ("en", "uk"):
     dialog.show()
     for _ in range(6):
         app.processEvents()
+    # Stopped before it is placed: otherwise the next processEvents() advances
+    # the dot by however long the run happened to take to get here.
+    dialog.preview._timer.stop()
     dialog.preview._elapsed = dialog.preview._gesture.total_ms * 0.72
     dialog.preview.update()
     app.processEvents()
@@ -289,6 +330,7 @@ for language in ("en", "uk"):
     welcome.show()
     for _ in range(6):
         app.processEvents()
+    welcome.preview._timer.stop()
     welcome.preview._elapsed = welcome.preview._gesture.total_ms * 0.72
     welcome.preview.update()
     app.processEvents()

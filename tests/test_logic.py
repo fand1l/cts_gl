@@ -995,6 +995,109 @@ check("and while a bottom edge is being dragged",
       not readout.intersects(overlay._bar_rect()), f"{readout} vs {overlay._bar_rect()}")
 overlay._grab = None
 
+# --- saying what will actually be sent -------------------------------------
+# The crop size is not what leaves: prepare_image resizes to "Longest side" and
+# re-encodes at "JPEG quality", and neither setting could be judged from a
+# readout that only ever showed the number the user does not control.
+from circle_to_search.imageops import scaled_size  # noqa: E402
+
+check("no resize below the limit", scaled_size(800, 600, 1000) == (800, 600))
+check("the long edge decides", scaled_size(4000, 2000, 1000) == (1000, 500),
+      str(scaled_size(4000, 2000, 1000)))
+check("portrait too", scaled_size(2000, 4000, 1000) == (500, 1000),
+      str(scaled_size(2000, 4000, 1000)))
+check("nothing rounds away to nothing", scaled_size(4000, 3, 1000) == (1000, 1),
+      str(scaled_size(4000, 3, 1000)))
+check("zero means do not resize", scaled_size(4000, 2000, 0) == (4000, 2000))
+
+
+def sending(max_side: int = 1000):
+    """A confirmed 200x150 selection on an overlay that knows about the upload."""
+    view = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(shot)),
+        metrics,
+        screen,
+        dim_percent=40,
+        mode=MODE_RECTANGLE,
+        confirm=True,
+        max_side=max_side,
+    )
+    view.resize(screen.geometry().size())
+    drag(view, (100, 100), (300, 250))
+    return view
+
+
+# The screenshot is 2x, so a 200x150 drag is a 400x300 crop.
+sized = sending()
+check("the crop size is still the first line",
+      sized._size_label(sized._selection_rect())[0].startswith("400 × 300 px"),
+      sized._size_label(sized._selection_rect())[0])
+check("nothing is claimed about a crop that is not resized",
+      "→" not in sized._size_label(sized._selection_rect())[0],
+      sized._size_label(sized._selection_rect())[0])
+
+asked: list[QRect] = []
+sized.estimate_requested.connect(asked.append)
+sized._ask_for_upload_size()
+check("it asks about the physical crop", asked == [QRect(200, 200, 400, 300)], str(asked))
+
+sized.set_upload_size(QRect(200, 200, 400, 300), 114688)
+check("and says what it weighs once told",
+      sized._size_label(sized._selection_rect())[0] == "400 × 300 px\n→ ~112 KB JPEG",
+      repr(sized._size_label(sized._selection_rect())[0]))
+
+# An answer about a box that has since moved is worse than no answer at all.
+sized.set_upload_size(QRect(0, 0, 10, 10), 999999)
+check("a stale answer is dropped",
+      "112 KB" in sized._size_label(sized._selection_rect())[0],
+      repr(sized._size_label(sized._selection_rect())[0]))
+sized._apply_box(QRect(100, 100, 240, 180), edited=True)
+check("moving the box drops the measurement", sized._upload_bytes == 0,
+      str(sized._upload_bytes))
+
+# A crop bigger than the limit gets the resized dimensions immediately, with no
+# encoding needed — that half of the answer is pure arithmetic.
+big = sending(max_side=200)
+check("the resized size is there at once",
+      big._size_label(big._selection_rect())[0] == "400 × 300 px\n→ 200 × 150",
+      repr(big._size_label(big._selection_rect())[0]))
+big.set_upload_size(QRect(200, 200, 400, 300), 8 * 1024)
+check("and the weight joins it",
+      big._size_label(big._selection_rect())[0] == "400 × 300 px\n→ 200 × 150, ~8 KB JPEG",
+      repr(big._size_label(big._selection_rect())[0]))
+
+# Nothing at all while a handle is being dragged: the box is not where it is
+# going to end up, so neither number would be about anything.
+big._grab = "se"
+check("no upload line mid-resize", "→" not in big._size_label(big._selection_rect())[0],
+      repr(big._size_label(big._selection_rect())[0]))
+big._grab = None
+
+# Off entirely for an overlay that is not sending anywhere.
+plain = make_overlay(MODE_RECTANGLE)
+drag(plain, (100, 100), (300, 250))
+check("no upload line without a limit to apply",
+      plain._size_label(plain._selection_rect())[0] == "400 × 300 px",
+      repr(plain._size_label(plain._selection_rect())[0]))
+quiet: list[QRect] = []
+plain.estimate_requested.connect(quiet.append)
+plain._changed()
+check("and nothing is measured for it", plain._estimate_timer is None and quiet == [])
+
+# The wider label still has to fit on screen: a box against the right edge used
+# to push it off, and the second line made it wider.
+edge = sending(max_side=200)
+edge._apply_box(
+    QRect(screen.geometry().width() - 60, 200, 50, 40), edited=True
+)
+edge.set_upload_size(
+    hidpi.logical_rect_to_physical(edge._selection_rect(), metrics), 4096
+)
+_text, _font, readout = edge._size_label(edge._selection_rect())
+check("the readout stays on screen at the right edge",
+      edge._visible_area().toRect().contains(readout),
+      f"{readout} in {edge._visible_area().toRect()}")
+
 # --- the magnifier ---------------------------------------------------------
 # Arrow-key nudging exists because precision was missing, but it only helps
 # after the miss.  The loupe answers the same problem while the edge is still

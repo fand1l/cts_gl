@@ -89,6 +89,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 import requests
 from PIL import Image
 
+from .imageops import scaled_size
 from .logging_setup import get_logger
 
 log = get_logger("lens")
@@ -169,10 +170,8 @@ def prepare_image(image: Image.Image, max_side: int = 1000, quality: int = 85) -
     makes the upload slower without improving the result.
     """
     rgb = image if image.mode == "RGB" else image.convert("RGB")
-    longest = max(rgb.width, rgb.height)
-    if max_side > 0 and longest > max_side:
-        factor = max_side / longest
-        new_size = (max(1, round(rgb.width * factor)), max(1, round(rgb.height * factor)))
+    new_size = scaled_size(rgb.width, rgb.height, max_side)
+    if new_size != (rgb.width, rgb.height):
         log.debug("resizing %s → %s before upload", rgb.size, new_size)
         rgb = rgb.resize(new_size, Image.Resampling.LANCZOS)
 
