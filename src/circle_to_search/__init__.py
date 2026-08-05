@@ -13,23 +13,37 @@ debugged on its own:
 
 from __future__ import annotations
 
-__version__ = "1.1.0"
+__version__ = "1.2.0"
 
 #: What this release is *called*.  The number says what changed in relation to
 #: the last one; the name says which one it is, which is the question somebody
 #: running `install.sh update` is actually asking.
 #:
 #: Kept beside the number rather than inside it, and joined only for display.
-#: "1.1.0-screenshot-window" is not a version pip will take — under PEP 440 a
-#: hyphen introduces a *pre-release*, so that string sorts *below* 1.1.0 — and
+#: "1.2.0-better-version-control" is not a version pip will take — under PEP 440
+#: a hyphen introduces a *pre-release*, so that string sorts *below* 1.2.0 — and
 #: RPM will not take it at all, because its Version field uses the hyphen to
 #: separate the version from the release.
-RELEASE_NAME = "screenshot-window"
+RELEASE_NAME = "better-version-control"
+
+#: A parallel count, and the only one a machine compares.
+#:
+#: Five digits, flat, and up by one on every push — it says nothing about what
+#: changed, only which of two copies is the later one.  ``__version__`` cannot
+#: answer that on its own: dev and deploy sit on the same 1.2.0 for as long as
+#: the work takes, so "is this older than what I have" has no answer there, and
+#: that is exactly the moment somebody is about to install the wrong one.
+#:
+#: Deliberately not derived from ``__version__`` for that reason.  It starts at
+#: 10000 so it is five digits from the first one, and 89,999 of them is more
+#: pushes than this will ever see.
+BUILD = 10000
 
 
 def version_label() -> str:
-    """``1.1.0 “screenshot-window”`` — for anywhere a person reads it."""
-    return f"{__version__} “{RELEASE_NAME}”" if RELEASE_NAME else __version__
+    """``1.2.0 “better-version-control” (build 10000)``, for people to read."""
+    named = f"{__version__} “{RELEASE_NAME}”" if RELEASE_NAME else __version__
+    return f"{named} (build {BUILD})"
 
 APP_NAME = "circle-to-search"
 APP_ID = "io.github.fand1l.CircleToSearch"
@@ -55,6 +69,7 @@ KWIN_SCRIPT_ID = "circletosearch"
 __all__ = [
     "APP_ID",
     "APP_NAME",
+    "BUILD",
     "DBUS_INTERFACE",
     "DBUS_PATH",
     "DBUS_SERVICE",

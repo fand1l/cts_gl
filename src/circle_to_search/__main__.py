@@ -267,6 +267,9 @@ def warn_about_session() -> None:
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     setup_logging(args.verbose)
+    # First line of every run, at info level, so a journal somebody sends back
+    # says exactly which build it came from without anybody having to ask.
+    log.info("%s %s", APP_NAME, version_label())
 
     if args.test_lens:
         # Needs neither a session bus nor a display.

@@ -125,43 +125,73 @@ KPackage command line tools — and carries on.
 
 ### Versions, and what they are called
 
-Every release has a **number** and a **name**: `1.1.0 “screenshot-window”`. The
-number says what changed in relation to the last one; the name says *which* one
-it is, which is the question somebody about to update is actually asking, and
-three digits do not answer it.
+Every release has a **number**, a **name** and a **build**:
+`1.2.0 “better-version-control” (build 10000)`. Three things, because they
+answer three different questions.
 
-The two are kept apart and joined only for display. `1.1.0-screenshot-window`
-as a literal string breaks two toolchains: under **PEP 440** a hyphen introduces
-a *pre-release*, so pip would read it as sorting *below* `1.1.0`, and **RPM**
-will not take it at all, because its `Version` field uses the hyphen to separate
-the version from the release. So `__version__` stays a plain `MAJOR.MINOR.PATCH`
-and `RELEASE_NAME` sits beside it; `version_label()` joins them.
+| | answers | changes |
+|---|---|---|
+| `__version__` | what changed in relation to the last one | on a release |
+| `RELEASE_NAME` | *which* one is this | on a release |
+| `BUILD` | which of two copies is the later one | on every push |
+
+The number and the name are kept apart and joined only for display.
+`1.2.0-better-version-control` as a literal string breaks two toolchains: under
+**PEP 440** a hyphen introduces a *pre-release*, so pip would read it as sorting
+*below* `1.2.0`, and **RPM** will not take it at all, because its `Version`
+field uses the hyphen to separate the version from the release. So
+`__version__` stays a plain `MAJOR.MINOR.PATCH` and `RELEASE_NAME` sits beside
+it; `version_label()` joins them.
 
 The number is declared in four files that no single tool reads together —
 `src/circle_to_search/__init__.py`, `pyproject.toml`, `circle-to-search.spec`
 and `kwinscript/metadata.json` — so a test asserts they agree, along with the
-name being a word, the changelog having an entry for it, and both lines still
-being in the shape `install.sh` greps them out of.
+name being a word, the changelog having an entry for it, and every line still
+being in the shape `install.sh` greps it out of.
 
-The name shows up in `--version`, in **About**, in `CHANGELOG.md`, and — the
-place it is for — in `./install.sh update`, which prints what you have installed
-now and what it is about to install:
+#### The build number
+
+Five flat digits, starting at 10000, up by one on every push. It is the only
+one of the three a machine compares, and it exists because the version cannot
+do that job: `dev` and `deploy` share a version number for as long as a release
+takes to write, and that is exactly the window in which something needs to know
+which of two copies is the later one.
+
+**It is deliberately not derived from the version.** `major*10000 + minor*100 +
+patch` needs no maintaining and is wrong here for one reason: it gives every
+commit of an unreleased 1.3.0 the same number, so the downgrade check — the
+whole reason the number exists — sees `dev` and `deploy` as equal in the one
+situation it was written for.
+
+The cost of that choice is a counter somebody has to remember to bump, so a
+test does the remembering: it reads `BUILD` off `origin/deploy` and requires
+the working tree's to be higher, unless this commit is already contained in
+`deploy`. CI fetches that branch so the check has something to compare against.
+
+It is **not** wired into the RPM `Release:` field, although it would fit there
+— that field is for rebuilds of one release, COPR builds from a tag, and a
+number that moves on every push would mean editing the spec for pushes that are
+never packaged.
+
+The three show up together in `--version`, in **About**, in the daemon's first
+line in the journal, and — the place they are for — in `./install.sh update`:
 
 ```
 ==> Fetching deploy from origin
-==> Installed now: 1.0.0 “first-light”
+==> Installed now: 1.1.0 “screenshot-window”
+==> Build 10000 → 10007.
 ==> New commits:
       48f2449 …
-==> About to install: 1.1.0 “screenshot-window”
+==> About to install: 1.2.0 “better-version-control” (build 10007)
 ```
 
-The installer reads both **out of the source with grep**, never by importing:
-the daemon may not be running, and the installed copy may be a version whose
-imports this interpreter cannot satisfy.
+The installer reads all of them **out of the source with grep**, never by
+importing: the daemon may not be running, and the installed copy may be a
+version whose imports this interpreter cannot satisfy.
 
 The **KWin script has a version of its own** (`SCRIPT_VERSION`, currently
-1.11.0) and it is deliberately not this one. It answers a different question —
-"is the code KWin is *running* the code on disk?" — and it only has to change
+1.11.0) and it is deliberately neither of these. It answers a different question
+— "is the code KWin is *running* the code on disk?" — and it only has to change
 when the script does.
 
 ### Updating
@@ -170,6 +200,7 @@ when the script does.
 ./install.sh update                    # fetch the deploy branch, then reinstall
 ./install.sh update --dev              # ...fetch 'dev' instead
 ./install.sh update --branch main      # ...from somewhere else, for a test
+./install.sh update --downgrade        # ...even if it is older, settings and all
 ```
 
 `reinstall` has never had anything to do with git — it installs *this checkout*,
@@ -211,6 +242,84 @@ audience. If the code needs to be private, the repository has to be. Should it
 become one, `update --dev` still works, but the checkout then needs credentials
 that can read it — an SSH remote or a credential helper holding a token — and
 the fetch failure says so.
+
+#### Going backwards
+
+Fetching the same branch twice can only move forwards — it is fast-forward only
+— so a downgrade takes one of two deliberate turns: back from `dev` to `deploy`
+after trying something, or `--branch` at something old. Both are legitimate,
+and the first one is *the way out of a `dev` build that broke*, so this can
+never be a wall. It is a stop.
+
+`update` reads the build number it is about to install and compares it with the
+installed one. Older, and it refuses, naming both numbers and the command that
+would go ahead anyway.
+
+The comparison happens **after the fetch and before the checkout is touched**,
+by reading the file straight off the fetched ref:
+
+```bash
+git show origin/dev:src/circle_to_search/__init__.py
+```
+
+That is what keeps the refusal in line with every other refusal in `update`:
+nothing has been moved, merged or removed, so the copy that was running is
+still the one running.
+
+`--downgrade` permits it, and **erases the settings** as it goes. That is not
+caution for its own sake: the newer build wrote settings the older one has
+never heard of, in formats decided after it was written, and reading them back
+through the older code fails in ways that look like a bug in the older version
+and are not. Captures and saved traces are kept.
+
+The erasing is not done here. `--downgrade` adds `--config` to what `update`
+hands to the reinstall it `exec`s, and that path has asked twice before erasing
+a configuration since long before any of this existed. One place does it, and
+it is the tested one.
+
+It **permits, it does not instruct**: `--downgrade` on an update that turns out
+to move forwards erases nothing and says nothing.
+
+If either side has no build number — an installation from before 1.2.0, or a
+branch that predates it — the comparison is skipped. Unknown is not "older",
+and refusing on a number that does not exist would block every update from the
+version that shipped before the number did.
+
+#### What it says while it works
+
+Quiet by default. Five numbered steps and a tick each:
+
+```
+[1/5] Python package                        ✓
+[2/5] Desktop entry and icon                ✓
+[3/5] KWin script                           ✓
+[4/5] systemd --user service                ✓
+[5/5] Checking it came up                   ✓
+```
+
+Everything the commands inside a step print goes to a buffer, and the buffer is
+shown only if that step failed — with the exception of its **warnings**, which
+are shown either way, because a step can succeed and still have something you
+need to know about. `warn` marks its lines, which is how they are picked back
+out.
+
+Each step runs in a subshell, so a `die` inside one ends the step rather than
+the installer and the buffer it was writing to still gets printed. No step may
+set a variable the rest of the script reads; none needs to.
+
+Three things are deliberately outside that:
+
+* **the dependency check**, because it may have to ask a question and a package
+  manager asking for a password from behind a tick is the one thing a quiet
+  installer must never do. It is also not about installing this program;
+* **`update` itself**, which is all `say` — which branch, which builds, which
+  commits. That is the output somebody asked for by running it;
+* **the last step**, `verify`, which is allowed to be unhappy without stopping
+  anything. It reports on the session rather than on the install, so it gets a
+  `⚠` and the long "if nothing happens" list is printed **only then**.
+
+`--debug` (or `--verbose`) turns all the buffering off and adds the narration
+back. Colour is dropped when stdout is not a terminal, so a piped log is text.
 
 The order is the rest of the point:
 
