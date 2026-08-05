@@ -148,7 +148,10 @@ so most of it is arithmetic and needs no screen:
 * points older than the lifetime are dropped, newer ones kept in order;
 * a stationary pointer collapses the trail to one place; a fast one spreads it
   over a distance that matches how far the pointer went;
-* the colour cycle is continuous and returns to where it started.
+* the ramp hits its four colours at its four heights, interpolates between them,
+  and clamps rather than wrapping above the top or below the bottom;
+* a stroke drawn top to bottom carries all four colours; the same stroke drawn
+  along one height carries one.
 
 The drawing is checked by rendering offscreen and reading pixels, the way the
 lit text layer already is:
