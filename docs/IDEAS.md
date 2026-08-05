@@ -11,8 +11,8 @@ Ordered by what I think they are worth, not by how hard they are.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** |
-| agreed, in this order | 1 redact · 7 colour · 5 pin · 6 history window · 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** |
+| agreed, in this order | 7 colour · 5 pin · 6 history window · 4 `--doctor` |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | dropped | 3 delay · 14 annotations |
 
@@ -24,7 +24,7 @@ reads what all of them have written.
 
 ---
 
-## 1. Black out part of the selection before it leaves
+## 1. Black out part of the selection before it leaves — **done**
 
 Drag rectangles inside the confirmed selection; they are filled solid before the
 crop is prepared, and there is no way to get the unredacted version out.
@@ -52,6 +52,19 @@ last time (idea 9), and that one is on screen at the same moment.
 the JPEG inlined, and it stays there for ten minutes
 (`LAUNCHER_LIFETIME_MS`).  Redaction has to happen before `prepare_image`, or
 the thing it was protecting is on disk in the clear.
+
+*What shipped:* that, plus two leaks the sketch had not thought of.
+
+* **The recognised words go too.**  Whatever was read inside a crop is kept
+  beside it in a `.txt` so the tray's *Read the text* is instant — so a word the
+  black rectangle so much as clips is now dropped (`ocr.words_outside`).
+  Otherwise the thing that was covered in the picture would be sitting next to
+  it in plain UTF-8.
+* **The byte count had to be measured on the redacted crop.**  Solid black
+  compresses to nearly nothing, so idea 8's readout would have been about a
+  different image.  That in turn made the estimate need a serial as well as a
+  crop rectangle: covering something does not move the box, so "the same
+  rectangle" stopped being enough to tell a fresh answer from a stale one.
 
 ## 2. Search the text, not the picture — **done**
 

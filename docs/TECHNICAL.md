@@ -496,6 +496,42 @@ stitched from several screenshots at the highest scale involved, and a number
 that was nearly right would be worse than the honest absence of one — which is
 the argument the whole readout rests on.
 
+**Black out part of it before it goes.** *Black out* (**B**) turns the next
+drags into solid rectangles over the selection; **Backspace** undoes the last
+one, **Esc** leaves the mode without throwing the capture away, and the button
+carries the count.
+
+This is the other half of the argument the confirmation step was written on. If
+an upload cannot be taken back, being able to change only the *bounds* of the
+selection is half an answer: when a token or an address happens to sit next to
+the thing you want to look up, reframing the crop until it excludes them is not
+always possible.
+
+Three things it has to get right, and they are all about *when*:
+
+* the rectangles are **baked into the pixels**, in `imageops.black_out()`, and
+  the very first thing done to the crop in `_on_selected` — before the lasso
+  mask, before `prepare_image`, and long before `write_browser_launcher` puts a
+  JPEG on disk for ten minutes. There is no code path that produces the
+  unredacted version, and the copy, the saved PNG and the kept capture are all
+  made from what comes out;
+* **the recognised words go too.** The screen has already been read, and the
+  words inside a crop are kept beside it in a `.txt` so the tray's *Read the
+  text* is instant. A word the black rectangle so much as clips is dropped
+  (`ocr.words_outside`) — otherwise the thing that was covered in the picture
+  would be sitting next to it in plain UTF-8;
+* the **byte count in the readout** is measured on the redacted crop, because
+  solid black compresses to nearly nothing and the number would otherwise be
+  about a different image. That made the estimate answer need a serial as well
+  as a crop: covering something does not move the box, so "same rectangle" was
+  no longer enough to tell a fresh answer from a stale one.
+
+While it is on, the handles and the grip are not drawn and the whole box belongs
+to the drag — what needs covering is usually in the middle of what was selected,
+which is exactly where the grip lives. What is on screen is solid black, not an
+outline or a blur, because the picture being checked has to be the picture that
+is sent.
+
 **Searching does not make the overlay vanish.** Preparing the image and writing
 the launcher page take a moment, and the browser takes longer still, so the
 frozen screen stays up with the selection still lit and a badge saying

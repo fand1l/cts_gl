@@ -355,11 +355,16 @@ _EN: dict[str, str] = {
     "overlay.sending": "Sending it to Google Lens",
     "overlay.opening": "Opening it in the browser",
     "overlay.adjust": "drag the edges or use the arrow keys",
+    "overlay.redact": (
+        "drag over anything that must not leave · Backspace undoes · Esc when done"
+    ),
     "overlay.take_window": "click to take this window",
     "bar.search": "Search",
     "bar.copy": "Copy",
     "bar.save": "Save",
     "bar.cancel": "Cancel",
+    "bar.redact": "Black out",
+    "bar.redact_count": "Black out ({count})",
     "bar.search_text": "Search",
     "bar.open_link": "Open the link",
     "bar.copy_text": "Copy text ({count})",
@@ -722,11 +727,16 @@ _UK: dict[str, str] = {
     "overlay.sending": "Надсилаю в Google Lens",
     "overlay.opening": "Відкриваю в браузері",
     "overlay.adjust": "тягніть за краї або стрілками",
+    "overlay.redact": (
+        "проведіть по тому, що не має піти · Backspace — скасувати · Esc — готово"
+    ),
     "overlay.take_window": "клацніть, щоб узяти це вікно",
     "bar.search": "Шукати",
     "bar.copy": "Копіювати",
     "bar.save": "Зберегти",
     "bar.cancel": "Скасувати",
+    "bar.redact": "Замалювати",
+    "bar.redact_count": "Замалювати ({count})",
     "bar.search_text": "Шукати",
     "bar.open_link": "Відкрити посилання",
     "bar.copy_text": "Копіювати текст ({count})",

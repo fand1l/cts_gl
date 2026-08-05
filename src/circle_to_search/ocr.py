@@ -335,6 +335,32 @@ def words_in(words: list[Word], left: int, top: int, right: int, bottom: int) ->
     return inside
 
 
+def words_outside(
+    words: list[Word], boxes: list[tuple[int, int, int, int]]
+) -> list[Word]:
+    """Drop every word that any of ``boxes`` touches at all.
+
+    The mirror of :func:`words_in`, and deliberately stricter than it: this one
+    decides what survives a redaction, so a word the black rectangle merely
+    clips is gone.  Half a password is still half a password, and the picture
+    does not have it any more either.
+    """
+    if not boxes:
+        return words
+    kept = []
+    for word in words:
+        right = word.left + word.width
+        bottom = word.top + word.height
+        if any(
+            word.left < box_right and right > box_left
+            and word.top < box_bottom and bottom > box_top
+            for box_left, box_top, box_right, box_bottom in boxes
+        ):
+            continue
+        kept.append(word)
+    return kept
+
+
 def clean(raw: str) -> str:
     """Tidy tesseract's output: it pads with blank lines and trailing spaces."""
     lines = [line.rstrip() for line in raw.splitlines()]

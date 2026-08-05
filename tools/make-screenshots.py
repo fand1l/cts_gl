@@ -39,6 +39,7 @@ from PyQt6.QtWidgets import QApplication
 from circle_to_search import hidpi
 from circle_to_search.config import AppSettings
 from circle_to_search.i18n import set_language
+from circle_to_search.imageops import black_out, rects_to_crop_space
 from circle_to_search.lens import prepare_image
 from circle_to_search.ocr import Word
 from circle_to_search.overlay import MODE_LASSO, MODE_RECTANGLE, SelectionOverlay
@@ -215,10 +216,16 @@ def measure_upload(overlay) -> None:
     one, but the number in the picture is still the number the program would
     show for that picture.
     """
+    # Through the real question, so the overlay accepts the real answer: it
+    # drops any that arrives for a crop it is not currently asking about.
+    overlay._ask_for_upload_size()
     crop = hidpi.logical_rect_to_physical(overlay._selection_rect(), overlay._metrics)
     shot = overlay.property("shot")
     box = (crop.x(), crop.y(), crop.x() + crop.width(), crop.y() + crop.height())
-    payload = qimage_to_pil(shot).crop(box)
+    payload = black_out(
+        qimage_to_pil(shot).crop(box),
+        rects_to_crop_space(overlay.redactions(), crop),
+    )
     prepared = prepare_image(payload, max_side=MAX_SIDE, quality=85)
     overlay.set_upload_size(crop, len(prepared.payload))
 
@@ -295,6 +302,18 @@ for language in ("en", "uk"):
     stroke(waiting, loop(430, 330, 300, 120), release=True)
     measure_upload(waiting)
     save(waiting, f"overlay-actions{suffix}.png")
+
+    # 3b. The same selection with two lines painted over.  What is under the
+    #     black is the article's own words — the point of the picture is that
+    #     you cannot tell, which is also the point of the feature.
+    hiding = overlay_for(language, MODE_RECTANGLE)
+    stroke(hiding, [(100, 175), (900, 560)], release=True)
+    hiding._set_redacting(True)
+    for row in (5, 6):
+        top = LINE_TOP + row * LINE_STEP
+        stroke(hiding, [(TEXT_LEFT - 6, top - 22), (TEXT_LEFT + 430, top + 8)], release=True)
+    measure_upload(hiding)
+    save(hiding, f"overlay-redact{suffix}.png")
 
     # 4. The text layer: words lit, a run selected, the text bar.
     reading = overlay_for(language, MODE_RECTANGLE)

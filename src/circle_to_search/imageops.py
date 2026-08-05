@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from PIL import Image, ImageDraw
+from PyQt6.QtCore import QRect
 from PyQt6.QtGui import QImage, QPolygon
 
 from .hidpi import ScreenMetrics
@@ -86,3 +87,58 @@ def mask_outside_polygon(
         log.debug("lasso mask is empty, using the bounding box instead")
         return rgb
     return Image.composite(rgb, Image.new("RGB", rgb.size, background), mask)
+
+
+def rects_to_crop_space(
+    rects: list[QRect], crop: QRect, scale: float = 1.0
+) -> list[tuple[int, int, int, int]]:
+    """Absolute rectangles → ``(left, top, right, bottom)`` inside the crop.
+
+    One function for both spaces the selection is ever described in.  On a
+    single screen everything is already physical pixels and ``scale`` is 1; in a
+    group the rectangles and the crop are global *logical* pixels and the
+    composed image was built at ``scale`` physical pixels to each of them.
+    """
+    return [
+        (
+            round((rect.x() - crop.x()) * scale),
+            round((rect.y() - crop.y()) * scale),
+            round((rect.x() + rect.width() - crop.x()) * scale),
+            round((rect.y() + rect.height() - crop.y()) * scale),
+        )
+        for rect in rects
+    ]
+
+
+def black_out(
+    image: Image.Image,
+    boxes: list[tuple[int, int, int, int]],
+    fill: tuple[int, int, int] = (0, 0, 0),
+) -> Image.Image:
+    """Fill each ``(left, top, right, bottom)`` box solid.
+
+    Baked into the pixels, not drawn on top of them: the whole point is that
+    there is no version of this image with the covered part still in it, and
+    the copy, the saved PNG, the kept capture and the JPEG the browser posts are
+    all made from what this returns.
+
+    Boxes are clipped to the image, and ones that fall outside it are dropped —
+    the caller works in screen coordinates and the crop moved under them.
+    """
+    inside = [
+        (max(0, left), max(0, top), min(image.width, right), min(image.height, bottom))
+        for left, top, right, bottom in boxes
+    ]
+    inside = [box for box in inside if box[2] > box[0] and box[3] > box[1]]
+    if not inside:
+        return image
+
+    rgb = image if image.mode == "RGB" else image.convert("RGB")
+    # A copy either way: the source is the screenshot the overlay is still
+    # showing, and painting on it would black out what is on screen too.
+    painted = rgb.copy()
+    draw = ImageDraw.Draw(painted)
+    for left, top, right, bottom in inside:
+        draw.rectangle((left, top, right - 1, bottom - 1), fill=fill)
+    log.info("blacked out %d area(s) before anything left the machine", len(inside))
+    return painted

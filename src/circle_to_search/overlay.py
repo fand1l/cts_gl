@@ -204,6 +204,9 @@ _KEY_GAP = 8             # between a label and its key
 #: Buttons only respond to a press *and* a release on the same one, the way
 #: buttons everywhere do, so sliding off one is a way to change your mind.
 BAR_CANCEL = "bar-cancel"
+#: Turns the next drags into solid black rectangles over the selection.  A
+#: toggle, so it lights up while it is on.
+BAR_REDACT = "bar-redact"
 #: Offered only when there is one to offer, so it is never a dead chip.
 BAR_LAST_AREA = "bar-last-area"
 BAR_TEXT_SEARCH = "bar-text-search"
@@ -321,11 +324,26 @@ class SelectionOverlay(QWidget):
         self._upload_bytes = 0
         self._estimate_timer: QTimer | None = None
         self._estimated_for = QRect()
+        self._estimated_marks: list[QRect] = []
+        #: Bumped whenever anything that changes the answer changes — the crop,
+        #: or what is blacked out inside it.  An answer that was asked for
+        #: against an older serial is out of date and is dropped.
+        self._estimate_serial = 0
+        self._estimate_asked = -1
 
         #: Where the previous capture was taken, in this overlay's own logical
         #: coordinates.  Null when there is no previous one, or it was on
         #: another screen, in which case nothing about it is shown.
         self._last_area = QRect(last_area) if last_area is not None else QRect()
+
+        #: Parts of the selection that must not leave, in screen coordinates.
+        #: Filled solid before the crop is prepared, so no version of the image
+        #: with them still in it is ever made.
+        self._redactions: list[QRect] = []
+        #: While on, a drag paints one of those instead of starting again.
+        self._redacting = False
+        #: The one being dragged out right now.
+        self._redaction_draft = QRect()
 
         #: Where this window sits inside its screen, in logical pixels.  It is
         #: (0, 0) for a proper full-screen overlay; when KWin leaves the window
@@ -492,6 +510,8 @@ class SelectionOverlay(QWidget):
         """
         if self.has_text_selection():
             return ""
+        if self._redacting:
+            return tr("overlay.redact")
         if self._confirming and self._has_selection:
             return tr("overlay.adjust")
         if self._showing_hint():
@@ -540,10 +560,17 @@ class SelectionOverlay(QWidget):
                 (BAR_TEXT_BACK, tr("bar.back"), "Esc", False),
             ]
         if self._confirming and self._has_selection:
+            count = len(self._redactions)
             return [
                 (ACTION_SEARCH, tr("bar.search"), "Enter", True),
                 (ACTION_COPY, tr("bar.copy"), "C", False),
                 (ACTION_SAVE, tr("bar.save"), "S", False),
+                (
+                    BAR_REDACT,
+                    tr("bar.redact_count", count=count) if count else tr("bar.redact"),
+                    "B",
+                    self._redacting,
+                ),
                 (BAR_CANCEL, tr("bar.cancel"), "Esc", False),
             ]
         return []
@@ -681,6 +708,8 @@ class SelectionOverlay(QWidget):
             self.update()
         elif action == BAR_LAST_AREA:
             self._use_last_area()
+        elif action == BAR_REDACT:
+            self._set_redacting(not self._redacting)
         elif action == BAR_CANCEL:
             self._cancel()
         elif action == BAR_TEXT_BACK:
@@ -693,6 +722,70 @@ class SelectionOverlay(QWidget):
             self._copy_text()
         else:
             self._commit(action)
+
+    # ------------------------------------------------------------ redaction
+
+    def _set_redacting(self, on: bool) -> None:
+        """Turn "the next drag paints over something" on or off.
+
+        A mode, because it takes the box's own interior away from starting a new
+        selection, and because you usually have more than one thing to cover.
+        """
+        if on == self._redacting or not (self._confirming and self._has_selection):
+            return
+        self._redacting = on
+        self._redaction_draft = QRect()
+        log.info("redaction %s", "on" if on else "off")
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self._changed()
+
+    def _add_redaction(self, rect: QRect) -> None:
+        """Keep a rectangle to be filled solid, clipped to what is being sent."""
+        inside = rect.normalized().intersected(self._selection_rect())
+        if inside.width() < 2 or inside.height() < 2:
+            return
+        self._redactions.append(inside)
+        log.info("%d area(s) will be blacked out before sending", len(self._redactions))
+
+    def _undo_redaction(self) -> None:
+        if not self._redactions:
+            return
+        gone = self._redactions.pop()
+        log.info("dropped a redaction, %d left", len(self._redactions))
+        self._changed(QRegion(gone.translated(-self._offset).adjusted(-2, -2, 2, 2)))
+
+    def redactions(self) -> list[QRect]:
+        """What must be blacked out, in the space of the rectangle just emitted.
+
+        Physical pixels of this screen's screenshot on a single screen, and
+        global logical pixels in a group — the same two spaces :attr:`selected`
+        and :attr:`committed` use, so the receiver needs no third convention.
+        """
+        if self.in_group:
+            return [rect.translated(self._origin) for rect in self._redactions]
+        return [logical_rect_to_physical(rect, self._metrics) for rect in self._redactions]
+
+    def _draw_redactions(self, painter: QPainter) -> None:
+        """Solid black, exactly as it will be baked into the image.
+
+        Not an outline, not a blur: what is on screen here has to be what the
+        upload contains, or the check this whole confirmation step exists for is
+        being done against the wrong picture.
+        """
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0))
+        for rect in self._redactions:
+            painter.drawRect(rect)
+        if self._redaction_draft.isNull():
+            return
+        # The one being dragged out is not placed yet, so it says so with an
+        # outline; the fill underneath is already the real thing.
+        painter.drawRect(self._redaction_draft)
+        pen = QPen(QColor(255, 255, 255, 200), 1)
+        pen.setCosmetic(True)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRect(self._redaction_draft)
 
     def _copy_text(self) -> None:
         text = self.selected_text()
@@ -1185,8 +1278,16 @@ class SelectionOverlay(QWidget):
             painter.setPen(pen)
             painter.drawPath(self._selection_path())
 
+        # Over the un-dimmed area, so what is covered is covered in the picture
+        # the user is checking, exactly as it will be in the one that is sent.
+        self._draw_redactions(painter)
+
         if self._confirming and self._has_selection and not self._finished:
-            self._draw_handles(painter)
+            if not self._redacting:
+                # While redacting the whole box belongs to the drag; handles on
+                # its edges and a grip in its middle would be in the way of the
+                # very thing they are being asked to cover.
+                self._draw_handles(painter)
             self._draw_action_bar(painter)
         if not self._finished:
             self._draw_loupe(painter)
@@ -1939,6 +2040,14 @@ class SelectionOverlay(QWidget):
         # used to grab it and drag it — gives way to the words underneath.
         word = self._word_at(where)
 
+        if self._redacting:
+            # The whole box belongs to the drag while this is on, handles and
+            # grip included: what has to be covered is usually in the middle of
+            # what was selected, which is exactly where the grip lives.
+            self._grab_origin = where
+            self._redaction_draft = QRect(where, where)
+            return
+
         if self._confirming:
             grab = self._handle_at(where)
             if grab is not None and grab != "move":
@@ -2021,10 +2130,19 @@ class SelectionOverlay(QWidget):
                 self.update()
             return
 
+        if not self._redaction_draft.isNull():
+            was = QRect(self._redaction_draft)
+            self._redaction_draft = QRect(self._grab_origin, position + self._offset).normalized()
+            damage = QRegion(was.united(self._redaction_draft).adjusted(-2, -2, 2, 2))
+            self._changed(damage.translated(-self._offset))
+            return
+
         if self._confirming:
             where = position + self._offset
             if self._grab is not None:
                 self._resize_to(where)
+                return
+            if self._redacting:
                 return
             hovered = self._handle_at(where)
             self.setCursor(_CURSORS.get(hovered or "", Qt.CursorShape.CrossCursor))
@@ -2075,6 +2193,13 @@ class SelectionOverlay(QWidget):
                 self._activate_button(armed)
                 return
             self._repaint_bar()
+            return
+        if not self._redaction_draft.isNull():
+            placed = QRect(self._redaction_draft)
+            self._redaction_draft = QRect()
+            self._add_redaction(placed)
+            # The bar's label carries the count, so it changes with every one.
+            self._changed()
             return
         if self._selecting_text:
             self._selecting_text = False
@@ -2178,6 +2303,11 @@ class SelectionOverlay(QWidget):
             if self.has_text_selection():
                 self._clear_text_selection()
                 return
+            if self._redacting:
+                # The same bargain: leaving a mode is not throwing the capture
+                # away, and the black rectangles already placed are kept.
+                self._set_redacting(False)
+                return
             self._cancel()
             return
 
@@ -2213,6 +2343,14 @@ class SelectionOverlay(QWidget):
             return
         if key == Qt.Key.Key_S:
             self._commit(ACTION_SAVE)
+            return
+        if key == Qt.Key.Key_B:
+            self._set_redacting(not self._redacting)
+            return
+        if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
+            # Placing one slightly wrong is the ordinary case, and re-doing the
+            # whole selection to fix it would be a poor answer.
+            self._undo_redaction()
             return
 
         arrows = {
@@ -2374,20 +2512,26 @@ class SelectionOverlay(QWidget):
     # -------------------------------------------- what will actually be sent
 
     def _reconsider_upload_size(self) -> None:
-        """The selection moved: the measured size is about this box no longer.
+        """The selection changed: the measured size is about this crop no longer.
 
         Dropped rather than kept and corrected, because a stale byte count under
         a box of a different size is worse than no byte count at all — the
         dimensions on the line above it are exact and instant either way.
+        Blacking part of it out counts as a change: solid rectangles compress to
+        almost nothing, so the number really does move.
         """
         if self._max_side <= 0 or self._finished:
             return
         wanted = QRect()
+        marks: list[QRect] = []
         if self._confirming and self._has_selection and self._grab is None:
             wanted = logical_rect_to_physical(self._selection_rect(), self._metrics)
-        if wanted == self._estimated_for:
+            marks = list(self._redactions)
+        if wanted == self._estimated_for and marks == self._estimated_marks:
             return
         self._estimated_for = wanted
+        self._estimated_marks = marks
+        self._estimate_serial += 1
         self._upload_bytes = 0
         if wanted.isEmpty():
             if self._estimate_timer is not None:
@@ -2403,16 +2547,20 @@ class SelectionOverlay(QWidget):
     def _ask_for_upload_size(self) -> None:
         if self._finished or self._estimated_for.isEmpty():
             return
+        self._estimate_asked = self._estimate_serial
         self.estimate_requested.emit(QRect(self._estimated_for))
 
     def set_upload_size(self, crop: QRect, nbytes: int) -> None:
         """The answer to :attr:`estimate_requested`, for the crop it was asked about.
 
-        Carrying the crop back means a slow answer about a box that has since
-        been dragged somewhere else is dropped instead of being drawn under the
-        new one.
+        Dropped unless nothing has changed since the question was asked: a slow
+        answer about a box that has been dragged somewhere else, or about a crop
+        that has had something blacked out of it since, would be drawn under a
+        picture it is not about.
         """
         if crop != self._estimated_for or nbytes <= 0:
+            return
+        if self._estimate_asked != self._estimate_serial:
             return
         was = self._size_label(self._selection_rect())[2]
         self._upload_bytes = nbytes
@@ -2660,6 +2808,12 @@ class SelectionOverlay(QWidget):
         self._stop_stroke_animation()
         self._trail.clear()
         self._drop_stroke_layer()
+        # A new selection starts with nothing covered: the black rectangles were
+        # about the crop being thrown away, and keeping them would leave holes
+        # in the next one that nobody asked for.
+        self._redactions = []
+        self._redacting = False
+        self._redaction_draft = QRect()
         self._text_anchor = None
         self._text_focus = None
         self._selecting_text = False

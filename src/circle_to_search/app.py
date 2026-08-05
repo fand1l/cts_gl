@@ -48,7 +48,13 @@ from .dbus_service import ServiceObject, register_service, unregister_service
 from .hidpi import ScreenMetrics, measure_screen, physical_rect_to_logical
 from .history import RecentCaptures
 from .i18n import current_language, set_language, tr
-from .imageops import mask_outside_polygon, pil_to_qimage, polygon_to_crop_space
+from .imageops import (
+    black_out,
+    mask_outside_polygon,
+    pil_to_qimage,
+    polygon_to_crop_space,
+    rects_to_crop_space,
+)
 from .lastarea import EVERY_SCREEN, format_area, parse_area
 from .lens import (
     BACKEND_BROWSER,
@@ -222,6 +228,11 @@ class _WordsTask(QRunnable):
             self.signals.finished.emit(words)
 
 
+def _as_box(rect: QRect) -> tuple[int, int, int, int]:
+    """``QRect`` → the ``(left, top, right, bottom)`` the pure helpers take."""
+    return (rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height())
+
+
 class _EstimateSignals(QObject):
     finished = pyqtSignal(QRect, int)
 
@@ -238,7 +249,14 @@ class _EstimateTask(QRunnable):
     to resize and encode, and this runs again every time the box settles.
     """
 
-    def __init__(self, image: Image.Image, crop: QRect, max_side: int, quality: int) -> None:
+    def __init__(
+        self,
+        image: Image.Image,
+        crop: QRect,
+        max_side: int,
+        quality: int,
+        redactions: list[QRect] | None = None,
+    ) -> None:
         super().__init__()
         self.setAutoDelete(False)
         self.signals = _EstimateSignals()
@@ -246,6 +264,7 @@ class _EstimateTask(QRunnable):
         self._crop = QRect(crop)
         self._max_side = max_side
         self._quality = quality
+        self._redactions = [QRect(rect) for rect in redactions or []]
 
     @pyqtSlot()
     def run(self) -> None:
@@ -256,9 +275,12 @@ class _EstimateTask(QRunnable):
             self._crop.y() + self._crop.height(),
         )
         try:
-            prepared = prepare_image(
-                self._image.crop(box), max_side=self._max_side, quality=self._quality
-            )
+            cropped = self._image.crop(box)
+            # Solid black compresses to almost nothing, so a readout that
+            # ignored the redactions would be measurably wrong about the very
+            # image it claims to describe.
+            cropped = black_out(cropped, rects_to_crop_space(self._redactions, self._crop))
+            prepared = prepare_image(cropped, max_side=self._max_side, quality=self._quality)
         except Exception:
             # Nothing depends on this: without an answer the readout simply says
             # the dimensions and leaves the bytes out.  Still answered, with
@@ -760,8 +782,17 @@ class CircleToSearchApp(QObject):
             (overlay.save_requested, ACTION_SAVE),
         ):
             signal.connect(
-                lambda rect, polygon, chosen=action: self._on_selected(
-                    rect, polygon, capture.image, metrics, action=chosen
+                lambda rect, polygon, chosen=action, ref=overlay: self._on_selected(
+                    rect,
+                    polygon,
+                    capture.image,
+                    metrics,
+                    action=chosen,
+                    # Read at delivery rather than carried through the signal:
+                    # the overlay is the only thing that knows what was covered,
+                    # and three signatures would have had to grow a fourth
+                    # argument that nothing else uses.
+                    redactions=ref.redactions(),
                 )
             )
         overlay.cancelled.connect(self._on_cancelled)
@@ -864,6 +895,13 @@ class CircleToSearchApp(QObject):
     @pyqtSlot(QRect, str)
     def _on_group_committed(self, rect: QRect, action: str) -> None:
         desktop = self._desktop
+        # Whichever overlay owns the selection owns what was blacked out of it;
+        # read before release(), which is what lets go of them.
+        marks = [
+            mark
+            for overlay in (self._group.overlays if self._group is not None else [])
+            for mark in overlay.redactions()
+        ]
         self._release_group()
         if desktop is None:
             return
@@ -878,6 +916,12 @@ class CircleToSearchApp(QObject):
             notify_error(tr("notify.capture_failed"), tr("notify.capture_failed_body", error=exc))
             self._finish_opening()
             return
+        # The composed image is at the highest scale any of the screens it
+        # touches uses, and the rectangles are logical, so they are scaled by
+        # the same factor compose() used.
+        cropped = black_out(
+            cropped, rects_to_crop_space(marks, rect, desktop.scale_for(rect))
+        )
         log.info(
             "composed %dx%d from %d screen(s)",
             cropped.width,
@@ -967,6 +1011,7 @@ class CircleToSearchApp(QObject):
         image: Image.Image,
         metrics: ScreenMetrics,
         action: str = ACTION_SEARCH,
+        redactions: list[QRect] | None = None,
     ) -> None:
         self._release_overlay()
         self._finish_opening()
@@ -974,6 +1019,12 @@ class CircleToSearchApp(QObject):
         box = (rect.x(), rect.y(), rect.x() + rect.width(), rect.y() + rect.height())
         log.info("cropping %s out of %dx%d", box, metrics.physical_width, metrics.physical_height)
         cropped = image.crop(box)
+
+        # Before anything else is done with it, and long before anything is
+        # written to disk: from here on there is no copy of this image with the
+        # blacked-out parts still in it.
+        marks = redactions or []
+        cropped = black_out(cropped, rects_to_crop_space(marks, rect))
 
         # The lasso only marks out the edges: by default the upload is the plain
         # rectangular crop, the way Circle to Search behaves on a phone.  The
@@ -993,6 +1044,10 @@ class CircleToSearchApp(QObject):
             rect.x() + rect.width(),
             rect.y() + rect.height(),
         )
+        # A word that was painted over is not in the picture any more, and it
+        # must not survive in the text file kept beside it either — that would
+        # be the redacted thing on disk in plain UTF-8.
+        inside = ocr.words_outside(inside, [_as_box(mark) for mark in marks])
         self._deliver(cropped, action, text=ocr.words_to_text(inside))
 
     def _deliver(
@@ -1196,7 +1251,13 @@ class CircleToSearchApp(QObject):
 
     def _estimate_upload(self, overlay: SelectionOverlay, image: Image.Image, crop: QRect) -> None:
         """Answer the overlay's "how big would this be?", off the GUI thread."""
-        task = _EstimateTask(image, crop, self._settings.max_side, self._settings.jpeg_quality)
+        task = _EstimateTask(
+            image,
+            crop,
+            self._settings.max_side,
+            self._settings.jpeg_quality,
+            overlay.redactions(),
+        )
         task.signals.finished.connect(
             lambda measured, nbytes, ref=task, view=overlay: self._finish_estimate(
                 ref, view, measured, nbytes

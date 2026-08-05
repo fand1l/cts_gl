@@ -31,6 +31,9 @@ That is the whole idea. Everything below is what happens around it.
 * **Nothing is sent until you say so.** The selection waits with handles you can
   drag and buttons that say what each one does. An upload cannot be taken back,
   so there is a moment to check first.
+* **Black out anything that must not leave** — a token, an address, a name in
+  the corner. It is filled solid *before* the image is made, so no version of it
+  with them still in ever exists.
 * **Copy or save instead of searching.** The same selection, three other places
   to send it.
 * **The same area as last time**, to the pixel — for watching a number that
@@ -125,7 +128,14 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 | **Search** | *Enter* | send it to Google Lens |
 | **Copy** | *C* | to the clipboard |
 | **Save** | *S* | a PNG in Pictures |
+| **Black out** | *B* | paint over anything that must not leave |
 | **Cancel** | *Esc* | forget it |
+
+**Black out** is worth knowing about. Turn it on and drag over the token, the
+address, the name in the corner — they are filled solid *before* the image is
+made, so there is no version of it with them still in. *Backspace* undoes the
+last one, *Esc* leaves the mode. The words under them are dropped from the
+recognised text too.
 
 ### Reading the text on screen
 
@@ -203,6 +213,13 @@ each, are in the [technical documentation](docs/TECHNICAL.md#what-can-break-and-
 
 ## Privacy, plainly
 
+![Two lines blacked out before anything is sent](docs/images/overlay-redact.png)
+
+* **You can paint over part of it first.** *Black out* fills the rectangles you
+  drag solid, and it happens before the image is made — not on top of it. There
+  is no copy of the picture with them still in, in the clipboard, in the saved
+  PNG, in the kept capture or in the page the browser posts. The words under
+  them are dropped from the recognised text too.
 * The daemon **makes no network connections of its own**. It writes a small
   local page with your selection inlined and hands it to your browser, and the
   browser is what talks to Google. So the session that uploads is your session,

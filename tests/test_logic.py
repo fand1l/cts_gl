@@ -33,9 +33,11 @@ from PIL import Image  # noqa: E402
 
 from circle_to_search import hidpi, i18n, lens  # noqa: E402
 from circle_to_search.imageops import (  # noqa: E402
+    black_out,
     mask_outside_polygon,
     pil_to_qimage,
     polygon_to_crop_space,
+    rects_to_crop_space,
 )
 from circle_to_search.overlay import (  # noqa: E402
     MODE_LASSO,
@@ -396,6 +398,35 @@ check("mask corner white", masked.getpixel((1, 1)) == (255, 255, 255),
 degenerate = mask_outside_polygon(source, [(0, 0), (5, 0)])
 check("mask degenerate", degenerate.getpixel((1, 1)) == (10, 200, 30))
 
+# --- blacking part of a crop out before it can leave -----------------------
+# The confirmation step exists because an upload cannot be taken back, and it
+# used to let you change only the *bounds* of the selection, never its content.
+plain = Image.new("RGB", (100, 80), (10, 200, 30))
+painted = black_out(plain, [(20, 10, 60, 40)])
+check("the box is filled solid", painted.getpixel((30, 20)) == (0, 0, 0),
+      str(painted.getpixel((30, 20))))
+check("and nothing beside it is", painted.getpixel((70, 20)) == (10, 200, 30))
+check("the edges are the ones asked for",
+      painted.getpixel((20, 10)) == (0, 0, 0) and painted.getpixel((60, 40)) == (10, 200, 30),
+      f"{painted.getpixel((20, 10))} {painted.getpixel((60, 40))}")
+check("the original is left alone", plain.getpixel((30, 20)) == (10, 200, 30),
+      "black_out must not paint on the screenshot the overlay is still showing")
+check("nothing to do is not a copy", black_out(plain, []) is plain)
+check("a box hanging over the edge is clipped",
+      black_out(plain, [(80, 60, 500, 500)]).getpixel((99, 79)) == (0, 0, 0))
+check("one entirely outside is dropped",
+      black_out(plain, [(200, 200, 300, 300)]).getpixel((50, 40)) == (10, 200, 30))
+check("and so is one with no area", black_out(plain, [(10, 10, 10, 40)]) is plain)
+
+check("crop space is a translation",
+      rects_to_crop_space([QRect(120, 90, 40, 30)], QRect(100, 50, 400, 300))
+      == [(20, 40, 60, 70)],
+      str(rects_to_crop_space([QRect(120, 90, 40, 30)], QRect(100, 50, 400, 300))))
+check("and a scale when the crop was composed at one",
+      rects_to_crop_space([QRect(120, 90, 40, 30)], QRect(100, 50, 400, 300), 2.0)
+      == [(40, 80, 120, 140)],
+      str(rects_to_crop_space([QRect(120, 90, 40, 30)], QRect(100, 50, 400, 300), 2.0)))
+
 # --- the overlay compensates for a window that is not at the screen corner ---
 # KWin sometimes leaves the window in the work area, below the panel.  A Wayland
 # client cannot ask for its own position, so the KWin script reports it and
@@ -571,6 +602,7 @@ from circle_to_search.overlay import (  # noqa: E402
     BAR_CANCEL,
     BAR_MODE_LASSO,
     BAR_MODE_RECT,
+    BAR_REDACT,
     BAR_TEXT_ALL,
     BAR_TEXT_BACK,
     BAR_TEXT_COPY,
@@ -744,11 +776,12 @@ check("an edited box drops the outline", overlay.selection_polygon().count() == 
 press_key(overlay, Qt.Key.Key_Return)
 check("the edited lasso still searches", ACTION_SEARCH in results, str(list(results)))
 
-# Pressing outside the selection starts again rather than adjusting it.
+# Pressing outside the selection starts again rather than adjusting it.  Well
+# clear of the action bar, which hangs below the box and is wider than it.
 overlay, results = confirming()
-drag(overlay, (400, 300), (500, 400))
+drag(overlay, (500, 500), (600, 600))
 check("a second drag replaces the first",
-      overlay._selection_rect() == QRect(400, 300, 100, 100), str(overlay._selection_rect()))
+      overlay._selection_rect() == QRect(500, 500, 100, 100), str(overlay._selection_rect()))
 check("and still sends nothing by itself", results == {}, str(results))
 
 # Reported from a real desktop: the whole inside of the box was a move grab, so
@@ -885,6 +918,91 @@ corner = overlay._handle_rects()["se"].center()
 check("a corner is still a resize, not a redraw",
       overlay._handle_at(corner) == "se", str(overlay._handle_at(corner)))
 
+# --- blacking something out of the selection --------------------------------
+# The confirmation step was written because an upload cannot be taken back, and
+# it only ever let the *bounds* be changed.  If a token happens to sit next to
+# the thing you want to look up, reframing the crop was the only answer.
+hiding, results = confirming()
+check("the bar offers it", button_named(hiding, BAR_REDACT).key == "B")
+check("and is not lit yet", not button_named(hiding, BAR_REDACT).primary)
+target = button_named(hiding, BAR_REDACT)
+click(hiding, (target.rect.center().x(), target.rect.center().y()))
+check("the button turns it on", hiding._redacting)
+check("and lights up to say so", button_named(hiding, BAR_REDACT).primary)
+check("the caption says what to do now", hiding._bar_caption() == i18n.tr("overlay.redact"),
+      hiding._bar_caption())
+
+# The whole box belongs to the drag while it is on: what has to be covered is
+# usually in the middle of what was selected, which is where the grip lives.
+before = QRect(hiding._selection_rect())
+grip = hiding._move_grip().center()
+drag(hiding, (grip.x() - 20, grip.y() - 5), (grip.x() + 20, grip.y() + 5))
+check("a drag over the grip covers instead of moving",
+      hiding._selection_rect() == before, str(hiding._selection_rect()))
+check("and one rectangle was placed", len(hiding._redactions) == 1, str(hiding._redactions))
+check("the count goes on the button", "1" in button_named(hiding, BAR_REDACT).label,
+      button_named(hiding, BAR_REDACT).label)
+
+# It is what will be sent, so it can only ever be part of what is being sent.
+drag(hiding, (before.right() - 10, before.bottom() - 10),
+     (before.right() + 400, before.bottom() + 400))
+check("a rectangle is clipped to the selection",
+      before.contains(hiding._redactions[-1]), str(hiding._redactions[-1]))
+drag(hiding, (before.right() + 50, before.top()), (before.right() + 90, before.top() + 20))
+check("and one entirely outside it is not kept", len(hiding._redactions) == 2,
+      str(hiding._redactions))
+
+press_key(hiding, Qt.Key.Key_Backspace)
+check("Backspace undoes the last one", len(hiding._redactions) == 1)
+press_key(hiding, Qt.Key.Key_Escape)
+check("Esc leaves the mode", not hiding._redacting)
+check("without throwing the capture away", "cancelled" not in results and not hiding._finished)
+check("and keeps what was already covered", len(hiding._redactions) == 1)
+press_key(hiding, Qt.Key.Key_Escape)
+check("the next Esc does cancel it", "cancelled" in results, str(list(results)))
+
+# What the application is handed: physical pixels of the screenshot, the same
+# space as the crop rectangle it gets beside them.
+handing, _ = confirming()
+handing._set_redacting(True)
+handing._add_redaction(QRect(120, 120, 60, 40))
+check("handed over in the crop's own space",
+      handing.redactions() == [QRect(240, 240, 120, 80)], str(handing.redactions()))
+
+# Drawn solid black over the un-dimmed area, because the picture being checked
+# has to be the picture that is sent.
+canvas = QPixmap(handing.size())
+handing.render(canvas)
+painted = canvas.toImage()
+check("it really is black on screen", painted.pixelColor(150, 140).value() == 0,
+      painted.pixelColor(150, 140).name())
+check("and only there", painted.pixelColor(250, 140).value() != 0,
+      painted.pixelColor(250, 140).name())
+
+# The handles sit on the outline and the grip in the middle, which is exactly
+# where the things that need covering are, so they go while covering.
+furniture, _ = confirming()
+spot = furniture._move_grip().center()
+shown = QPixmap(furniture.size())
+furniture.render(shown)
+furniture._set_redacting(True)
+gone = QPixmap(furniture.size())
+furniture.render(gone)
+check("the grip is out of the way while covering",
+      shown.toImage().pixelColor(spot) != gone.toImage().pixelColor(spot),
+      f"{shown.toImage().pixelColor(spot).name()} vs {gone.toImage().pixelColor(spot).name()}")
+furniture._set_redacting(False)
+back = QPixmap(furniture.size())
+furniture.render(back)
+check("and comes back afterwards",
+      back.toImage().pixelColor(spot) == shown.toImage().pixelColor(spot))
+
+# Starting a new selection starts with nothing covered: the rectangles belonged
+# to the crop that was just thrown away.
+handing._reset_selection()
+check("a new selection is not full of holes",
+      handing._redactions == [] and not handing._redacting)
+
 # A box too small to hold a full-size grip still gets one, so a small selection
 # is not one you can only nudge with the arrow keys.
 overlay, results = confirming()
@@ -960,11 +1078,11 @@ check("and they are gone once there is a selection",
 
 overlay, results = confirming()
 actions = [placed.action for placed in overlay._layout_buttons()]
-check("four buttons once a selection is waiting",
-      actions == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_CANCEL], str(actions))
+check("five buttons once a selection is waiting",
+      actions == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_REDACT, BAR_CANCEL], str(actions))
 check("search is the primary one", button_named(overlay, ACTION_SEARCH).primary)
 check("the keys are still shown",
-      [placed.key for placed in overlay._layout_buttons()] == ["Enter", "C", "S", "Esc"],
+      [placed.key for placed in overlay._layout_buttons()] == ["Enter", "C", "S", "B", "Esc"],
       str([placed.key for placed in overlay._layout_buttons()]))
 placed_bar = overlay._layout_buttons()
 check("the buttons do not overlap",
@@ -1157,6 +1275,7 @@ check("moving the box drops the measurement", sized._upload_bytes == 0,
 # A crop bigger than the limit gets the resized dimensions immediately, with no
 # encoding needed — that half of the answer is pure arithmetic.
 big = sending(max_side=200)
+big._ask_for_upload_size()
 check("the resized size is there at once",
       big._size_label(big._selection_rect())[0] == "400 × 300 px\n→ 200 × 150",
       repr(big._size_label(big._selection_rect())[0]))
@@ -1263,7 +1382,7 @@ check("it selects exactly where the last one was",
       again._selection_rect() == QRect(120, 90, 300, 200), str(again._selection_rect()))
 check("and hands straight over to the action bar", again._confirming
       and [placed.action for placed in again._layout_buttons()]
-      == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_CANCEL])
+      == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_REDACT, BAR_CANCEL])
 check("as a rectangle, with no lasso outline to mask against",
       again.selection_polygon().count() == 0)
 
@@ -1990,6 +2109,20 @@ check("output is tidied",
       repr(ocr.clean("\n\n  hello  \n\n\n\nworld   \n\n")))
 check("empty output stays empty", ocr.clean("   \n\n  ") == "")
 check("a summary is one line", ocr.summarise("a\nb  c\n") == "a b c")
+
+# A word the black rectangle so much as clips must not survive in the text kept
+# beside the picture: half a password is still half a password, and the picture
+# does not have it any more either.
+covered = [
+    ocr.Word("keep", 0, 0, 30, 10, 90.0, (1, 1, 1, 1)),
+    ocr.Word("secret", 40, 0, 30, 10, 90.0, (1, 1, 1, 2)),
+    ocr.Word("clipped", 65, 0, 30, 10, 90.0, (1, 1, 1, 3)),
+    ocr.Word("safe", 200, 0, 30, 10, 90.0, (1, 1, 1, 4)),
+]
+survivors = [word.text for word in ocr.words_outside(covered, [(35, 0, 70, 10)])]
+check("a word under a redaction is gone", survivors == ["keep", "safe"], str(survivors))
+check("one merely clipped by it too", "clipped" not in survivors)
+check("no boxes, no filtering", ocr.words_outside(covered, []) == covered)
 check("a long summary is cut", ocr.summarise("x" * 400).endswith("…")
       and len(ocr.summarise("x" * 400)) == 160)
 
