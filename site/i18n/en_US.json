@@ -1,0 +1,476 @@
+{
+  "lang": {
+    "code": "en",
+    "ogLocale": "en_GB",
+    "ogLocaleAlternate": "uk_UA",
+    "ogImage": "og-en.png",
+    "ogImageAlt": "A white line with a coloured glow circling the words “Circle to Search”."
+  },
+
+  "common": {
+    "skip": "Skip to the content",
+    "brand": "Circle to Search",
+    "nav": {
+      "aria": "Site sections",
+      "features": "Features",
+      "privacy": "Privacy",
+      "install": "Installing",
+      "changes": "What changed"
+    },
+    "lang": {
+      "aria": "Language",
+      "heading": "Language",
+      "enShort": "EN",
+      "ukShort": "UA",
+      "enName": "In English",
+      "ukName": "Українською"
+    },
+    "theme": {
+      "aria": "Switch the theme",
+      "toDark": "Switch to the dark theme",
+      "toLight": "Switch to the light theme"
+    },
+    "copy": {
+      "idle": "Copy",
+      "done": "Copied",
+      "select": "Selected — press Ctrl+C"
+    },
+    "footer": {
+      "project": {
+        "heading": "Project",
+        "repo": "The repository on GitHub",
+        "readme": "README",
+        "readmeHref": "https://github.com/fand1l/cts_gl/blob/dev/README.md",
+        "technical": "Technical documentation"
+      },
+      "licence": "MIT — see <a href=\"https://github.com/fand1l/cts_gl/blob/dev/LICENSE\">LICENSE</a>.",
+      "disclaimer": "Not affiliated with Google. “Circle to Search” and “Google Lens” are Google’s names for Google’s things; this is an independent program that opens their public web endpoint in your browser."
+    }
+  },
+
+  "commands": {
+    "install": "<code>git clone https://github.com/fand1l/cts_gl.git\ncd cts_gl\n./install.sh</code>",
+    "update": "<code>./install.sh update</code>",
+    "doctor": "<code>circle-to-search --doctor</code>",
+    "other": "<code>./install.sh update               # fetch the deploy branch and reinstall\n./install.sh update --dev         # …fetch \"dev\" instead: the newest work, unreviewed\n./install.sh update --downgrade   # …even if it is older, settings and all\n./install.sh reinstall            # reinstall this folder, whatever state it is in\n./install.sh reinstall --config   # …and wipe the settings too (it asks twice)\n./uninstall.sh                    # remove it, keep your captures\n./uninstall.sh --purge            # remove it and the captures</code>"
+  },
+
+  "index": {
+    "meta": {
+      "title": "Circle to Search — the Google Lens gesture for KDE Plasma 6",
+      "description": "Shake the mouse. Circle anything on your screen. Get a Google Lens result. Google’s phone gesture, for KDE Plasma 6 on Wayland.",
+      "ogTitle": "Circle to Search",
+      "ogDescription": "Shake the mouse. Circle anything on your screen. Get a Google Lens result."
+    },
+    "hero": {
+      "title": "Circle to&nbsp;Search",
+      "tagline": "Shake the mouse. Circle anything on your screen. Get a Google&nbsp;Lens result.",
+      "sub": "Google’s phone gesture, for KDE&nbsp;Plasma&nbsp;6 on Wayland.",
+      "install": "Install it",
+      "hint": "Draw across this — the stroke follows your pointer exactly as it does in the program."
+    },
+    "what": {
+      "heading": "What it does",
+      "first": "Shake the pointer diagonally — down-right, up-left, down-right — and the screen freezes and dims. Draw a loop around whatever you were curious about. It opens in Google Lens in your browser.",
+      "second": "That is the whole idea. Everything below is what happens around it."
+    },
+    "gesture": {
+      "eyebrow": "The gesture",
+      "heading": "Shake it diagonally",
+      "how": "Shake the pointer <strong>diagonally</strong> — down-right, up-left, down-right — briskly, in one place. Roughly 150 pixels a swing, twice, inside about half a second.",
+      "calibrate": "If it does not fire, or fires while you are just working, do not go hunting through settings: <strong>Settings → Calibrate the gesture…</strong> measures a dozen of your own shakes and writes all the thresholds from them.",
+      "shortcut": "You can also press <span class=\"kbd\">Meta</span>&nbsp;+&nbsp;<span class=\"kbd\">Shift</span>&nbsp;+&nbsp;<span class=\"kbd\">L</span>, or use <strong>Capture now</strong> in the tray menu.",
+      "numbers": "The dot below travels the exact movement the default thresholds ask for: two reversals, 150&nbsp;px a swing, 700&nbsp;px/s, 30° of tolerance from the diagonal. Those are the numbers the installer writes into <code>kwinrc</code>.",
+      "diagram": "Diagram of the movement: three diagonal swings — down-right, up-left, down-right",
+      "shot": {
+        "src": "images/overlay-start.png",
+        "alt": "The frozen, dimmed screen before anything is selected; the bar at the top offers Lasso, Rectangle, Colour and The same area.",
+        "caption": "Shake, and the screen freezes. Lasso or rectangle — or the same area as last time."
+      }
+    },
+    "features": {
+      "eyebrow": "Features",
+      "heading": "What happens around the gesture",
+      "draw": {
+        "heading": "Circle it, or drag a box",
+        "body": "Freehand by default, like on a phone. <span class=\"kbd\">Shift</span> for a rectangle, or click a window to take exactly that window.",
+        "supporting": "A wide white line with a coloured glow that follows your hand. The glow takes its colour from where it is on the screen: blue at the top, red at about two fifths, yellow a little below that, green at the bottom.",
+        "shot": {
+          "src": "images/overlay-drawing.png",
+          "alt": "A thick white line with an orange glow drawn freehand around a paragraph on the dimmed screen, with the selection size beside it."
+        }
+      },
+      "confirm": {
+        "heading": "Nothing is sent until you say so",
+        "body": "The selection waits with handles you can drag and buttons that say what each one does. An upload cannot be taken back, so there is a moment to check first.",
+        "supporting": "Above it, two lines: the size of what you have selected, and under it what will actually leave — <code>→ 1000 × 400, ~30 KB JPEG</code>. They are not the same number.",
+        "shot": {
+          "src": "images/overlay-actions.png",
+          "alt": "A selection waiting with eight handles; above it the size and the weight of the file to come, below it the buttons Search, Copy, Save, Pin, Black out and Cancel."
+        }
+      },
+      "redact": {
+        "heading": "Black out anything that must not leave",
+        "body": "A token, an address, a name in the corner. It is filled solid <strong>before</strong> the image is made, so no version of it with them still in ever exists — not in the clipboard, not in the saved PNG, not in the page the browser posts.",
+        "supporting": "The words under them are dropped from the recognised text too. <span class=\"kbd\">Backspace</span> undoes the last rectangle.",
+        "shot": {
+          "src": "images/overlay-redact.png",
+          "alt": "Two solid black rectangles cover two lines of text inside the selection; the Black out button on the bar is active and counts two."
+        }
+      },
+      "text": {
+        "heading": "Select the text on your frozen screen",
+        "body": "The words become selectable, like text in a browser. Search for the words themselves rather than a picture of them — or copy them, without any of it leaving the machine.",
+        "supporting": "Searching here uploads nothing at all: the words are already read, so it is a plain web search. The reading runs <code>tesseract</code> on your own machine, and it is off until you ask for it.",
+        "shot": {
+          "src": "images/overlay-text.png",
+          "alt": "Two lines of text on the frozen screen are highlighted like selected text, with the buttons Search, Copy text and All text under them."
+        }
+      },
+      "pin": {
+        "heading": "Or pin it to the screen",
+        "body": "The crop stays on your screen as a small window above everything else, which you can drag around, scroll to zoom, and close with <span class=\"kbd\">Esc</span>.",
+        "supporting": "Useful whenever the thing you have to read is behind the window you have to type into. <span class=\"kbd\">Ctrl</span>&nbsp;+&nbsp;<span class=\"kbd\">C</span> copies it, and <span class=\"kbd\">Ctrl</span> with a drag carries the picture straight into a chat or a document.",
+        "shot": {
+          "src": "images/pinned.png",
+          "alt": "A small crop holding two lines of text floats as its own white window over a terminal."
+        }
+      },
+      "colour": {
+        "heading": "Pick a colour off the screen",
+        "body": "The dimming lifts, the magnifier follows your pointer with the pixel’s colour and hex under it, and a click copies <code>#rrggbb</code> — or <code>rgb(…)</code> with <span class=\"kbd\">Shift</span> held.",
+        "supporting": "Plasma has an eyedropper of its own, so this is not new for the desktop. It is here because the answer was already on screen: this program had frozen the screen and magnified it under your pointer, and was throwing the value away.",
+        "shot": {
+          "src": "images/overlay-colour.png",
+          "alt": "The colour picker: a round magnifier enlarging green terminal text, with a green swatch and its hex code underneath."
+        }
+      },
+      "window": {
+        "heading": "Click a window",
+        "body": "Instead of drawing carefully around it — it takes exactly that window.",
+        "shot": {
+          "src": "images/overlay-window.png",
+          "alt": "A whole window outlined with a dashed blue border on the dimmed screen, labelled “click to take this window”."
+        }
+      },
+      "magnifier": {
+        "heading": "A magnifier while you aim",
+        "body": "So the edge lands where you meant.",
+        "shot": {
+          "src": "images/overlay-magnifier.png",
+          "alt": "A rectangle being dragged; beside its corner a round magnifier with a crosshair, and the size below it."
+        }
+      },
+      "captures": {
+        "heading": "Captures are kept, and you can search them",
+        "body": "The box at the top searches <strong>the text that was recognised inside them</strong>, so “what was that error I looked up last week” is answerable.",
+        "supporting": "Every capture can be found again, copied, saved or read from here. How many are kept is up to you.",
+        "shot": {
+          "src": "images/captures.png",
+          "alt": "The captures window: a box that searches the recognised text, and six thumbnails with their time and size."
+        }
+      },
+      "qr": {
+        "heading": "A QR code wears its own button",
+        "body": "Any code on the frozen screen is read where it sits and wears a small button with the site it points at — press it and you are there. Decoded on your machine, in about a millisecond, and nothing about it is uploaded.",
+        "supporting": "Two codes on screen get two buttons, because one button cannot say which it means."
+      },
+      "again": {
+        "heading": "The same area as last time",
+        "body": "To the pixel — for watching a number that changes, where a rectangle redrawn by hand is never quite the same one.",
+        "supporting": "<strong>The same area</strong> on the bar, or the <span class=\"kbd\">R</span> key."
+      }
+    },
+    "settings": {
+      "eyebrow": "Settings",
+      "heading": "Most of it you will never need",
+      "lede": "The ones worth knowing:",
+      "caption": "The settings worth knowing",
+      "rows": {
+        "calibrate": {
+          "name": "Calibrate the gesture…",
+          "says": "measures your shake and sets every threshold from it"
+        },
+        "detect": {
+          "name": "Detect cursor shake",
+          "says": "off leaves the shortcut and the tray working"
+        },
+        "shape": {
+          "name": "Selection shape",
+          "says": "lasso or rectangle; <span class=\"kbd\">Shift</span> swaps it for one drag"
+        },
+        "confirm": {
+          "name": "Check the selection before sending it",
+          "says": "on — off goes back to sending the moment you let go"
+        },
+        "magnify": {
+          "name": "Magnify while dragging",
+          "says": "the loupe beside the pointer"
+        },
+        "ocr": {
+          "name": "Make the text on screen selectable",
+          "says": "the optional local text recognition"
+        },
+        "keep": {
+          "name": "How many to keep",
+          "says": "the captures the tray and the captures window offer"
+        },
+        "monitors": {
+          "name": "Open an overlay on every monitor",
+          "says": "so a selection can cross the seam"
+        }
+      },
+      "advanced": "The ten raw thresholds are folded away behind <strong>Advanced</strong>, because calibrating is nearly always the better way round.",
+      "shot": {
+        "src": "images/settings.png",
+        "height": "820",
+        "alt": "The settings window on its Detection tab: a preview of the movement being looked for, the “Calibrate the gesture…” button and the Meta+Shift+L shortcut."
+      }
+    },
+    "privacy": {
+      "eyebrow": "Privacy",
+      "heading": "Plainly",
+      "redact": "<strong>You can paint over part of it first.</strong> <em>Black out</em> fills the rectangles you drag solid, and it happens before the image is made — not on top of it. There is no copy of the picture with them still in, in the clipboard, in the saved PNG, in the kept capture or in the page the browser posts. The words under them are dropped from the recognised text too.",
+      "network": "The daemon <strong>makes no network connections of its own</strong>. It writes a small local page with your selection inlined and hands it to your browser, and the browser is what talks to Google. So the session that uploads is your session, which is also why the result page opens where you can read it.",
+      "ocr": "<strong>Text recognition is local.</strong> <code>tesseract</code>, on your machine, and only if you turn it on.",
+      "telemetry": "<strong>No API keys, no accounts, no telemetry.</strong> Nothing is collected.",
+      "recent": "The last five captures are kept in <code>~/.local/share/circle-to-search/recent</code> so the tray can offer them again. Turn it off, or use <code>./uninstall.sh --purge</code>.",
+      "site": "This site too: not one external request. No fonts, no CDN, no analytics, no counters. Everything you see lives in the same repository."
+    },
+    "install": {
+      "eyebrow": "Installing",
+      "heading": "Three commands",
+      "requirements": "You need <strong>KDE Plasma 6 on Wayland</strong> and <strong>Python 3.11 or newer</strong>.",
+      "logout": "<strong>Log out and back in</strong> after installing, so KWin loads the script.",
+      "full": "The full instructions",
+      "doctor": "If something does not work"
+    },
+    "author": {
+      "eyebrow": "Who wrote this",
+      "heading": "This program was written by Claude",
+      "first": "Anthropic’s AI model, over a series of sessions — the architecture, the code, the tests, and this documentation.",
+      "second": "<a href=\"https://github.com/fand1l\">@fand1l</a> directed the work: chose what to build, tested every version on real hardware, and sent back the screenshots and bug reports that corrected it. Several of the things that make it worth using — selectable text on the frozen screen, the Android-style stroke, catching the window that could not be seen — exist because they tried it and said what was wrong.",
+      "third": "It seemed better to say so than to let you assume otherwise."
+    },
+    "release": {
+      "heading": "This one is 1.4.0",
+      "name": "“material”",
+      "body": "Every release has a name as well as a number, so <code>1.2.0 “better-version-control”</code> says which one it is. The latest one moved the whole look of the program onto Material&nbsp;3, in your accent colour.",
+      "link": "What changed in each"
+    },
+    "footer": {
+      "heading": "Pages",
+      "home": "Home",
+      "doctor": "If something does not work"
+    }
+  },
+
+  "install": {
+    "meta": {
+      "title": "Installing — Circle to Search",
+      "description": "Three commands, what gets installed and where, updating, the full list of commands, and what to do when it does not work.",
+      "ogTitle": "Installing — Circle to Search",
+      "ogDescription": "Three commands, what gets installed and where, updating, and what to do when it does not work."
+    },
+    "hero": {
+      "eyebrow": "Installing",
+      "heading": "Three commands, then log out",
+      "lede": "That is all. Below: what goes into your home directory, how to keep it current, and what to do if nothing happened."
+    },
+    "requirements": {
+      "heading": "What you need",
+      "plasma": {
+        "heading": "KDE Plasma 6 on Wayland",
+        "body": "A KWin script lifts the overlay, and the screen capture goes through ScreenShot2 — both of those are Plasma on Wayland."
+      },
+      "python": {
+        "heading": "Python 3.11 or newer",
+        "body": "The installer finds the interpreter itself and remembers the full path to it."
+      }
+    },
+    "commands": {
+      "heading": "Three commands",
+      "root": "The installer works out what your distribution is and asks before installing anything. It <strong>never needs root</strong> for the application itself; only your package manager will ask."
+    },
+    "parts": {
+      "heading": "What actually gets installed",
+      "lede": "Four things, all of them into your home directory:",
+      "daemon": {
+        "heading": "The daemon",
+        "body": "The program itself, waiting for the signal and opening the overlay."
+      },
+      "kwin": {
+        "heading": "The KWin script",
+        "body": "Watches the cursor, and lifts the overlay above your panel."
+      },
+      "service": {
+        "heading": "A <code>systemd&nbsp;--user</code> service",
+        "body": "So that it starts with your session."
+      },
+      "desktop": {
+        "heading": "A desktop entry",
+        "body": "The shortcut that puts it where you look for programs."
+      }
+    },
+    "distros": {
+      "heading": "Distributions the installer knows",
+      "body": "Fedora, Debian, Ubuntu, Arch, openSUSE. It works them out from the package manager it finds — <code>dnf</code>, <code>apt-get</code>, <code>pacman</code> or <code>zypper</code> — and on none of them does it do anything without asking.",
+      "supporting": "If none of them is there, that is not an error: it says what is missing, in words, and the install carries on."
+    },
+    "logout": {
+      "heading": "Log out and back in",
+      "body": "KWin loads a script <strong>once, at login</strong>, and keeps running that copy. Until you have logged back in, shaking may do nothing at all — and that is the most common cause of “nothing works”.",
+      "supporting": "The installer tries to reload the script itself, and says so if it could not. But if nothing happens after installing, start here rather than in the settings.",
+      "shot": {
+        "src": "images/welcome.png",
+        "height": "661",
+        "alt": "The first-run window “Circle to Search is running”, with a choice of language, selection shape and the first few settings.",
+        "caption": "When you log back in, this is what greets you — once."
+      }
+    },
+    "updating": {
+      "heading": "Updating",
+      "lede": "Later, one command keeps it current — it follows the <code>deploy</code> branch:",
+      "names": "It tells you what you have and what it is about to install: every release has a name as well as a number, so <code>1.2.0 “better-version-control”</code> says which one it is. <a href=\"changes.html\">What changed in each</a>.",
+      "branches": {
+        "heading": "Three branches, three different things",
+        "caption": "Where an update comes from",
+        "deploy": "follows <strong><code>deploy</code></strong> — the code that has been decided to be fit to run — and moves the checkout there if it is standing somewhere else.",
+        "dev": "follows <strong><code>dev</code></strong> instead, which is where work is pushed as it happens. Nothing on it has been looked at yet and it is expected to be broken sometimes, so it says so every time you use it.",
+        "downgrade": "allows going back — it is the way out of a <code>--dev</code> build that broke. It <strong>erases the settings</strong> with it, because the newer version wrote settings the older one cannot read. Your captures are kept, and it asks again first."
+      },
+      "order": "It will not quietly install something older than what you already have. And the order cannot leave you worse off: if the fetch fails, nothing has been moved or removed and the copy you had is still the one running. Your settings, your captures and your calibration are kept either way.",
+      "other": {
+        "summary": "Other commands",
+        "debug": "Any of them takes <code>--debug</code>, which prints everything each step did instead of a tick.",
+        "reinstall": "<code>reinstall</code> has nothing to do with git: it installs whatever is in the folder you are in."
+      }
+    },
+    "doctor": {
+      "heading": "If something does not work",
+      "lede": "Ask it:",
+      "body": "It checks every moving part — the session, the daemon, its service, the KWin script and whether KWin is running the copy that is installed, the shortcut, the screen capture (by really taking one), the browser, and the text recognition — and prints the fix next to whatever is wrong.",
+      "sample": "<pre><code>  <span class=\"ok\">✓</span>  daemon            io.github.fand1l.CircleToSearch is on the bus\n  <span class=\"bad\">✗</span>  KWin script       KWin is running v1.10.0, but v1.11.0 is installed\n                       KWin loads a script once, at login, and keeps running that copy.\n                       Toggle it off and on in System Settings → Window Management →\n                       KWin Scripts, or log out and back in.\n  <span class=\"ok\">✓</span>  screen capture    kwin-screenshot2, 3840×2160 px in 84 ms</code></pre>",
+      "supporting": "Whatever is wrong gets the fix printed underneath it — which is why the failing line above is four lines long and the passing ones are one."
+    },
+    "trouble": {
+      "heading": "The most common breakages",
+      "nothing": {
+        "heading": "Nothing happens when I shake",
+        "body": "Hover the tray icon — it will tell you which part is wrong. Most often the answer is <strong>log out and back in</strong>: KWin loads a script once, at login, and keeps running that copy."
+      },
+      "misfires": {
+        "heading": "It opens while I am just working",
+        "body": "Calibrate: <strong>Settings → Calibrate the gesture…</strong>. Failing that, raise <em>Minimum swing speed</em> under <strong>Advanced</strong> — deliberate shaking is a flick, and drawing and dragging are slow."
+      },
+      "panel": {
+        "heading": "The overlay is behind my panel",
+        "body": "The KWin script is what lifts it; if that is not loaded, it cannot. Check <em>System Settings → Window Management → KWin Scripts</em>."
+      },
+      "lens": {
+        "heading": "The Lens page opens empty",
+        "body": "The upload is done by your browser, not by this program, so a browser that blocks the request is the usual cause. Try it in a window without content blocking."
+      },
+      "upload": {
+        "heading": "The upload failed",
+        "body": "The notification has a <strong>Try another way</strong> button. There are two ways this can send a picture — your browser posts it, or this program does — and they fail for unrelated reasons, so the button swaps them rather than trying the same one again. Your selection is still in memory; it is offered once, and then it reports plainly."
+      },
+      "more": "Longer answers, and about twenty other failure modes with the reasoning behind each, are in the <a href=\"https://github.com/fand1l/cts_gl/blob/dev/docs/TECHNICAL.md#what-can-break-and-how-to-debug-it\">technical documentation</a>."
+    },
+    "footer": {
+      "heading": "On this page",
+      "commands": "Three commands",
+      "logout": "Log out and back in",
+      "updating": "Updating",
+      "doctor": "If something does not work"
+    }
+  },
+
+  "changes": {
+    "meta": {
+      "title": "What changed — Circle to Search",
+      "description": "Every release, newest first — and what the number, the name and the build each say. 1.4.0 “material”, 1.3.0 “another-way”, 1.2.0 “better-version-control”, 1.1.0 “screenshot-window”, 1.0.0.",
+      "ogTitle": "What changed — Circle to Search",
+      "ogDescription": "Every release, newest first — and what the number, the name and the build each say."
+    },
+    "hero": {
+      "eyebrow": "Changelog",
+      "heading": "What changed",
+      "lede": "Every release has a <strong>number</strong>, a <strong>name</strong> and a <strong>build</strong>. What is here now is <code>1.4.0 “material” (build 10012)</code>."
+    },
+    "numbering": {
+      "heading": "The number, the name and the build",
+      "number": {
+        "heading": "The number",
+        "body": "Says what changed in relation to the last one."
+      },
+      "name": {
+        "heading": "The name",
+        "body": "Says <em>which</em> one it is — the question somebody about to run <code>./install.sh update</code> is actually asking."
+      },
+      "build": {
+        "heading": "The build",
+        "body": "Five flat digits that only ever go up. It says nothing about what changed; it is the one thing a machine compares, and it exists because the number cannot answer “is this older than what I have” while <code>dev</code> and <code>deploy</code> sit on the same version for as long as the work takes."
+      },
+      "apart": "All three are kept apart in the files and joined only for display — <code>1.2.0 “better-version-control” (build 10000)</code>. <code>1.2.0-better-version-control</code> is not a version pip will take (under PEP 440 a hyphen introduces a <em>pre-release</em>, so that string sorts <em>below</em> <code>1.2.0</code>) and not one RPM will take at all, because its <code>Version</code> field uses the hyphen to separate the version from the release.",
+      "prints": "<code>./install.sh update</code> prints all of it, and what you were on before."
+    },
+    "releases": {
+      "v140": {
+        "name": "“material”",
+        "lede": "The look, on <strong>Material Design 3</strong> — because the gesture this program imitates is Google’s own <em>Circle to Search</em>, which on the phone it came from is drawn in MD3, so anyone who has seen it arrives with an expectation. What is taken is the part of the specification that is platform-neutral; what is not taken is Roboto, the <code>dp</code> table, spring physics and every line of Compose.",
+        "colours": "<strong>One set of colours, grown from the accent you already chose.</strong> MD3 builds a scheme from the wallpaper; this builds the same roles from the KDE accent in System Settings, so it agrees with the rest of your desktop instead of competing with it. Colours now only ever pair as <em>X</em> and <em>on-X</em>, which is why the text on a button is legible whatever accent you picked rather than whenever white happened to work.",
+        "dimming": "<strong>The dimming became a surface.</strong> MD3 shows depth as tone rather than shadow, and tone needs something to be a tone <em>of</em> — but everything here is drawn over a frozen photograph of somebody else’s screen. So the dim is no longer flat black: it is the scheme’s own near-black, carrying the accent’s hue, and the action bar and the readouts above it are lighter tones of the same palette. That is the one reading under which elevation applies here at all.",
+        "bar": "<strong>The bar is a pill, on the shape scale.</strong> Seven separate corner radii became one small set of them, the buttons pick up MD3’s state layers instead of a darker fill, and the keys and captions moved onto the role meant for secondary text.",
+        "type": "<strong>The type scale, in your font.</strong> Five roles at three sizes, applied as ratios to whatever you set in System Settings — a KDE application that overrides your font is a badly behaved KDE application, so the scale crosses over and the typeface does not.",
+        "schemes": "<strong>Two schemes, because the overlay has two backgrounds.</strong> Things drawn on the dimming take the dark one; the handles, the grip and the loupe’s crosshair are drawn on the part deliberately left <em>un</em>-dimmed — your own window, most often a white one — and take the light one. Everything drawn over an unknown screen keeps its two-tone edge: that rule is older than this redesign and MD3 does not override it.",
+        "settings": "<strong>The settings window fits on the screen again.</strong> Its tabs scroll. The hints under each setting are wrapped prose, and a wrapped label does not know how tall it is until it knows how wide it is — so the window used to open <em>shorter than its own contents</em> and lay the sentences over the controls beneath them. The labels report an honest height now, which fixed the overlap and made the window too tall, and scrolling is what makes both right."
+      },
+      "v130": {
+        "name": "“another-way”",
+        "qr": "<strong>A QR code wears its own button.</strong> The whole screen is read as it freezes, and every code found gets a small pill on it saying where it goes — press it and you are there, with nothing uploaded and nothing to select first. Two codes get two buttons, because one button in the action bar can only say “Open the link” about whichever it decided to mean. <span class=\"kbd\">Enter</span> takes the only code when there is one. A code that is not an http link is copied instead, because handing an arbitrary <code>WIFI:</code> or <code>bitcoin:</code> URI to the browser on a press is not a thing to do on the strength of a colon. It needs <code>zbar</code>, which the installer now offers; unlike text recognition it is on by default and is not asked about first, because the trade is the other way round — it costs nothing and its whole effect is to stop an upload. Pressing one is immediate: no badge, nothing queued in front of it, and the overlay out of the way before the browser arrives rather than on top of it.",
+        "drag": "<strong>Drag a pinned crop out of the window.</strong> <span class=\"kbd\">Ctrl</span> and a press on a pin carries the picture into a chat, a document or an editor — the same image the clipboard would have had, by a route that is one gesture where copy-switch-paste is four. It is the pin rather than the overlay because the overlay is full screen: a drag has to begin while the button is down, which over there is while every window the picture could be dropped into is underneath it.",
+        "keyboard": "<strong>Select without a mouse.</strong> The arrow keys raise a crosshair and move it — <span class=\"kbd\">Ctrl</span> to travel, <span class=\"kbd\">Shift</span> for one pixel at a time. <span class=\"kbd\">Space</span> pins one corner, the arrows size the box from it, <span class=\"kbd\">Space</span> again takes it, and from there it is the same waiting selection with the same keys on it. <span class=\"kbd\">Esc</span> lets go of the corner without letting go of the capture. Half of this existed: the arrows already moved a box that had been taken, and there was no way to take one.",
+        "another": "<strong>“Try another way” when an upload fails.</strong> The notification gets a button that sends the same picture by the <em>other</em> mechanism — if your browser was posting it, the daemon uploads; if the daemon was, your browser gets the page. They fail for unrelated reasons, so swapping them is a real second attempt, where retrying a different endpoint would not be: the automatic mode already walked all of them before it gave up. Offered once, and only when the notification server has buttons to press."
+      },
+      "v120": {
+        "name": "“better-version-control”",
+        "lede": "What 1.1.0 started, finished: it gave releases names, this makes them comparable, and quietens the installer that reports them.",
+        "build": "<strong>A build number.</strong> Five digits beside the version, up by one on every push. Deliberately not derived from the version: <code>dev</code> and <code>deploy</code> share a version number for as long as a release takes to write, which is exactly when something needs to know which of two copies is the later one.",
+        "backwards": "<strong>An update cannot quietly go backwards.</strong> <code>update</code> compares what it is about to install against what you have and stops if that is older — before anything is fetched over, moved or removed. Going back is still allowed, because retreating from a <code>dev</code> build that broke is the whole point of being able to, but it takes <code>--downgrade</code> and it <strong>erases the settings</strong>: the newer build wrote settings the older one has never heard of, and reading those back through older code fails in ways that look like a bug and are not. Captures and saved traces are kept, and it asks again before erasing anything.",
+        "nothing": "<strong><code>update</code> stops when there is nothing to do.</strong> Nothing fetched <em>and</em> the version installed is the version here means the work is already done; stopping the daemon to put the identical thing back was a minute of churn to arrive where it started. It still reinstalls without asking when the two differ, or when any commit arrived. <code>--force</code> does it regardless.",
+        "quiet": "<strong>The installer stopped shouting.</strong> Five numbered steps and a tick each, instead of forty lines. What a step’s commands print is held back and shown only if that step failed — its warnings are shown either way. The long “if nothing happens” list now appears only when the final check found something. <code>--debug</code> (or <code>--verbose</code>) prints all of it as before.",
+        "doctor": "<strong><code>circle-to-search --doctor</code>.</strong> One command that checks every joint — the session, the daemon, its service, the KWin script <em>and whether KWin is running the copy that is installed</em>, the shortcut, the screen capture by really taking one, the browser, the text recognition — and prints the fix next to whichever line is wrong. Exit code 1 when something is broken.",
+        "visible": "The build is visible everywhere the version is: <code>circle-to-search --version</code>, the tray’s <em>About</em>, the daemon’s first line in the journal, and both of <code>update</code>’s version lines.",
+        "dev": "<code>--dev</code>, from 1.1.0, is what makes all of that necessary: it is the one command that installs code nobody has looked at yet.",
+        "kwin": "KWin script <strong>1.11.0</strong> — unchanged, so nothing here needs a log-out."
+      },
+      "v110": {
+        "name": "“screenshot-window”",
+        "lede": "Seven things, all of them about what happens <em>after</em> the screen freezes.",
+        "text": "<strong>Search the text, not a picture of it.</strong> With a run of words selected, the primary action is now a plain web search for the string — the overlay has already read them, so nothing is uploaded to answer a question that is already answered. If what you picked out is a link, the button opens it instead.",
+        "readout": "<strong>The readout says what will actually be sent.</strong> Under <code>1200 × 480 px</code>, a second line: <code>→ 1000 × 400, ~30 KB JPEG</code>. The dimensions are arithmetic and instant; the bytes are measured by really preparing the crop, off the GUI thread.",
+        "again": "<strong>The same area as last time</strong> (<span class=\"kbd\">R</span>), to the pixel — for watching a number that changes, where a rectangle redrawn by hand is never quite the same one.",
+        "redact": "<strong>Black out part of the selection</strong> (<span class=\"kbd\">B</span>) before it leaves. Filled solid before the image is made, so no version of it with them still in ever exists — and the words underneath are dropped from the recognised text too.",
+        "colour": "<strong>A colour picker</strong> (<span class=\"kbd\">K</span>). The screen is already frozen and already magnified under the pointer; click a pixel and its <code>#rrggbb</code> is in the clipboard.",
+        "pin": "<strong>Pin a crop to the screen</strong> (<span class=\"kbd\">P</span>) and keep it there while you work, for when what you need to read is behind the window you have to type into.",
+        "captures": "<strong>A window for the kept captures</strong>, with a box that searches the text recognised inside them. How many to keep became a setting; five was a judgement about a tray menu.",
+        "also": "Also: <code>./install.sh update</code> — fetch the <code>deploy</code> branch and reinstall, in the order that cannot leave you worse off, with <code>--dev</code> to take the <code>dev</code> branch instead when a change needs testing before it is merged. And a repaint bug fixed that smeared the handles, the grip and the action bar across the screen when the selection was moved.",
+        "crash": "<strong>A crash fixed</strong> that was in 1.0.0 from the start: <em>About</em> and the one-time text-recognition question each opened a message box that blocked everything until it was answered, and that could freeze the daemon and then take it down with a SIGSEGV on the way out. Both are ordinary windows now — the tray keeps working while they are open, and neither can be destroyed while it is still on screen, which is what the segfault was.",
+        "kwin": "KWin script <strong>1.11.0</strong>. Log out and back in after updating, or the pinned windows will not be kept above the rest."
+      },
+      "v100": {
+        "first": "The first one. Shake detection in a KWin script, capture through ScreenShot2 / Spectacle / the portal, the selection overlay, and the Google Lens upload done by the browser rather than by the daemon.",
+        "polish": "Everything in <code>docs/POLISH.md</code> shipped in it: the calibration wizard, learning from real misfires, confirm-before-sending, optional local text recognition, an overlay on every screen, recent captures in the tray, a tray icon that says why shaking will not work, the magnifier, and the Android-style stroke."
+      }
+    },
+    "footer": {
+      "heading": "On this page",
+      "numbering": "The number, the name and the build",
+      "v140": "1.4.0 “material”",
+      "v130": "1.3.0 “another-way”",
+      "v120": "1.2.0 “better-version-control”",
+      "v110": "1.1.0 “screenshot-window”"
+    }
+  }
+}

@@ -1,40 +1,62 @@
 <!doctype html>
-<html lang="uk" prefix="og: https://ogp.me/ns#">
+<!-- One page, two languages.  Every sentence on it comes out of i18n/en_US.json
+     or i18n/uk_UA.json through js/i18n.js; the only English written here is in
+     the <head>, where it is read by scrapers that do not run scripts, and
+     tools/check-site.py holds those few lines to exactly what en_US.json says.
+     Nothing else in this file is prose. -->
+<html lang="en" data-lang="en_US" prefix="og: https://ogp.me/ns#">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Обвести й знайти — жест Google Lens для KDE Plasma 6</title>
-<meta name="description" content="Потрясіть мишею. Обведіть будь-що на екрані. Отримайте результат Google Lens. Жест з телефонів Google — для KDE Plasma 6 на Wayland.">
+<title data-i18n="index.meta.title">Circle to Search — the Google Lens gesture for KDE Plasma 6</title>
+<meta name="description" data-i18n-attr="content: index.meta.description" content="Shake the mouse. Circle anything on your screen. Get a Google Lens result. Google’s phone gesture, for KDE Plasma 6 on Wayland.">
 <link rel="canonical" href="index.html">
-<link rel="alternate" hreflang="uk" href="index.html">
-<link rel="alternate" hreflang="en" href="en/index.html">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.png">
 <meta property="og:type" content="website">
-<meta property="og:locale" content="uk_UA">
-<meta property="og:locale:alternate" content="en_GB">
-<meta property="og:title" content="Обвести й знайти">
-<meta property="og:description" content="Потрясіть мишею. Обведіть будь-що на екрані. Отримайте результат Google Lens.">
-<meta property="og:image" content="og.png">
+<meta property="og:locale" data-i18n-attr="content: lang.ogLocale" content="en_GB">
+<meta property="og:locale:alternate" data-i18n-attr="content: lang.ogLocaleAlternate" content="uk_UA">
+<meta property="og:title" data-i18n-attr="content: index.meta.ogTitle" content="Circle to Search">
+<meta property="og:description" data-i18n-attr="content: index.meta.ogDescription" content="Shake the mouse. Circle anything on your screen. Get a Google Lens result.">
+<meta property="og:image" data-i18n-attr="content: lang.ogImage" content="og-en.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" content="Біла лінія з кольоровим сяйвом обводить назву «Обвести й знайти».">
+<meta property="og:image:alt" data-i18n-attr="content: lang.ogImageAlt" content="A white line with a coloured glow circling the words “Circle to Search”.">
 <meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:title" content="Обвести й знайти">
-<meta name="twitter:description" content="Потрясіть мишею. Обведіть будь-що на екрані. Отримайте результат Google Lens.">
-<meta name="twitter:image" content="og.png">
+<meta name="twitter:title" data-i18n-attr="content: index.meta.ogTitle" content="Circle to Search">
+<meta name="twitter:description" data-i18n-attr="content: index.meta.ogDescription" content="Shake the mouse. Circle anything on your screen. Get a Google Lens result.">
+<meta name="twitter:image" data-i18n-attr="content: lang.ogImage" content="og-en.png">
 <link rel="stylesheet" href="css/site.css">
 <script>
-/* Before the first paint, so a dark desktop never gets a white flash. */
+/* Before the first paint: a dark desktop never gets a white flash, and the
+   language for this tab is settled before anything is asked for.  The fetch
+   is started here rather than in js/i18n.js so it is in flight while the rest
+   of the page is still being parsed. */
 (function () {
+  var root = document.documentElement;
   try {
-    var chosen = localStorage.getItem('cts-theme');
-    if (chosen === 'dark' || chosen === 'light') {
-      document.documentElement.setAttribute('data-theme', chosen);
-    }
+    var theme = localStorage.getItem('cts-theme');
+    if (theme === 'dark' || theme === 'light') root.setAttribute('data-theme', theme);
+  } catch (error) {}
+
+  var locale = 'en_US';
+  try {
+    var chosen = sessionStorage.getItem('cts-lang');
+    if (chosen === 'en_US' || chosen === 'uk_UA') locale = chosen;
+  } catch (error) {}
+  root.setAttribute('data-lang', locale);
+  root.setAttribute('data-i18n-pending', '');
+
+  window.CTS = window.CTS || {};
+  try {
+    window.CTS.strings = fetch('i18n/' + locale + '.json').then(function (answer) {
+      if (!answer.ok) throw new Error(answer.status);
+      return answer.json();
+    });
   } catch (error) {}
 })();
 </script>
+<script src="js/i18n.js" defer></script>
 <script src="js/ramp.js" defer></script>
 <script src="js/md3.js" defer></script>
 <script src="js/stroke.js" defer></script>
@@ -43,31 +65,36 @@
 </head>
 <body>
 
-<a class="skip-link" href="#main">Перейти до вмісту</a>
+<a class="skip-link" href="#main" data-i18n="common.skip"></a>
 
 <header class="topbar">
   <div class="container topbar__inner">
     <a class="brand" href="index.html">
       <img class="brand__mark" src="icon.svg" alt="" width="32" height="32">
-      <span>Обвести й знайти</span>
+      <span data-i18n="common.brand"></span>
     </a>
-    <nav aria-label="Розділи сайту">
+    <nav data-i18n-attr="aria-label: common.nav.aria">
       <ul class="nav label-large">
-        <li><a href="#features">Можливості</a></li>
-        <li><a href="#privacy">Приватність</a></li>
-        <li><a href="install.html">Встановлення</a></li>
-        <li><a href="changes.html">Що змінилося</a></li>
+        <li><a href="#features" data-i18n="common.nav.features"></a></li>
+        <li><a href="#privacy" data-i18n="common.nav.privacy"></a></li>
+        <li><a href="install.html" data-i18n="common.nav.install"></a></li>
+        <li><a href="changes.html" data-i18n="common.nav.changes"></a></li>
       </ul>
     </nav>
     <div class="topbar__tools">
-      <div class="langswitch">
-        <a href="index.html" aria-current="true" lang="uk" hreflang="uk">UA</a>
-        <a href="en/index.html" lang="en" hreflang="en">EN</a>
+      <div class="langswitch" role="group" data-i18n-attr="aria-label: common.lang.aria">
+        <button type="button" data-switch-lang="uk_UA" lang="uk"
+                data-i18n="common.lang.ukShort"
+                data-i18n-attr="aria-label: common.lang.ukName"></button>
+        <button type="button" data-switch-lang="en_US" lang="en"
+                data-i18n="common.lang.enShort"
+                data-i18n-attr="aria-label: common.lang.enName"></button>
       </div>
       <button class="iconbutton" type="button" data-theme-toggle hidden
-              aria-pressed="false" aria-label="Перемкнути тему"
-              data-label-dark="Увімкнути темну тему"
-              data-label-light="Увімкнути світлу тему">
+              aria-pressed="false"
+              data-i18n-attr="aria-label: common.theme.aria;
+                              data-label-dark: common.theme.toDark;
+                              data-label-light: common.theme.toLight">
         <svg class="iconbutton__sun" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
         <svg class="iconbutton__moon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 14.5A8.5 8.5 0 1 1 9.5 4a7 7 0 0 0 10.5 10.5z"/></svg>
       </button>
@@ -81,53 +108,54 @@
     <canvas class="hero__canvas" data-hero-canvas aria-hidden="true"></canvas>
     <div class="container hero__inner">
       <div class="hero__content">
-        <h1 class="display-large hero__title" id="hero-title">Обвести й&nbsp;знайти</h1>
-        <p class="headline-small hero__tagline">Потрясіть мишею. Обведіть будь-що на екрані. Отримайте результат Google&nbsp;Lens.</p>
-        <p class="body-large hero__sub">Жест з телефонів Google — для KDE&nbsp;Plasma&nbsp;6 на Wayland.</p>
+        <h1 class="display-large hero__title" id="hero-title" data-i18n="index.hero.title"></h1>
+        <p class="headline-small hero__tagline" data-i18n="index.hero.tagline"></p>
+        <p class="body-large hero__sub" data-i18n="index.hero.sub"></p>
         <div class="actions">
           <a class="btn btn--filled" href="install.html">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4"/><path d="M4 17v2a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-2"/></svg>
-            Встановити
+            <span data-i18n="index.hero.install"></span>
           </a>
           <a class="btn btn--outlined" href="https://github.com/fand1l/cts_gl">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18-6-6 6-6M15 6l6 6-6 6"/></svg>
-            GitHub
+            <span>GitHub</span>
           </a>
         </div>
-        <p class="body-medium hero__hint" data-hero-hint hidden>Проведіть тут — слід іде за курсором так само, як у програмі.</p>
+        <p class="body-medium hero__hint" data-hero-hint hidden data-i18n="index.hero.hint"></p>
       </div>
     </div>
   </section>
 
   <section class="section" id="what">
     <div class="container">
-      <h2 class="visually-hidden">Що воно робить</h2>
-      <p class="lede">Потрясіть вказівником по діагоналі — вниз-праворуч, вгору-ліворуч, вниз-праворуч — і екран застигне й потемніє. Обведіть те, що вас зацікавило. Воно відкриється в Google Lens у вашому браузері.</p>
-      <p class="lede">Оце і вся ідея. Усе решта — це те, що відбувається навколо неї.</p>
+      <h2 class="visually-hidden" data-i18n="index.what.heading"></h2>
+      <p class="lede" data-i18n="index.what.first"></p>
+      <p class="lede" data-i18n="index.what.second"></p>
     </div>
   </section>
 
   <section class="section section--tinted" id="gesture">
     <div class="container">
       <div class="section__head">
-        <span class="eyebrow">Жест</span>
-        <h2>Трясіть по діагоналі</h2>
+        <span class="eyebrow" data-i18n="index.gesture.eyebrow"></span>
+        <h2 data-i18n="index.gesture.heading"></h2>
       </div>
       <div class="gesture">
         <div>
-          <p>Трясіть вказівником <strong>по діагоналі</strong> — вниз-праворуч, вгору-ліворуч, вниз-праворуч — різко, на одному місці. Приблизно 150 пікселів на мах, двічі, десь за пів секунди.</p>
-          <p>Якщо не спрацьовує — або спрацьовує, коли ви просто працюєте, — не лізьте в налаштування: <strong>Налаштування → Відкалібрувати жест…</strong> виміряє з десяток ваших власних махів і виведе з них усі пороги.</p>
-          <p>Ще можна натиснути <span class="kbd">Meta</span>&nbsp;+&nbsp;<span class="kbd">Shift</span>&nbsp;+&nbsp;<span class="kbd">L</span> або <strong>Зняти зараз</strong> у меню трея.</p>
-          <p class="supporting">Крапка нижче проходить рівно той рух, якого просять типові пороги: два розвороти, 150&nbsp;px на мах, 700&nbsp;px/с, 30° допуску від діагоналі. Ті самі числа інсталятор записує в <code>kwinrc</code>.</p>
+          <p data-i18n="index.gesture.how"></p>
+          <p data-i18n="index.gesture.calibrate"></p>
+          <p data-i18n="index.gesture.shortcut"></p>
+          <p class="supporting" data-i18n="index.gesture.numbers"></p>
         </div>
         <div>
-          <canvas class="gesture__panel" data-gesture-canvas width="520" height="260" role="img" aria-label="Схема руху: три махи по діагоналі — вниз-праворуч, вгору-ліворуч, вниз-праворуч"></canvas>
+          <canvas class="gesture__panel" data-gesture-canvas width="520" height="260" role="img"
+                  data-i18n-attr="aria-label: index.gesture.diagram"></canvas>
         </div>
       </div>
       <figure class="feature__figure" style="margin-top: var(--space-6)">
-        <img src="images/overlay-start-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-             alt="Застиглий притемнений екран перед виділенням; на панелі — «Ласо», «Прямокутник», «Колір» і «Те саме місце».">
-        <figcaption>Потрясли — екран застиг. Ласо, прямокутник — або те саме місце, що й минулого разу.</figcaption>
+        <img width="1440" height="900" loading="lazy" decoding="async"
+             data-i18n-attr="src: index.gesture.shot.src; alt: index.gesture.shot.alt">
+        <figcaption data-i18n="index.gesture.shot.caption"></figcaption>
       </figure>
     </div>
   </section>
@@ -135,126 +163,126 @@
   <section class="section" id="features">
     <div class="container">
       <div class="section__head">
-        <span class="eyebrow">Можливості</span>
-        <h2>Що відбувається навколо жесту</h2>
+        <span class="eyebrow" data-i18n="index.features.eyebrow"></span>
+        <h2 data-i18n="index.features.heading"></h2>
       </div>
 
       <div class="feature">
         <div class="feature__body">
-          <h3>Обведіть або потягніть рамку</h3>
-          <p>Від руки за замовчуванням, як на телефоні. <span class="kbd">Shift</span> — прямокутник, а клац по вікну бере саме те вікно.</p>
-          <p class="supporting">Широка біла лінія з кольоровим сяйвом, що йде за рукою. Сяйво бере колір з того, де воно на екрані: синій угорі, червоний посередині, жовтий нижче, зелений унизу.</p>
+          <h3 data-i18n="index.features.draw.heading"></h3>
+          <p data-i18n="index.features.draw.body"></p>
+          <p class="supporting" data-i18n="index.features.draw.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-drawing-uk.png" width="1440" height="900" decoding="async"
-               alt="Товста біла лінія з помаранчевим сяйвом, обведена від руки навколо абзацу на притемненому екрані.">
+          <img width="1440" height="900" decoding="async"
+               data-i18n-attr="src: index.features.draw.shot.src; alt: index.features.draw.shot.alt">
         </figure>
       </div>
 
       <div class="feature feature--flip">
         <div class="feature__body">
-          <h3>Нічого не надсилається, доки ви не скажете</h3>
-          <p>Виділення чекає з ручками, за які можна тягнути, і кнопками, які кажуть, що кожна робить. Вивантаження не можна забрати назад, тож є мить, щоб перевірити.</p>
-          <p class="supporting">Над ним два рядки: розмір того, що ви виділили, а під ним — що насправді піде: <code>→ 1000 × 400, ~30 KB JPEG</code>. Це різні числа.</p>
+          <h3 data-i18n="index.features.confirm.heading"></h3>
+          <p data-i18n="index.features.confirm.body"></p>
+          <p class="supporting" data-i18n="index.features.confirm.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-actions-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Виділення з вісьмома маркерами очікує; над ним розмір і вага майбутнього файлу, під ним кнопки «Шукати», «Копіювати», «Зберегти», «Приколоти», «Замалювати».">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.confirm.shot.src; alt: index.features.confirm.shot.alt">
         </figure>
       </div>
 
       <div class="feature">
         <div class="feature__body">
-          <h3>Замалюйте те, що не має піти</h3>
-          <p>Токен, адресу, імʼя в кутку. Його зафарбують <strong>перед</strong> тим, як буде зроблено картинку, тож версії з ним просто не існує — ні в буфері обміну, ні в збереженому PNG, ні на сторінці, яку надсилає браузер.</p>
-          <p class="supporting">Слова під замальованим зникають і з розпізнаного тексту. <span class="kbd">Backspace</span> скасовує останній прямокутник.</p>
+          <h3 data-i18n="index.features.redact.heading"></h3>
+          <p data-i18n="index.features.redact.body"></p>
+          <p class="supporting" data-i18n="index.features.redact.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-redact-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Два суцільні чорні прямокутники закривають два рядки тексту всередині виділення; на панелі активна кнопка «Замалювати».">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.redact.shot.src; alt: index.features.redact.shot.alt">
         </figure>
       </div>
 
       <div class="feature feature--flip">
         <div class="feature__body">
-          <h3>Виділіть текст на застиглому екрані</h3>
-          <p>Слова стають виділюваними, як текст у браузері. Шукайте самі слова, а не їхню картинку, — або копіюйте так, щоб нічого не залишало машину.</p>
-          <p class="supporting">Такий пошук не вивантажує нічого: слова вже прочитані, тож це звичайний вебпошук. Читає <code>tesseract</code> на вашій машині, і воно вимкнене, доки ви не попросите.</p>
+          <h3 data-i18n="index.features.text.heading"></h3>
+          <p data-i18n="index.features.text.body"></p>
+          <p class="supporting" data-i18n="index.features.text.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-text-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Два рядки тексту на застиглому екрані підсвічені, як виділений текст; кнопки «Шукати», «Копіювати текст», «Увесь текст».">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.text.shot.src; alt: index.features.text.shot.alt">
         </figure>
       </div>
 
       <div class="feature">
         <div class="feature__body">
-          <h3>Приколіть до екрана</h3>
-          <p>Кроп лишається на екрані маленьким віконцем поверх усього: його можна тягати мишею, крутити колесом, щоб масштабувати, і закрити на <span class="kbd">Esc</span>.</p>
-          <p class="supporting">Стає в пригоді щоразу, коли те, що треба прочитати, за вікном, у яке треба друкувати. <span class="kbd">Ctrl</span>&nbsp;+&nbsp;<span class="kbd">C</span> копіює, а <span class="kbd">Ctrl</span> із перетягуванням виносить картинку просто в чат чи документ.</p>
+          <h3 data-i18n="index.features.pin.heading"></h3>
+          <p data-i18n="index.features.pin.body"></p>
+          <p class="supporting" data-i18n="index.features.pin.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/pinned-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Невеликий фрагмент із двома рядками тексту висить окремим білим вікном поверх термінала.">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.pin.shot.src; alt: index.features.pin.shot.alt">
         </figure>
       </div>
 
       <div class="feature feature--flip">
         <div class="feature__body">
-          <h3>Візьміть колір з екрана</h3>
-          <p>Затемнення зникає, лупа йде за вказівником і показує під собою колір пікселя та його hex, а клац копіює <code>#rrggbb</code> — або <code>rgb(…)</code>, якщо тримати <span class="kbd">Shift</span>.</p>
-          <p class="supporting">У Plasma є власна піпетка, тож для стільниці це не новина. Вона тут, бо відповідь і так була на екрані: програма вже застигла екран і вже збільшила його під вашим вказівником — і викидала це значення.</p>
+          <h3 data-i18n="index.features.colour.heading"></h3>
+          <p data-i18n="index.features.colour.body"></p>
+          <p class="supporting" data-i18n="index.features.colour.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-colour-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Піпетка кольору: лупа збільшує зелений текст у терміналі, під нею зелена плашка з hex-кодом.">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.colour.shot.src; alt: index.features.colour.shot.alt">
         </figure>
       </div>
 
       <div class="feature">
         <div class="feature__body">
-          <h3>Клацніть по вікну</h3>
-          <p>Замість того, щоб старанно його обводити, — візьме саме те вікно.</p>
+          <h3 data-i18n="index.features.window.heading"></h3>
+          <p data-i18n="index.features.window.body"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-window-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Ціле вікно, обведене синьою пунктирною рамкою на притемненому екрані, з підказкою «клацніть, щоб узяти це вікно».">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.window.shot.src; alt: index.features.window.shot.alt">
         </figure>
       </div>
 
       <div class="feature feature--flip">
         <div class="feature__body">
-          <h3>Лупа, поки ви цілитеся</h3>
-          <p>Щоб край ліг туди, куди ви хотіли.</p>
+          <h3 data-i18n="index.features.magnifier.heading"></h3>
+          <p data-i18n="index.features.magnifier.body"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/overlay-magnifier-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-               alt="Прямокутник під час перетягування; біля кута — кругла лупа з перехрестям.">
+          <img width="1440" height="900" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.magnifier.shot.src; alt: index.features.magnifier.shot.alt">
         </figure>
       </div>
 
       <div class="feature">
         <div class="feature__body">
-          <h3>Знімки лишаються, і в них можна шукати</h3>
-          <p>Поле вгорі шукає <strong>по тексту, розпізнаному всередині них</strong>, — тож «що це була за помилка, яку я гуглив минулого тижня» стає питанням, на яке є відповідь.</p>
-          <p class="supporting">Звідси кожен знімок можна знайти знову, скопіювати, зберегти або прочитати. Скільки їх зберігати — ваше рішення.</p>
+          <h3 data-i18n="index.features.captures.heading"></h3>
+          <p data-i18n="index.features.captures.body"></p>
+          <p class="supporting" data-i18n="index.features.captures.supporting"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/captures-uk.png" width="780" height="560" loading="lazy" decoding="async"
-               alt="Вікно збережених знімків: поле пошуку по розпізнаному тексту й шість мініатюр із часом і розміром.">
+          <img width="780" height="560" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.features.captures.shot.src; alt: index.features.captures.shot.alt">
         </figure>
       </div>
 
       <ul class="cards" style="margin-top: var(--space-6)">
         <li class="card card--filled">
-          <h3 class="title-large">QR-код носить кнопку прямо на собі</h3>
-          <p>Будь-який код на застиглому екрані читається там, де він є, і носить маленьку кнопку з сайтом, куди веде, — натиснули й ви там. Розшифровується на вашій машині, десь за мілісекунду, і нічого з нього не вивантажується.</p>
-          <p class="supporting">Два коди — дві кнопки, бо одна не може сказати, який саме має на увазі.</p>
+          <h3 class="title-large" data-i18n="index.features.qr.heading"></h3>
+          <p data-i18n="index.features.qr.body"></p>
+          <p class="supporting" data-i18n="index.features.qr.supporting"></p>
         </li>
         <li class="card card--filled">
-          <h3 class="title-large">Те саме місце, що й минулого разу</h3>
-          <p>До пікселя — коли стежите за числом, яке змінюється, а намальований від руки прямокутник щоразу трохи інший.</p>
-          <p class="supporting">Кнопка <strong>Те саме місце</strong> на панелі, або клавіша <span class="kbd">R</span>.</p>
+          <h3 class="title-large" data-i18n="index.features.again.heading"></h3>
+          <p data-i18n="index.features.again.body"></p>
+          <p class="supporting" data-i18n="index.features.again.supporting"></p>
         </li>
       </ul>
     </div>
@@ -263,32 +291,34 @@
   <section class="section section--tinted" id="settings">
     <div class="container">
       <div class="section__head">
-        <span class="eyebrow">Налаштування</span>
-        <h2>Більшість вам не знадобиться ніколи</h2>
+        <span class="eyebrow" data-i18n="index.settings.eyebrow"></span>
+        <h2 data-i18n="index.settings.heading"></h2>
       </div>
       <div class="feature feature--portrait">
         <div class="feature__body">
-          <p>Ті, що варто знати:</p>
+          <p data-i18n="index.settings.lede"></p>
           <div class="table-wrap">
             <table class="body-medium">
-              <caption class="visually-hidden">Налаштування, які варто знати</caption>
+              <caption class="visually-hidden" data-i18n="index.settings.caption"></caption>
               <tbody>
-                <tr><th scope="row">Відкалібрувати жест…</th><td>виміряє ваше струшування й виставить із нього всі пороги</td></tr>
-                <tr><th scope="row">Розпізнавати трясіння курсора</th><td>вимкнено — лишаються хоткей і трей</td></tr>
-                <tr><th scope="row">Форма виділення</th><td>ласо чи прямокутник; <span class="kbd">Shift</span> міняє на одне перетягування</td></tr>
-                <tr><th scope="row">Перевіряти виділення перед надсиланням</th><td>увімкнено — вимкнене надсилає одразу після відпускання</td></tr>
-                <tr><th scope="row">Збільшувати під час виділення</th><td>лупа біля вказівника</td></tr>
-                <tr><th scope="row">Робити текст на екрані виділюваним</th><td>необовʼязкове локальне розпізнавання</td></tr>
-                <tr><th scope="row">Скільки зберігати</th><td>знімки, які пропонують трей і вікно знімків</td></tr>
-                <tr><th scope="row">Оверлей на кожному моніторі</th><td>щоб виділення могло перетнути стик</td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.calibrate.name"></th><td data-i18n="index.settings.rows.calibrate.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.detect.name"></th><td data-i18n="index.settings.rows.detect.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.shape.name"></th><td data-i18n="index.settings.rows.shape.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.confirm.name"></th><td data-i18n="index.settings.rows.confirm.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.magnify.name"></th><td data-i18n="index.settings.rows.magnify.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.ocr.name"></th><td data-i18n="index.settings.rows.ocr.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.keep.name"></th><td data-i18n="index.settings.rows.keep.says"></td></tr>
+                <tr><th scope="row" data-i18n="index.settings.rows.monitors.name"></th><td data-i18n="index.settings.rows.monitors.says"></td></tr>
               </tbody>
             </table>
           </div>
-          <p class="supporting">Десять порогових значень сховані за <strong>Додатково</strong>, бо калібрування майже завжди кращий шлях.</p>
+          <p class="supporting" data-i18n="index.settings.advanced"></p>
         </div>
         <figure class="feature__figure">
-          <img src="images/settings-uk.png" width="560" height="820" loading="lazy" decoding="async"
-               alt="Вікно налаштувань, вкладка «Детекція»: перегляд руху, кнопка «Відкалібрувати жест…» і сполучення клавіш Meta+Shift+L.">
+          <img width="560" loading="lazy" decoding="async"
+               data-i18n-attr="src: index.settings.shot.src;
+                               height: index.settings.shot.height;
+                               alt: index.settings.shot.alt">
         </figure>
       </div>
     </div>
@@ -297,45 +327,45 @@
   <section class="section" id="privacy">
     <div class="container">
       <div class="section__head">
-        <span class="eyebrow">Приватність</span>
-        <h2>Без викрутасів</h2>
+        <span class="eyebrow" data-i18n="index.privacy.eyebrow"></span>
+        <h2 data-i18n="index.privacy.heading"></h2>
       </div>
       <ul class="bullets body-large">
-        <li><strong>Можна спершу зафарбувати частину.</strong> <em>Замалювати</em> заливає намальовані вами прямокутники суцільним — і це стається <em>перед</em> тим, як робиться картинка, а не поверх неї. Копії зображення з ними просто не існує: ні в буфері обміну, ні в збереженому PNG, ні в збереженому знімку, ні на сторінці, яку надсилає браузер. Слова під ними зникають і з розпізнаного тексту.</li>
-        <li>Демон <strong>не робить жодних мережевих зʼєднань сам</strong>. Він пише маленьку локальну сторінку з вбудованим виділенням і віддає її вашому браузеру, а вже браузер розмовляє з Google. Тому сеанс, який вивантажує, — ваш сеанс; саме тому сторінка з результатом і відкривається там, де ви її можете прочитати.</li>
-        <li><strong>Розпізнавання тексту локальне.</strong> <code>tesseract</code>, на вашій машині, і лише якщо ви його ввімкнете.</li>
-        <li><strong>Жодних ключів API, акаунтів чи телеметрії.</strong> Нічого не збирається.</li>
-        <li>Пʼять останніх знімків лежать у <code>~/.local/share/circle-to-search/recent</code>, щоб трей міг запропонувати їх ще раз. Вимикається в налаштуваннях, або <code>./uninstall.sh --purge</code>.</li>
+        <li data-i18n="index.privacy.redact"></li>
+        <li data-i18n="index.privacy.network"></li>
+        <li data-i18n="index.privacy.ocr"></li>
+        <li data-i18n="index.privacy.telemetry"></li>
+        <li data-i18n="index.privacy.recent"></li>
       </ul>
-      <p class="supporting">Цей сайт теж: жодного зовнішнього запиту. Ні шрифтів, ні CDN, ні аналітики, ні лічильників. Усе, що ви бачите, лежить у тому самому репозиторії.</p>
+      <p class="supporting" data-i18n="index.privacy.site"></p>
     </div>
   </section>
 
   <section class="section section--tinted" id="install">
     <div class="container">
       <div class="section__head">
-        <span class="eyebrow">Встановлення</span>
-        <h2>Три команди</h2>
+        <span class="eyebrow" data-i18n="index.install.eyebrow"></span>
+        <h2 data-i18n="index.install.heading"></h2>
       </div>
-      <p>Потрібні <strong>KDE Plasma 6 на Wayland</strong> і <strong>Python 3.11 або новіший</strong>.</p>
+      <p data-i18n="index.install.requirements"></p>
       <div class="codeblock codeblock--big">
         <div class="codeblock__bar">
           <span class="label-medium">bash</span>
           <button class="copy" type="button" data-copy="install-commands" data-live="copy-status" hidden
-                  data-label-done="Скопійовано" data-label-select="Виділено — натисніть Ctrl+C">
+                  data-i18n-attr="data-label-idle: common.copy.idle;
+                                  data-label-done: common.copy.done;
+                                  data-label-select: common.copy.select">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>
-            <span data-copy-text>Скопіювати</span>
+            <span data-copy-text data-i18n="common.copy.idle"></span>
           </button>
         </div>
-        <pre id="install-commands"><code>git clone https://github.com/fand1l/cts_gl.git
-cd cts_gl
-./install.sh</code></pre>
+        <pre id="install-commands" data-i18n="commands.install"></pre>
       </div>
       <p class="visually-hidden" id="copy-status" role="status" aria-live="polite"></p>
-      <p><strong>Вийдіть із сеансу і зайдіть знову</strong> після встановлення, щоб KWin завантажив скрипт.</p>
+      <p data-i18n="index.install.logout"></p>
       <div class="actions">
-        <a class="btn btn--filled" href="install.html">Повна інструкція</a>
-        <a class="btn btn--text" href="install.html#doctor">Якщо щось не працює</a>
+        <a class="btn btn--filled" href="install.html" data-i18n="index.install.full"></a>
+        <a class="btn btn--text" href="install.html#doctor" data-i18n="index.install.doctor"></a>
       </div>
     </div>
   </section>
@@ -343,11 +373,11 @@ cd cts_gl
   <section class="section" id="author">
     <div class="container">
       <div class="author">
-        <span class="eyebrow">Хто це написав</span>
-        <h2 class="headline-medium">Цю програму написав Claude</h2>
-        <p>Модель ШІ від Anthropic — за кілька сеансів: архітектуру, код, тести й цю документацію.</p>
-        <p><a href="https://github.com/fand1l">@fand1l</a> керував роботою: обирав, що робити, перевіряв кожну версію на живому залізі й надсилав ті скріншоти й звіти про помилки, які її виправляли. Кілька речей, заради яких програмою взагалі варто користуватися, — виділюваний текст на застиглому екрані, обведення в стилі Android, зловлене вікно, якого не було видно, — існують саме тому, що він спробував і сказав, що не так.</p>
-        <p>Здалося чеснішим сказати про це, ніж дати вам припустити інше.</p>
+        <span class="eyebrow" data-i18n="index.author.eyebrow"></span>
+        <h2 class="headline-medium" data-i18n="index.author.heading"></h2>
+        <p data-i18n="index.author.first"></p>
+        <p data-i18n="index.author.second"></p>
+        <p data-i18n="index.author.third"></p>
       </div>
     </div>
   </section>
@@ -356,12 +386,12 @@ cd cts_gl
     <div class="container">
       <div class="release" style="border-top: 0; padding-top: 0">
         <div class="release__head">
-          <h2 class="headline-small">Зараз тут 1.4.0</h2>
-          <span class="release__name">«material»</span>
+          <h2 class="headline-small" data-i18n="index.release.heading"></h2>
+          <span class="release__name" data-i18n="index.release.name"></span>
         </div>
-        <p>У кожного випуску, крім номера, є назва — <code>1.2.0 “better-version-control”</code> одразу каже, який це. Останній переніс увесь вигляд програми на Material&nbsp;3, у ваш акцентний колір.</p>
+        <p data-i18n="index.release.body"></p>
         <div class="actions">
-          <a class="btn btn--tonal" href="changes.html">Що змінилося в кожному</a>
+          <a class="btn btn--tonal" href="changes.html" data-i18n="index.release.link"></a>
         </div>
       </div>
     </div>
@@ -373,36 +403,45 @@ cd cts_gl
   <div class="container">
     <div class="footer__grid">
       <div>
-        <h2>Проєкт</h2>
+        <h2 data-i18n="common.footer.project.heading"></h2>
         <ul class="body-medium">
-          <li><a href="https://github.com/fand1l/cts_gl">Репозиторій на GitHub</a></li>
-          <li><a href="https://github.com/fand1l/cts_gl/blob/dev/README.uk.md">README українською</a></li>
-          <li><a href="https://github.com/fand1l/cts_gl/blob/dev/docs/TECHNICAL.md">Технічна документація</a></li>
-          <li><a href="changes.html">Що змінилося</a></li>
+          <li><a href="https://github.com/fand1l/cts_gl" data-i18n="common.footer.project.repo"></a></li>
+          <li><a data-i18n="common.footer.project.readme"
+                 data-i18n-attr="href: common.footer.project.readmeHref"></a></li>
+          <li><a href="https://github.com/fand1l/cts_gl/blob/dev/docs/TECHNICAL.md" data-i18n="common.footer.project.technical"></a></li>
+          <li><a href="changes.html" data-i18n="common.nav.changes"></a></li>
         </ul>
       </div>
       <div>
-        <h2>Сторінки</h2>
+        <h2 data-i18n="index.footer.heading"></h2>
         <ul class="body-medium">
-          <li><a href="index.html">Головна</a></li>
-          <li><a href="install.html">Встановлення</a></li>
-          <li><a href="install.html#doctor">Якщо щось не працює</a></li>
+          <li><a href="index.html" data-i18n="index.footer.home"></a></li>
+          <li><a href="install.html" data-i18n="common.nav.install"></a></li>
+          <li><a href="install.html#doctor" data-i18n="index.footer.doctor"></a></li>
         </ul>
       </div>
       <div>
-        <h2>Мова</h2>
+        <h2 data-i18n="common.lang.heading"></h2>
         <ul class="body-medium">
-          <li><a href="index.html" lang="uk">Українською</a></li>
-          <li><a href="en/index.html" lang="en">In English</a></li>
+          <li><button class="linkish" type="button" data-switch-lang="uk_UA" lang="uk" data-i18n="common.lang.ukName"></button></li>
+          <li><button class="linkish" type="button" data-switch-lang="en_US" lang="en" data-i18n="common.lang.enName"></button></li>
         </ul>
       </div>
     </div>
     <div class="footer__bottom">
-      <p class="body-medium">MIT — див. <a href="https://github.com/fand1l/cts_gl/blob/dev/LICENSE">LICENSE</a>.</p>
-      <p class="body-medium">Не повʼязано з Google. «Circle to Search» і «Google Lens» — назви Google для речей Google; це незалежна програма, яка відкриває їхню публічну вебточку у вашому браузері.</p>
+      <p class="body-medium" data-i18n="common.footer.licence"></p>
+      <p class="body-medium" data-i18n="common.footer.disclaimer"></p>
     </div>
   </div>
 </footer>
+
+<noscript>
+  <div class="container section">
+    <p class="lede" lang="en">This page needs JavaScript to put its own text in: one page, two languages, and the strings in <code>i18n/</code>. The README on GitHub says the same things without it.</p>
+    <p class="lede" lang="uk">Ця сторінка бере свій текст скриптом: одна сторінка, дві мови, рядки в <code>i18n/</code>. Те саме, без скриптів, є в README на GitHub.</p>
+    <p class="lede"><a href="https://github.com/fand1l/cts_gl">github.com/fand1l/cts_gl</a></p>
+  </div>
+</noscript>
 
 </body>
 </html>
