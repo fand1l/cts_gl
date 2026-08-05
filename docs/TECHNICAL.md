@@ -796,18 +796,49 @@ INFO  the compositor did not act on the shortcut; falling back to Qt's idea of
 That line means the KWin script is not loaded, or its shortcut is registered
 under a different name — check System Settings → Shortcuts → KWin.
 
-### The last five, in the tray
+### The kept captures, and the window that searches them
 
-Tray icon → **Recent captures** lists the last five selections with a thumbnail
-and their size. Each one can be searched again, copied, saved, or read as text,
-without redoing the gesture — useful when the answer was "that was the wrong
-result, try the same crop again" or when the screen has already changed.
+Tray icon → **Recent captures** lists the newest few with a thumbnail and their
+size; each can be searched again, copied, saved, or read as text without redoing
+the gesture — useful when the answer was "that was the wrong result, try the same
+crop again", or when the screen has already changed.
 
-They are PNGs in `~/.local/share/circle-to-search/recent/`, pruned to five as
-new ones arrive. That is a real thing on disk, so: **Forget this one** and
-**Forget all of them** are in the same menu, and unticking Settings → General →
-*Keep the last few selections* stops it entirely (the list then says so instead
-of pretending to be empty).
+**All of them…** opens a window with the rest, and a box that searches **the text
+recognised inside them**. That corpus was already on disk: whatever tesseract
+read inside a crop is kept in a `.txt` beside it so the tray's *Read the text* is
+instant, which means everything ever looked up has been searchable the whole
+time and there was nothing to search it with.
+
+The old ceiling of five was never a judgement about the right number — it was a
+judgement about a *menu*, which is unusable at thirty. With a window it becomes
+Settings → General → **How many to keep**, up to 500.
+
+Notes on the window, in the order they will matter:
+
+* it is a `QListWidget` in icon mode, not hand-drawn tiles. A reflowing grid,
+  keyboard navigation, selection and scrolling all come with it, and each is
+  something a hand-rolled version gets subtly wrong;
+* **every thumbnail is padded onto one fixed tile size.** With icons at their own
+  shapes a wide crop leaves room for two lines of caption and a tall one leaves
+  room for none, so the captions land at different heights and the elided ones
+  lose the size. Each also gets a thin rim, for the same reason the pinned window
+  has one;
+* the searchable text is read **once, when the window is filled**, and kept on
+  the item. Going back to disk on every keystroke would make typing in that box
+  feel like the disk it is hitting;
+* a tile the search hides is also **deselected**, or the buttons would act on
+  something the box says is not there;
+* the first **Esc** clears the search and the second closes the window — the
+  same bargain the overlay makes with a text selection. **Delete** forgets the
+  selected capture;
+* "nothing matches" **names what was searched and why there may be nothing to
+  match**: text recognition is off until it is turned on, and then there is no
+  text however much was captured.
+
+They are PNGs in `~/.local/share/circle-to-search/recent/`, pruned as new ones
+arrive. That is a real thing on disk, so **Forget this one** and **Forget all of
+them** are both there, and unticking Settings → General → *Keep the selections*
+stops it entirely (the list then says so instead of pretending to be empty).
 
 ### Every screen at once
 

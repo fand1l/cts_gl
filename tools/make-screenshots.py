@@ -18,7 +18,10 @@ from __future__ import annotations
 import math
 import os
 import re
+import shutil
 import sys
+import tempfile
+import time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -39,6 +42,8 @@ from PyQt6.QtWidgets import QApplication
 
 from circle_to_search import hidpi
 from circle_to_search.config import AppSettings
+from circle_to_search.history import RecentCaptures
+from circle_to_search.history_window import HistoryWindow
 from circle_to_search.i18n import set_language
 from circle_to_search.imageops import black_out, rects_to_crop_space
 from circle_to_search.lens import prepare_image
@@ -384,6 +389,39 @@ for language in ("en", "uk"):
     dialog.grab().save(str(OUT / f"settings{suffix}.png"))
     print("   ", f"settings{suffix}.png")
     dialog.deleteLater()
+
+    # 7b. The captures window, over a shelf built here.  Everything in it is
+    #     this project's own words again — the crops are strips of the mock
+    #     article, and the "recognised" text is what those strips say.
+    shelf_dir = Path(tempfile.mkdtemp())
+    shelf = RecentCaptures(shelf_dir, limit=50)
+    plate = QPixmap.fromImage(desktop(language))
+    _title, lines = ARTICLE[language]
+    # Six plausible captures off that desktop: paragraphs, a title bar, and the
+    # sliver of terminal the article window does not cover.  Varied shapes,
+    # because real ones are, and a grid of identical strips shows nothing.
+    for box, said in (
+        (QRect(130, 175, 460, 120), "\n".join(lines[0:2])),
+        (QRect(130, 325, 470, 145), "\n".join(lines[3:6])),
+        (QRect(920, 520, 430, 180), "KWin script started"),
+        (QRect(130, 470, 490, 105), "\n".join(lines[6:8])),
+        (QRect(100, 125, 700, 55), ARTICLE[language][0]),
+        (QRect(130, 600, 500, 140), "\n".join(lines[9:12])),
+    ):
+        physical = QRect(
+            box.x() * SCALE, box.y() * SCALE, box.width() * SCALE, box.height() * SCALE
+        )
+        shelf.add(qimage_to_pil(plate.copy(physical).toImage()), text=said)
+        time.sleep(1.02)      # so the timestamps under the tiles differ
+    captures = HistoryWindow(shelf)
+    captures.resize(780, 560)
+    captures.show()
+    for _ in range(6):
+        app.processEvents()
+    captures.grab().save(str(OUT / f"captures{suffix}.png"))
+    print("   ", f"captures{suffix}.png")
+    captures.deleteLater()
+    shutil.rmtree(shelf_dir, ignore_errors=True)
 
     # 8. The first-run window.
     welcome = WelcomeDialog(AppSettings())

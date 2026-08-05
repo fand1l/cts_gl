@@ -40,7 +40,6 @@ from .config import (
     write_detection,
 )
 from .gesture import GesturePreview
-from .history import LIMIT as RECENT_LIMIT
 from .history import RECENT_DIR
 from .i18n import available_languages, tr
 from .lens import VARIANTS
@@ -296,15 +295,17 @@ class SettingsDialog(QDialog):
 
         self.keep_recent_box = QCheckBox(tr("settings.keep_recent"), selection)
         selection_layout.addWidget(self.keep_recent_box)
+        recent_row = QHBoxLayout()
+        recent_row.addWidget(QLabel(tr("settings.recent_limit"), selection))
+        self.recent_limit_spin = self._spin(selection, 1, 500, 5)
+        recent_row.addWidget(self.recent_limit_spin)
+        recent_row.addStretch(1)
+        selection_layout.addLayout(recent_row)
+        selection_layout.addWidget(_hint(tr("settings.recent_limit.hint")))
         selection_layout.addWidget(
-            _hint(
-                tr(
-                    "settings.keep_recent.hint",
-                    limit=RECENT_LIMIT,
-                    directory=str(RECENT_DIR),
-                )
-            )
+            _hint(tr("settings.keep_recent.hint", directory=str(RECENT_DIR)))
         )
+        self.keep_recent_box.toggled.connect(self.recent_limit_spin.setEnabled)
 
         self.all_screens_box = QCheckBox(tr("settings.all_screens"), selection)
         selection_layout.addWidget(self.all_screens_box)
@@ -433,6 +434,8 @@ class SettingsDialog(QDialog):
         self.mode_combo.setCurrentIndex(max(0, self.mode_combo.findData(settings.selection_mode)))
         self.lasso_mask_box.setChecked(settings.lasso_mask)
         self.keep_recent_box.setChecked(settings.keep_recent)
+        self.recent_limit_spin.setValue(settings.recent_limit)
+        self.recent_limit_spin.setEnabled(settings.keep_recent)
         self.all_screens_box.setChecked(settings.all_screens)
         self.confirm_box.setChecked(settings.confirm_selection)
         self.magnifier_box.setChecked(settings.magnifier)
@@ -484,6 +487,7 @@ class SettingsDialog(QDialog):
         settings.selection_mode = str(self.mode_combo.currentData())
         settings.lasso_mask = self.lasso_mask_box.isChecked()
         settings.keep_recent = self.keep_recent_box.isChecked()
+        settings.recent_limit = self.recent_limit_spin.value()
         settings.all_screens = self.all_screens_box.isChecked()
         settings.confirm_selection = self.confirm_box.isChecked()
         settings.magnifier = self.magnifier_box.isChecked()

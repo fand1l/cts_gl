@@ -45,6 +45,22 @@ _STAMP = "%Y%m%d-%H%M%S-%f"
 _STAMP_COARSE = "%Y%m%d-%H%M%S"
 
 
+def matches(query: str, *fields: str) -> bool:
+    """Whether every word of ``query`` appears somewhere in ``fields``.
+
+    Words rather than the whole string, so "connection refused" finds a capture
+    whose recognised text wrapped between the two, and "error db" finds one that
+    has both a long way apart.  Case-insensitive, anywhere inside a word: this
+    is a box above a dozen thumbnails, not a search engine, and somebody typing
+    "conn" wants the connection error.
+    """
+    words = query.lower().split()
+    if not words:
+        return True
+    haystack = "\n".join(fields).lower()
+    return all(word in haystack for word in words)
+
+
 @dataclass(frozen=True)
 class RecentCapture:
     """One kept selection."""
@@ -72,6 +88,20 @@ class RecentCaptures:
     @property
     def directory(self) -> Path:
         return self._directory
+
+    @property
+    def limit(self) -> int:
+        return self._limit
+
+    def set_limit(self, limit: int) -> None:
+        """Change how many are kept, and enforce it on the ones already there.
+
+        Changed in place rather than by making a new one: the history window
+        holds this object, and swapping it would leave that window reading a
+        directory through a stale copy of these two fields.
+        """
+        self._limit = max(1, limit)
+        self.prune()
 
     @staticmethod
     def _text_path(path: Path) -> Path:
