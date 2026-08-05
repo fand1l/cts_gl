@@ -352,6 +352,15 @@ a fifth of a second after the button comes up, and while it fades only the
 trail's own rectangle is repainted — a few hundred pixels square, never the
 screenshot.
 
+**The stroke ends with the gesture.** Let go and the line and its glow are
+gone: what is left is the un-dimmed box, its handles and the bar, which say
+everything the line was saying, and a twelve-pixel ribbon lying across the
+result is in the way of reading it. With `lasso_mask` off there is no thin
+outline in its place either — the crop is the bounding box, the un-dimmed area
+already is that box, and one more line tracing the loop is the same fact drawn
+twice. With the mask on the loop stays outlined, because then it *is* the shape
+that gets cut out.
+
 The drawn line is **open**: the two ends pass each other without joining, as
 they do in the photographs. The path used for `lasso_mask` still closes,
 because a mask needs a closed shape — at one pixel the closing line was a hint,
@@ -415,11 +424,17 @@ the frozen screen undimmed. Turn it off with **Settings → General → Magnify
 while dragging** if a thing that follows the pointer bothers you.
 
 Before pressing anything the box can be adjusted: drag any of the eight
-handles, drag inside it to move the whole thing, or use the **arrow keys**
-(*Ctrl* for 10 px steps, *Shift* to stretch the far edge instead of moving).
-The arrow keys are the one thing the buttons cannot announce, so a line inside
-the bar says so. Pressing outside the box throws it away and starts a new
-selection.
+handles, drag the **grip in the middle** to move the whole thing, or use the
+**arrow keys** (*Ctrl* for 10 px steps, *Shift* to stretch the far edge instead
+of moving). The arrow keys are the one thing the buttons cannot announce, so a
+line inside the bar says so.
+
+**Pressing anywhere else — inside the box included — starts a new selection.**
+The whole inside used to be the move grab, which meant a selection covering
+most of the screen could never be redrawn: there was nowhere left to press that
+did not move it. So moving got a grip of its own, and everything else went back
+to meaning "no, that one". Text still outranks both: a press on a recognised
+word takes the words.
 
 Adjusting the box of a *lasso* selection drops the loop outline, because a loop
 that no longer matches its box would produce a wrong mask when `lasso_mask` is

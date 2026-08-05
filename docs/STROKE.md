@@ -219,3 +219,18 @@ drawn.  At one pixel nobody had noticed.  There is a test for it now.
 **Additive blending is still worth trying once on hardware.**  Source-over was
 the right call: a stationary pointer saturates into a deep amber, which is what
 the photographs show, and the offscreen render confirms it.
+
+### Corrected after the first real use
+
+**The stroke does not survive the gesture.**  This file assumed the ribbon
+stayed on screen once the loop was closed, and gave the tail a fifth of a second
+to settle after the button came up.  On a real desktop that is wrong twice over:
+a twelve-pixel white line lying across the selection is in the way of reading
+it, and Android does not keep it either — the stroke is part of the gesture, not
+part of the answer.  So the line and the glow both end with the drag, the
+`SETTLE_MS` fade is gone, and the fade that remains is the one *during* a drag,
+for a pointer held still.
+
+What is left afterwards is the un-dimmed box, its handles and the action bar.
+With `lasso_mask` off there is no thin outline either, by the same argument that
+removed the dashed rectangle: the un-dimmed area already is the crop.

@@ -750,6 +750,49 @@ check("a second drag replaces the first",
       overlay._selection_rect() == QRect(400, 300, 100, 100), str(overlay._selection_rect()))
 check("and still sends nothing by itself", results == {}, str(results))
 
+# Reported from a real desktop: the whole inside of the box was a move grab, so
+# a selection covering most of the screen could never be redrawn — there was
+# nowhere left to press that did not move it.  Moving has its own grip now, and
+# everything else inside starts again.
+overlay, results = confirming()
+inside = QPoint(150, 140)                     # inside the box, away from its middle
+check("that really is inside the selection", overlay._selection_rect().contains(inside))
+check("and it is not the move grip", not overlay._move_grip().contains(inside),
+      str(overlay._move_grip()))
+drag(overlay, (inside.x(), inside.y()), (260, 230))
+check("a drag from inside redraws instead of moving",
+      overlay._selection_rect() == QRect(150, 140, 110, 90), str(overlay._selection_rect()))
+
+# The grip still moves the whole thing, and it is inside the box where it can
+# be aimed at.
+overlay, results = confirming()
+before = QRect(overlay._selection_rect())
+grip = overlay._move_grip()
+check("the grip is in the middle of the box", before.contains(grip.center()), str(grip))
+check("and it is small enough to leave room around it",
+      grip.width() < before.width() // 2 and grip.height() < before.height() // 2, str(grip))
+check("pressing it grabs a move", overlay._handle_at(grip.center()) == "move")
+drag(overlay, (grip.center().x(), grip.center().y()),
+     (grip.center().x() + 40, grip.center().y() + 30))
+check("dragging the grip moves the box, unchanged in size",
+      overlay._selection_rect().size() == before.size()
+      and overlay._selection_rect().topLeft() == before.topLeft() + QPoint(40, 30),
+      str(overlay._selection_rect()))
+
+# The corners still resize, which is what they were always for.
+overlay, results = confirming()
+corner = overlay._handle_rects()["se"].center()
+check("a corner is still a resize, not a redraw",
+      overlay._handle_at(corner) == "se", str(overlay._handle_at(corner)))
+
+# A box too small to hold a full-size grip still gets one, so a small selection
+# is not one you can only nudge with the arrow keys.
+overlay, results = confirming()
+overlay._apply_box(QRect(400, 400, 40, 30), edited=True)
+tiny = overlay._move_grip()
+check("even a small box has a grip", not tiny.isNull() and tiny.width() >= 10, str(tiny))
+check("and it fits inside it", overlay._selection_rect().contains(tiny), str(tiny))
+
 # With confirmation switched off the old behaviour is exactly as it was.
 immediate = SelectionOverlay(
     QPixmap.fromImage(pil_to_qimage(shot)),
@@ -1053,7 +1096,8 @@ drag(dim_overlay, (100, 100), (300, 250))
 canvas = QPixmap(dim_overlay.size())
 dim_overlay.render(canvas)
 painted = canvas.toImage()
-inside = painted.pixelColor(200, 175).red()
+# Away from the middle: that is where the move grip is drawn now.
+inside = painted.pixelColor(140, 130).red()
 outside = painted.pixelColor(600, 600).red()
 check("the selection is not dimmed", inside > 180, str(inside))
 check("everything else is", outside < 150, str(outside))
@@ -1898,12 +1942,19 @@ check("the drawn stroke is open",
 check("and the masking path still closes",
       lasso_overlay._selection_path().elementCount() > len(lasso_overlay._points),
       str(lasso_overlay._selection_path().elementCount()))
-check("the stroke is what gets drawn for a lasso", lasso_overlay._stroke_showing())
+check("the ribbon goes when the gesture does", not lasso_overlay._stroke_showing())
+check("and so does the glow", len(lasso_overlay._trail) == 0, str(len(lasso_overlay._trail)))
+check("with no timer left running",
+      lasso_overlay._stroke_timer is None or not lasso_overlay._stroke_timer.isActive())
+# With the mask off the crop is the bounding box, which the un-dimmed area
+# already shows: one more line tracing the loop is the same fact drawn twice.
+check("and no thin outline in its place either", not lasso_overlay._outline_showing())
 
-# Adjust the box by hand and the loop no longer describes it, so the ribbon
-# goes: drawing one would claim a shape that is not there.
+# Adjust the box by hand and the loop no longer describes it, so the outline
+# comes back — as the rectangle it now really is.
 press_key(lasso_overlay, Qt.Key.Key_Right)
-check("an edited box is not a ribbon any more", not lasso_overlay._stroke_showing())
+check("an edited box is drawn as the rectangle it became",
+      lasso_overlay._outline_showing() and not lasso_overlay._stroke_showing())
 
 # A rectangle selection is never a ribbon.
 rect_stroke = make_overlay(MODE_RECTANGLE)
@@ -1911,32 +1962,36 @@ drag(rect_stroke, (100, 100), (300, 250))
 check("a rectangle is drawn as a rectangle", not rect_stroke._stroke_showing())
 check("and it collects no trail", len(rect_stroke._trail) == 0, str(len(rect_stroke._trail)))
 
-# Letting go does not cut the tail off: it keeps ticking for a fifth of a
-# second so the smear is seen settling into a circle.
+# The stroke is part of the gesture, not part of the answer: the whole of it —
+# line and glow — ends when the button comes up.
 settling = make_overlay(MODE_LASSO)
 settling._trail.min_gap_ms = 0
 _mouse(settling, QEvent.Type.MouseButtonPress, (300, 300))
 for step in range(1, 6):
     _mouse(settling, QEvent.Type.MouseMove, (300 + step * 20, 300 + step * 10))
+check("the drag is animating", settling._stroke_timer.isActive())
 _mouse(settling, QEvent.Type.MouseButtonRelease, (400, 350))
-check("the tail is still there when the button comes up", len(settling._trail) > 0,
+check("letting go takes the tail with it", len(settling._trail) == 0,
       str(len(settling._trail)))
-check("and the timer is still running", settling._stroke_timer.isActive())
-check("with an end in sight",
-      settling._stroke_settles_at >= settling._stroke_clock(),
-      f"{settling._stroke_settles_at} vs {settling._stroke_clock()}")
+check("and stops the frames", not settling._stroke_timer.isActive())
 
-# Age the tail past its lifetime and put the settle in the past: it ages out
-# and the animation stops itself rather than ticking for the life of the
-# overlay.  Aged explicitly rather than by shortening the lifetime, because a
-# blob added in the same millisecond as the tick would survive that.
-settling._trail.blobs = [
-    Blob(QPoint(340, 320), glow_colour(320, 800), settling._stroke_clock() - 10_000)
+# A pointer held still long enough for the whole trail to age out also stops
+# the frames — and moving again starts them.  Aged explicitly rather than by
+# shortening the lifetime, because a blob added in the same millisecond as the
+# tick would survive that.
+resting = make_overlay(MODE_LASSO)
+_mouse(resting, QEvent.Type.MouseButtonPress, (300, 300))
+resting._trail.blobs = [
+    Blob(QPoint(340, 320), glow_colour(320, 800), resting._stroke_clock() - 10_000)
 ]
-settling._stroke_settles_at = -1.0
-settling._tick_stroke()
-check("the tail ages out", len(settling._trail) == 0, str(len(settling._trail)))
-check("and the animation stops itself", not settling._stroke_timer.isActive())
+resting._tick_stroke()
+check("a trail that ages out stops the frames",
+      len(resting._trail) == 0 and not resting._stroke_timer.isActive(),
+      str(len(resting._trail)))
+_mouse(resting, QEvent.Type.MouseMove, (360, 340))
+check("and moving again starts them",
+      resting._stroke_timer.isActive() and len(resting._trail) == 1,
+      str(len(resting._trail)))
 
 # Cancelling stops the animation rather than leaving a timer running on a
 # window that is on its way out.

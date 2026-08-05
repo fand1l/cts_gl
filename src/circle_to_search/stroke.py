@@ -49,11 +49,11 @@ GLOW_RADIUS = 140
 TRAIL_LIFETIME_MS = 500
 TRAIL_MIN_GAP_MS = 1000 // 90
 
-#: Frames while a drag is in progress, and how long the tail keeps fading after
-#: the button comes up, so the smear is seen settling into a circle rather than
-#: disappearing.
+#: Frames while a drag is in progress.  There is no fade *after* the button
+#: comes up: the stroke is part of the gesture, not part of the answer, so it
+#: ends with the gesture — a glow left behind on its own, with the line already
+#: gone, is a coloured smudge with nothing under it.
 TICK_MS = 16
-SETTLE_MS = 200
 
 #: The vertical ramp, as (fraction of screen height, colour).  Read off the real
 #: thing rather than invented: blue at the top, red at about two fifths, yellow

@@ -83,7 +83,6 @@ from .ocr import Word, words_to_text
 from .stroke import (
     GLOW_RADIUS,
     LINE_WIDTH,
-    SETTLE_MS,
     SHADOW_EXTRA,
     TICK_MS,
     Trail,
@@ -108,6 +107,10 @@ _LABEL_PADDING = 6
 
 #: Side of a resize handle, and how far from an edge a press still grabs it.
 _HANDLE = 14
+
+#: Side of the grip in the middle of a confirmed box that moves the whole thing.
+#: Big enough to aim at, small enough to leave the box redrawable around it.
+_GRIP = 34
 
 #: Arrow-key step, and the bigger one with Ctrl held.
 _NUDGE = 1
@@ -352,7 +355,6 @@ class SelectionOverlay(QWidget):
         self._stroke_started = QElapsedTimer()
         self._stroke_started.start()
         self._stroke_timer: QTimer | None = None
-        self._stroke_settles_at = 0.0
 
         #: Where the other windows are, in this screen's coordinates, front-most
         #: first.  From the compositor: a Wayland client cannot see anybody
@@ -1081,7 +1083,7 @@ class SelectionOverlay(QWidget):
             # bounding box already, so the rectangle was a second drawing of the
             # same fact, and next to a stroke this wide it is noise.
             self._draw_stroke(painter)
-        else:
+        elif self._outline_showing():
             pen = QPen(self._accent)
             pen.setWidth(1)
             pen.setCosmetic(True)
@@ -1140,18 +1142,38 @@ class SelectionOverlay(QWidget):
     # ------------------------------------------------------------ the stroke
 
     def _stroke_showing(self) -> bool:
-        """True when the lasso is drawn as a ribbon rather than a hairline.
+        """True only *while the loop is being drawn*.
 
-        Only for a real freehand loop: once the box has been adjusted by hand
-        the loop no longer describes it, and a rectangle drawn as a ribbon would
-        be claiming a shape that is not there.
+        The ribbon is the hand's own line, and once the hand has stopped there
+        is a selection instead: the un-dimmed box, its handles and the bar say
+        everything the line was saying, and a twelve-pixel stroke left lying
+        across the result is in the way of reading it.  Android does the same —
+        the stroke is part of the gesture, not part of the answer.
+
+        Also only for a real freehand loop: a box adjusted by hand is no longer
+        described by the loop, and a rectangle drawn as a ribbon would be
+        claiming a shape that is not there.
         """
         return (
-            self._has_selection
+            self._dragging
+            and self._has_selection
             and self._drag_mode == MODE_LASSO
             and len(self._points) >= 2
             and not self._box_edited
         )
+
+    def _outline_showing(self) -> bool:
+        """Whether the thin selection outline is worth drawing at all.
+
+        A rectangle: always — it *is* the selection.  A finished lasso: only
+        when ``lasso_mask`` is on, because then the loop is the shape that will
+        be cut out and has to be visible.  With the mask off the crop is the
+        bounding box, the un-dimmed area already is that box, and one more line
+        tracing the loop is the same fact drawn twice.
+        """
+        if self._drag_mode != MODE_LASSO or self._box_edited:
+            return True
+        return self._mask_outside
 
     def _stroke_path(self) -> QPainterPath:
         """The visible lasso line: open, unlike the one used for masking.
@@ -1258,7 +1280,6 @@ class SelectionOverlay(QWidget):
             timer.setInterval(TICK_MS)
             timer.timeout.connect(self._tick_stroke)
             self._stroke_timer = timer
-        self._stroke_settles_at = 0.0
         if not timer.isActive():
             timer.start()
 
@@ -1269,15 +1290,14 @@ class SelectionOverlay(QWidget):
     def _tick_stroke(self) -> None:
         """Fade the tail, and repaint only where the tail is.
 
-        Runs while a drag is in progress and for a fifth of a second after it
-        ends, so the smear is seen settling into a circle instead of vanishing.
+        Runs while the loop is being drawn.  A pointer held still long enough
+        for the whole trail to age out stops it; the next move starts it again.
         """
-        now = self._stroke_clock()
         damaged = self._stroke_damage()
-        self._trail.prune(now)
+        self._trail.prune(self._stroke_clock())
         if damaged.isValid():
             self.update(damaged)
-        if not self._trail and self._stroke_settles_at and now >= self._stroke_settles_at:
+        if not self._trail:
             self._stop_stroke_animation()
 
     # ------------------------------------------------------ the text layer
@@ -1410,6 +1430,46 @@ class SelectionOverlay(QWidget):
         painter.setBrush(self._accent)
         for rect in self._handle_rects().values():
             painter.drawRect(rect.adjusted(2, 2, -2, -2))
+
+        # The move grip, in the middle.  It has to be visible, because pressing
+        # anywhere else inside the box now starts a new selection and there
+        # would otherwise be nothing to say where moving lives.
+        grip = self._move_grip()
+        if grip.isNull():
+            return
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        fill = QColor(self._accent)
+        fill.setAlpha(180)
+        painter.setBrush(fill)
+        painter.drawEllipse(grip)
+        # A four-way arrow — the move cursor's own shape.  A bare cross reads as
+        # "add", which is not what pressing this does.
+        ink = QColor(255, 255, 255, 235)
+        pen = QPen(ink)
+        pen.setWidth(2)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        painter.setPen(pen)
+        painter.setBrush(ink)
+        centre = grip.center()
+        reach = max(5, grip.width() // 3)
+        head = max(3, reach // 3)
+        for dx, dy in ((1, 0), (-1, 0), (0, 1), (0, -1)):
+            tip_x = centre.x() + dx * reach
+            tip_y = centre.y() + dy * reach
+            painter.drawLine(centre.x(), centre.y(), tip_x - dx * head, tip_y - dy * head)
+            # The arrowhead: the tip, and two corners square to the direction.
+            painter.drawPolygon(
+                QPolygon(
+                    [
+                        QPoint(tip_x, tip_y),
+                        QPoint(tip_x - dx * head + dy * head, tip_y - dy * head + dx * head),
+                        QPoint(tip_x - dx * head - dy * head, tip_y - dy * head - dx * head),
+                    ]
+                )
+            )
+        painter.restore()
 
     def _draw_action_bar(self, painter: QPainter) -> None:
         """The pill of buttons under the selection.
@@ -1701,7 +1761,11 @@ class SelectionOverlay(QWidget):
                     self._grab_origin = where
                     self._grab_box = QRect(self._box)
                     return
-                # A press on empty screen means "no, that one" — start again.
+                # Anywhere else — inside the box included — means "no, that
+                # one": start again.  It used to be that the whole inside was a
+                # move grab, which left a selection covering most of the screen
+                # impossible to redraw, because there was nowhere left to press
+                # that did not move it.  Moving has its own grip now.
                 self._confirming = False
                 self._reset_selection()
 
@@ -1797,6 +1861,9 @@ class SelectionOverlay(QWidget):
             # Every move, not every kept point: the glow follows the hand even
             # while the polygon is dropping samples that are too close together.
             self._remember_head(position)
+            # A pointer held still long enough for the trail to age out stopped
+            # the frames; moving again is what starts them.
+            self._start_stroke_animation()
         self._changed()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -1827,9 +1894,12 @@ class SelectionOverlay(QWidget):
         self._current = event.position().toPoint()
         if self._drag_mode == MODE_LASSO:
             self._points.append(self._current)
-            # Keep ticking for a fifth of a second so the smear is seen settling
-            # into a circle rather than disappearing with the button.
-            self._stroke_settles_at = self._stroke_clock() + SETTLE_MS
+            # The stroke ends with the gesture.  The design had the tail fading
+            # for a fifth of a second after the button came up, which was right
+            # while the line stayed on screen; now that the line goes, a glow
+            # left behind on its own is a coloured smudge with nothing under it.
+            self._stop_stroke_animation()
+            self._trail.clear()
         selection = self._selection_rect()
 
         if selection.width() < MIN_SELECTION or selection.height() < MIN_SELECTION:
@@ -2098,12 +2168,30 @@ class SelectionOverlay(QWidget):
             for name, fx, fy in _HANDLES
         }
 
+    def _move_grip(self) -> QRect:
+        """The grab square in the middle of the box, for moving the whole thing.
+
+        The inside of the box used to *be* the move grab, which meant a
+        selection covering most of the screen could never be redrawn: there was
+        nowhere left to press that did not move it.  So moving got a grip of its
+        own and the rest of the inside went back to starting a new selection.
+        """
+        if self._box.isNull():
+            return QRect()
+        side = min(_GRIP, max(_HANDLE, min(self._box.width(), self._box.height()) // 3))
+        centre = self._box.center()
+        return QRect(centre.x() - side // 2, centre.y() - side // 2, side, side)
+
     def _handle_at(self, position: QPoint) -> str | None:
-        """Which handle is under the pointer — ``"move"`` inside the box."""
+        """Which grab area is under the pointer, if any.
+
+        Deliberately not "anywhere inside the box is a move": see
+        :meth:`_move_grip`.
+        """
         for name, rect in self._handle_rects().items():
             if rect.contains(position):
                 return name
-        if self._box.contains(position):
+        if self._move_grip().contains(position):
             return "move"
         return None
 
