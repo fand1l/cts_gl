@@ -13,8 +13,10 @@ stroke.  That was wrong, and two photographs of the real thing settled it:
   caps.  There is no colour on the line anywhere.
 * **The colour is a glow at the head** — a soft round blob of light under the
   end of the line, about three times its width across.
-* **The glow changes colour** over time: orange in one photograph, yellow in the
-  other.
+* **The glow's colour comes from where it is on the screen**, not from a clock.
+  Tested directly: blue at the top, red across the middle, yellow a little below
+  that, green at the bottom.  A fast swipe from one corner to the other lays all
+  four out at once, in that order, top to bottom.
 * **The glow stretches when the finger moves.**  Moving, it is an elongated
   smear pointing back the way it came; nearly stopped, it is a bright round
   circle.
@@ -42,12 +44,39 @@ stroke gets its own open path, which is what these two things always were.
 
 A radial gradient — the colour at the centre, transparent at the rim — filled as
 an ellipse under the head of the line.  Drawn **before** the white stroke, so
-the cap sits on top of it, which is how it looks in both photographs.
+the cap sits on top of it, which is how it looks in every photograph.
 
-The colour drifts continuously through Google's four (blue `#4285F4`, red
-`#EA4335`, yellow `#FBBC05`, green `#34A853`) on a cycle of a few seconds.  Two
-photographs a moment apart showing orange and yellow is exactly what a slow
-hue drift looks like caught twice.
+It is far bigger and softer than a first guess suggests: on a fast swipe the
+colour washes out over a good fraction of the screen, brightest along the line
+and falling away gently for a hundred logical pixels or more.
+
+### The colour is a vertical ramp
+
+Not a clock.  The colour of a blob is read off **where that blob is**, top to
+bottom of the screen:
+
+| height | |
+|---|---|
+| top | blue `#4285F4` |
+| ~40 % | red `#EA4335` |
+| ~62 % | yellow `#FBBC05` |
+| bottom | green `#34A853` |
+
+with linear interpolation between them, so it is one pure function of one
+number:
+
+```python
+def glow_colour(y: float, screen_height: float) -> QColor
+```
+
+This explains the earlier photographs, which I had read as a time cycle: one
+showed orange and the other yellow because *both* heads happened to be in the
+lower-middle of the screen, where the ramp runs from red through orange into
+yellow.  Nothing was drifting; they were simply at similar heights.
+
+Normalised against the height of **the screen the overlay covers**, not the
+whole virtual desktop — otherwise the same gesture would come out a different
+colour depending on which monitor it happened on.
 
 ## The stretch, as a decay trail
 
@@ -65,12 +94,21 @@ age.**
 * Nearly still, they pile up on the same spot, so the blobs stack and the glow
   is round and brighter — which is exactly the difference between the two
   photographs.
-* Lifting the finger, or stopping, lets the tail age out over a fifth of a
-  second, so the smear settles into a circle by itself.
+* Lifting the finger, or stopping, lets the tail age out, so the smear settles
+  into a circle by itself.
 
-Each remembered position keeps the colour it had when it was recorded, so a fast
-sweep shows a slight hue drift along the smear — a glow that both stretches and
-changes colour, from one mechanism.
+The third photograph is the strongest evidence for this model, and it was taken
+to show something else.  A swipe across the whole screen in a fraction of a
+second leaves **every point of it younger than the trail lifetime**, so the glow
+runs the entire length of the line — while the slow, careful circle in the
+second photograph has a glow only at its head, because everything behind it had
+already aged out.  Same rule, opposite-looking results.
+
+Each remembered position takes its colour from its own height, so a stroke that
+covers vertical distance carries the whole ramp along itself.  That is precisely
+what the fast-swipe photograph shows: one white line from the bottom-left corner
+to the top-right, with blue at its top end, red across the middle, orange below
+that and green at the bottom.  Nothing extra had to be written for it.
 
 Stacking is plain source-over blending, not additive: a stationary glow
 saturates towards its colour instead of blowing out to white.
@@ -131,10 +169,10 @@ All constants at the top of the file, one line each to change:
 |---|---|
 | line width | 12 px |
 | shadow width | line + 4 px |
-| glow radius | 38 px |
-| trail lifetime | 180 ms |
+| glow radius | 140 px, with most of the falloff in the outer half |
+| trail lifetime | 500 ms |
 | trail sample rate | every pointer move, capped at 90 per second |
-| colour cycle | 3 s for all four |
+| ramp stops | 0 % blue · 40 % red · 62 % yellow · 100 % green |
 | settle after release | 200 ms |
 
 ## Deliberately not doing
@@ -142,5 +180,9 @@ All constants at the top of the file, one line each to change:
 * **Velocity maths.** The trail gives the stretch for free and never snaps.
 * **A shimmer on the resting line.** Colour means "here is the pointer".  A line
   that keeps sparkling after the pointer has gone says something untrue.
+* **Additive blending.** It would read more like light, but stacked blobs would
+  blow out to white where the pointer rests — and the photographs show a
+  stationary glow saturating into a deep amber, not into white.  Worth trying
+  once, on hardware, before ruling it out for good.
 * **A setting.** It is lasso only; the rectangle is untouched, and that is the
   setting.
