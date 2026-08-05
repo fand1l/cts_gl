@@ -11,8 +11,8 @@ Ordered by what I think they are worth, not by how hard they are.
 
 | | |
 |---|---|
-| agreed | 1 redact · 2 search the text · 4 `--doctor` · 6 history window · 8 what will be sent · 9 the same area |
-| explained again, waiting | 3 delay (**the reason I gave was wrong — see below**) · 5 pin · 7 colour |
+| agreed | 1 redact · 2 search the text · 4 `--doctor` · 5 pin · 6 history window · 7 colour · 8 what will be sent · 9 the same area |
+| undecided | 3 delay — the reason I gave for it was wrong (see below), so it needs deciding again on the smaller case that is left |
 | not yet discussed | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | dropped | 14 annotations |
 
@@ -187,6 +187,14 @@ to answer the question.
 
 Worth having on the same chip: *Shift* while picking copies `rgb(…)` instead, for
 CSS.
+
+*But Plasma already has one.*  True — there is a `plasma-colorpicker` widget and
+Spectacle can take a colour, and that is worth being honest about: this is not a
+new capability for the desktop.  What is different is where it sits.  Those want
+to be summoned first and then aimed at a live screen; here the screen is already
+frozen and already magnified under the pointer, so by the time the question
+"what colour is that" occurs to you, the answer is on screen and being thrown
+away.  It is not a new tool, it is a value that already exists being kept.
 
 ## 8. Say what will actually be sent
 
