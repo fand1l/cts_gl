@@ -772,6 +772,7 @@ class CircleToSearchApp(QObject):
         overlay.set_window_rects(visible_on(windows, screen.geometry()))
         overlay.text_selected.connect(self._on_text_selected)
         overlay.text_search_requested.connect(self._on_text_search)
+        overlay.colour_picked.connect(self._on_colour_picked)
         overlay.mode_changed.connect(self._on_mode_changed)
         overlay.estimate_requested.connect(
             lambda crop, ref=overlay: self._estimate_upload(ref, capture.image, crop)
@@ -866,6 +867,7 @@ class CircleToSearchApp(QObject):
             # group's own committed/cancelled pair.
             overlay.text_selected.connect(self._on_text_selected)
             overlay.text_search_requested.connect(self._on_text_search)
+            overlay.colour_picked.connect(self._on_colour_picked)
             overlay.mode_changed.connect(self._on_mode_changed)
         self._group = group
         self._desktop = desktop
@@ -1277,6 +1279,18 @@ class CircleToSearchApp(QObject):
         # The overlay drops the answer itself if the box has moved on since; it
         # is the one that knows what it is currently asking about.
         overlay.set_upload_size(crop, nbytes)
+
+    @pyqtSlot(str)
+    def _on_colour_picked(self, colour: str) -> None:
+        """A pixel off the frozen screen, already written out."""
+        self._release_overlay()
+        self._release_group()
+        self._finish_opening()
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(colour)
+        log.info("copied %s to the clipboard", colour)
+        notify(tr("notify.colour", colour=colour), transient=True, timeout_ms=4000)
 
     @pyqtSlot(str)
     def _on_text_search(self, text: str) -> None:

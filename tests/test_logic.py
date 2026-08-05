@@ -600,6 +600,7 @@ from circle_to_search.overlay import (  # noqa: E402
     ACTION_TEXT,
     BADGE_NONE,
     BAR_CANCEL,
+    BAR_MODE_COLOUR,
     BAR_MODE_LASSO,
     BAR_MODE_RECT,
     BAR_REDACT,
@@ -1043,8 +1044,8 @@ check("a stray click selects nothing",
 # nothing on screen ever said so.
 bare = make_overlay(MODE_RECTANGLE)
 actions = [placed.action for placed in bare._layout_buttons()]
-check("the idle bar offers the two modes", actions == [BAR_MODE_LASSO, BAR_MODE_RECT],
-      str(actions))
+check("the idle bar offers the two shapes and the picker",
+      actions == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_MODE_COLOUR], str(actions))
 check("the current one is lit", button_named(bare, BAR_MODE_RECT).primary
       and not button_named(bare, BAR_MODE_LASSO).primary)
 check("and Shift is shown against the other one",
@@ -1316,6 +1317,116 @@ check("the readout stays on screen at the right edge",
       edge._visible_area().toRect().contains(readout),
       f"{readout} in {edge._visible_area().toRect()}")
 
+# --- the loupe already knows the colour -------------------------------------
+# On Wayland no client can read a pixel off another's window.  This one has
+# already frozen the screen and is already magnifying it under the pointer, so
+# the colour is on screen and was being thrown away after being drawn.
+from circle_to_search.colours import css_of, hex_of, readable_on  # noqa: E402
+from circle_to_search.overlay import BAR_MODE_COLOUR  # noqa: E402
+
+check("hex is lower case and padded", hex_of(233, 30, 99) == "#e91e63", hex_of(233, 30, 99))
+check("black and white come out right",
+      hex_of(0, 0, 0) == "#000000" and hex_of(255, 255, 255) == "#ffffff")
+check("css is what a stylesheet takes", css_of(233, 30, 99) == "rgb(233, 30, 99)",
+      css_of(233, 30, 99))
+check("out of range is clamped, not wrapped",
+      hex_of(-5, 300, 99) == "#00ff63", hex_of(-5, 300, 99))
+check("white text on a dark swatch", readable_on(20, 20, 20) == (255, 255, 255))
+check("and black on a light one", readable_on(240, 240, 240) == (0, 0, 0))
+check("a mid green takes black, which the cheap formula gets wrong",
+      readable_on(0, 200, 0) == (0, 0, 0), str(readable_on(0, 200, 0)))
+check("and a pure blue takes white", readable_on(0, 0, 255) == (255, 255, 255),
+      str(readable_on(0, 0, 255)))
+check("mid grey is above the crossover", readable_on(128, 128, 128) == (0, 0, 0),
+      str(readable_on(128, 128, 128)))
+
+# A screenshot where two neighbouring *physical* pixels differ, so reading the
+# wrong one — or an interpolated one — cannot pass by accident.  Logical 300,250
+# is physical 600,500 at this scale.
+striped = Image.new("RGB", tuple(shot.size), (0, 0, 0))
+for x in range(striped.width):
+    for y in range(striped.height):
+        striped.putpixel((x, y), (255, 0, 0) if x % 2 else (0, 0, 255))
+picker = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(striped)), metrics, screen,
+    dim_percent=40, mode=MODE_RECTANGLE, confirm=True, magnifier=False,
+)
+picker.resize(screen.geometry().size())
+check("it reads the physical pixel, not an average of two",
+      picker.colour_at(QPoint(300, 250)).name() == "#0000ff",
+      picker.colour_at(QPoint(300, 250)).name())
+check("the physical pixel beside it really is a different one",
+      striped.getpixel((600, 500)) != striped.getpixel((601, 500)),
+      "the test image has to be able to tell an exact read from an averaged one")
+check("off the edge of the screenshot is clamped, not an error",
+      picker.colour_at(QPoint(-50, -50)).isValid()
+      and picker.colour_at(QPoint(99999, 99999)).isValid())
+
+check("the chip is there before anything is taken",
+      button_named(picker, BAR_MODE_COLOUR).key == "K")
+check("and is not lit", not button_named(picker, BAR_MODE_COLOUR).primary)
+check("no loupe yet", not picker._loupe_showing())
+
+target = button_named(picker, BAR_MODE_COLOUR)
+click(picker, (target.rect.center().x(), target.rect.center().y()))
+check("the chip turns the overlay into a picker", picker._picking_colour)
+check("it lights up and the shapes go out",
+      button_named(picker, BAR_MODE_COLOUR).primary
+      and not button_named(picker, BAR_MODE_LASSO).primary
+      and not button_named(picker, BAR_MODE_RECT).primary)
+check("nothing else on the row applies now",
+      [placed.action for placed in picker._layout_buttons()]
+      == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_MODE_COLOUR],
+      str([placed.action for placed in picker._layout_buttons()]))
+check("the caption says what to do", picker._bar_caption() == i18n.tr("overlay.hint.colour"))
+check("the loupe is the tool now, so it is up without a drag", picker._loupe_showing())
+
+# The screen is not dimmed while picking: asking what colour something is over
+# a wash would be answering about a different picture.
+picker._current = QPoint(600, 500)
+bright = QPixmap(picker.size())
+picker.render(bright)
+check("nothing is dimmed while picking",
+      bright.toImage().pixelColor(50, 500) == QColor(0, 0, 255),
+      bright.toImage().pixelColor(50, 500).name())
+
+taken: list[str] = []
+picker.colour_picked.connect(taken.append)
+click(picker, (300, 250))
+check("a click takes the colour", taken == ["#0000ff"], str(taken))
+check("and closes the overlay", picker._finished)
+
+# Shift asks for the CSS form instead.
+css = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(striped)), metrics, screen,
+    dim_percent=40, mode=MODE_RECTANGLE, confirm=True,
+)
+css.resize(screen.geometry().size())
+in_css: list[str] = []
+css.colour_picked.connect(in_css.append)
+press_key(css, Qt.Key.Key_K)
+check("K turns it on too", css._picking_colour)
+css._current = QPoint(300, 250)
+press_key(css, Qt.Key.Key_Return, Qt.KeyboardModifier.ShiftModifier)
+check("Shift copies rgb() instead", in_css == ["rgb(0, 0, 255)"], str(in_css))
+
+# Esc leaves the mode; the second one closes the overlay, exactly like the text
+# selection and the black rectangles.
+leaving = make_overlay(MODE_RECTANGLE)
+quit_calls: list[bool] = []
+leaving.cancelled.connect(lambda: quit_calls.append(True))
+press_key(leaving, Qt.Key.Key_K)
+check("picking is on", leaving._picking_colour)
+press_key(leaving, Qt.Key.Key_Escape)
+check("Esc goes back to selecting", not leaving._picking_colour and not quit_calls)
+press_key(leaving, Qt.Key.Key_Escape)
+check("and the next one really cancels", quit_calls == [True])
+
+# It cannot be turned on when there is no chip on screen to say so.
+busy, _ = confirming()
+busy._set_picking_colour(True)
+check("not offered once a selection is waiting", not busy._picking_colour)
+
 # --- the same area as last time --------------------------------------------
 # Comparing a number that changes means taking the same rectangle twice, and a
 # rectangle drawn by hand is never quite the same twice — which is exactly what
@@ -1365,15 +1476,15 @@ def with_memory(area: QRect | None):
 forgetful = with_memory(None)
 check("no chip when there is nothing to offer",
       [placed.action for placed in forgetful._layout_buttons()]
-      == [BAR_MODE_LASSO, BAR_MODE_RECT],
+      == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_MODE_COLOUR],
       str([placed.action for placed in forgetful._layout_buttons()]))
 press_key(forgetful, Qt.Key.Key_R)
 check("and R does nothing either", not forgetful._has_selection)
 
 again = with_memory(QRect(120, 90, 300, 200))
-check("a third chip when there is",
+check("one more chip when there is",
       [placed.action for placed in again._layout_buttons()]
-      == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_LAST_AREA],
+      == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_MODE_COLOUR, BAR_LAST_AREA],
       str([placed.action for placed in again._layout_buttons()]))
 check("with a key of its own", button_named(again, BAR_LAST_AREA).key == "R")
 target = button_named(again, BAR_LAST_AREA)
@@ -1737,7 +1848,8 @@ copied: list[str] = []
 text_bar.text_selected.connect(copied.append)
 text_bar.set_words(sample_words)
 check("still the mode chips before anything is taken",
-      [placed.action for placed in text_bar._layout_buttons()] == [BAR_MODE_LASSO, BAR_MODE_RECT],
+      [placed.action for placed in text_bar._layout_buttons()]
+      == [BAR_MODE_LASSO, BAR_MODE_RECT, BAR_MODE_COLOUR],
       str([placed.action for placed in text_bar._layout_buttons()]))
 drag(text_bar, (110, 105), (180, 135))
 actions = [placed.action for placed in text_bar._layout_buttons()]

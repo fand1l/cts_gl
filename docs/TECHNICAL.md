@@ -418,6 +418,43 @@ a single drag. Clicking one keeps it: it is the setting from *Settings →
 General*, put where it is actually wanted. With one overlay per screen the
 others follow immediately.
 
+A third chip, **Colour** (*K*), turns the overlay into a screen colour picker
+instead of a selection tool. Click any pixel and its `#rrggbb` goes to the
+clipboard; *Shift* copies `rgb(…)` for a stylesheet; *Esc* goes back to
+selecting and a second one closes the overlay.
+
+Plasma has an eyedropper of its own and this is not a new capability for the
+desktop — what is different is where it sits. On Wayland no client can read a
+pixel off another's window, so a colour picker has to be summoned first and then
+aimed at a live screen. Here the screen is *already* frozen and *already*
+magnified under the pointer, so by the time the question occurs to you the
+answer is on screen and about to be thrown away. It is a value that already
+exists being kept.
+
+Four things follow from doing it inside the overlay:
+
+* **one pixel is copied, not the screenshot.** `self._sharp.copy(QRect(x, y, 1,
+  1)).toImage()` is a few bytes; `toImage()` on a 4K pixmap would be the 33 MB
+  this overlay has spent two rounds of work learning not to touch per frame. The
+  coordinates go through the same `logical_rect_to_physical` the crop uses, so it
+  is the real pixel and not an interpolated one;
+* **the loupe follows the pointer here, and only here.** Not doing that on hover
+  was a deliberate decision — a magnifier trailing around a frozen screen is the
+  cursor-glow mistake — but in this mode the loupe *is* the tool, and nobody pays
+  for it who did not choose the mode. Only its own rectangle and the swatch's
+  are repainted on each move;
+* **nothing is dimmed.** Asking what colour something is, over a wash, would be
+  answering about a different picture than the one being looked at;
+* **the label over the swatch is black or white by linear luminance**
+  (`colours.readable_on`), not by the cheap weighted sum of the stored channels.
+  The shortcut is wrong exactly where it shows: a mid green like `#00c800` comes
+  out "dark" on it and gets white text, when black is four times as readable.
+
+Unlike the two shapes, choosing it does **not** stick. Lasso and rectangle are
+two ways to do the same job and are worth remembering; picking a colour is a
+different job, and nobody wants yesterday's colour pick to be what happens when
+they shake the mouse today.
+
 Beside them, when there is one to offer, **The same area** (*R*) — the exact
 rectangle of the previous capture. Comparing something that changes, a build
 log or a download counter or a number on a dashboard, means taking the *same*

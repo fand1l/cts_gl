@@ -282,6 +282,15 @@ for language in ("en", "uk"):
     idle._current = QPoint(700, 500)
     save(idle, f"overlay-start{suffix}.png")
 
+    # 1b. The same moment, with the third chip pressed: no dimming, and the
+    #     loupe following the pointer with the pixel's colour under it.
+    picking = overlay_for(language)
+    picking._set_picking_colour(True)
+    #     Aimed at a glyph in the terminal, so the swatch is a real colour off
+    #     something rather than a flat patch of wallpaper.
+    picking._current = QPoint(981, 636)
+    save(picking, f"overlay-colour{suffix}.png")
+
     # 2. Mid-gesture: the ribbon and its glow.
     drawing = overlay_for(language)
     drawing._trail.min_gap_ms = 0

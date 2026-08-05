@@ -52,6 +52,7 @@ from PyQt6.QtCore import (
     QPointF,
     QRect,
     QRectF,
+    QSize,
     Qt,
     QTimer,
     pyqtSignal,
@@ -76,6 +77,7 @@ from PyQt6.QtGui import (
 from PyQt6.QtWidgets import QApplication, QWidget
 
 from . import OVERLAY_WINDOW_TITLE
+from .colours import css_of, hex_of, readable_on
 from .hidpi import ScreenMetrics, logical_rect_to_physical, physical_rect_to_logical
 from .i18n import tr
 from .imageops import scaled_size
@@ -179,6 +181,9 @@ ESTIMATE_DELAY_MS = 250
 _LOUPE_SIZE = 132
 _LOUPE_ZOOM = 4
 _LOUPE_GAP = 5
+#: The strip under the loupe while a colour is being picked: a swatch of the
+#: pixel and its hex, so the answer is beside the thing it is about.
+_SWATCH_HEIGHT = 26
 
 #: Grabbing a word needs a lot more slack than the glyphs occupy: text is small,
 #: pointers are not, and being made to hit a five-pixel-tall word exactly is the
@@ -218,6 +223,10 @@ BAR_TEXT_BACK = "bar-text-back"
 #: ever said so.
 BAR_MODE_LASSO = "bar-mode-lasso"
 BAR_MODE_RECT = "bar-mode-rect"
+#: Not a third shape but a different job, which is why picking it does not stick
+#: the way the other two do: nobody wants yesterday's colour pick to be the
+#: thing that happens when they shake the mouse today.
+BAR_MODE_COLOUR = "bar-mode-colour"
 
 #: What the user asked to do with the selection.
 ACTION_SEARCH = "search"
@@ -270,6 +279,8 @@ class SelectionOverlay(QWidget):
     #: The mode chip was clicked.  It is a setting, shown where it is wanted, so
     #: the choice is kept rather than lasting for one capture.
     mode_changed = pyqtSignal(str)
+    #: A pixel's colour, already written out as ``#rrggbb`` or ``rgb(…)``.
+    colour_picked = pyqtSignal(str)
     #: "How big would the upload for this crop be?", in physical pixels of the
     #: screenshot.  Answering means really encoding a JPEG, which is far too slow
     #: for the GUI thread, so the overlay asks and carries on drawing.
@@ -344,6 +355,11 @@ class SelectionOverlay(QWidget):
         self._redacting = False
         #: The one being dragged out right now.
         self._redaction_draft = QRect()
+
+        #: The overlay is a colour picker instead of a selection tool.  The
+        #: screen is already frozen and already magnified under the pointer, so
+        #: this keeps an answer that was being computed and thrown away.
+        self._picking_colour = False
 
         #: Where this window sits inside its screen, in logical pixels.  It is
         #: (0, 0) for a proper full-screen overlay; when KWin leaves the window
@@ -512,6 +528,8 @@ class SelectionOverlay(QWidget):
             return ""
         if self._redacting:
             return tr("overlay.redact")
+        if self._picking_colour:
+            return tr("overlay.hint.colour")
         if self._confirming and self._has_selection:
             return tr("overlay.adjust")
         if self._showing_hint():
@@ -527,10 +545,27 @@ class SelectionOverlay(QWidget):
             # The current mode is the lit one; the other carries *Shift*, which
             # is what swapping to it for a single drag has always been.
             lasso = self._mode == MODE_LASSO
+            picking = self._picking_colour
             entries = [
-                (BAR_MODE_LASSO, tr("bar.mode.lasso"), "" if lasso else "Shift", lasso),
-                (BAR_MODE_RECT, tr("bar.mode.rect"), "Shift" if lasso else "", not lasso),
+                (
+                    BAR_MODE_LASSO,
+                    tr("bar.mode.lasso"),
+                    "" if lasso else "Shift",
+                    lasso and not picking,
+                ),
+                (
+                    BAR_MODE_RECT,
+                    tr("bar.mode.rect"),
+                    "Shift" if lasso else "",
+                    not lasso and not picking,
+                ),
+                (BAR_MODE_COLOUR, tr("bar.mode.colour"), "K", picking),
             ]
+            if picking:
+                # Nothing else on this row applies while the overlay is a
+                # colour picker, and a chip that did nothing would be worse
+                # than one that is not there.
+                return entries
             if not self._last_area.isNull():
                 # Not a third mode — an action, and the one moment it is wanted
                 # is exactly this one, before a new rectangle has been drawn
@@ -698,8 +733,11 @@ class SelectionOverlay(QWidget):
         return True
 
     def _activate_button(self, action: str) -> None:
-        if action in (BAR_MODE_LASSO, BAR_MODE_RECT):
+        if action == BAR_MODE_COLOUR:
+            self._set_picking_colour(not self._picking_colour)
+        elif action in (BAR_MODE_LASSO, BAR_MODE_RECT):
             mode = MODE_LASSO if action == BAR_MODE_LASSO else MODE_RECTANGLE
+            self._set_picking_colour(False)
             if mode != self._mode:
                 log.info("selection mode switched to %s from the overlay", mode)
                 self._mode = mode
@@ -722,6 +760,92 @@ class SelectionOverlay(QWidget):
             self._copy_text()
         else:
             self._commit(action)
+
+    # -------------------------------------------------------- colour picking
+
+    def _set_picking_colour(self, on: bool) -> None:
+        """Turn the overlay into a screen colour picker, or back again."""
+        if on == self._picking_colour:
+            return
+        if on and not self._showing_hint():
+            # Only from the state where the chip is on screen: with a selection
+            # waiting there is a bar full of other things this would be lying
+            # underneath.
+            return
+        self._picking_colour = on
+        log.info("colour picking %s", "on" if on else "off")
+        self.setCursor(Qt.CursorShape.CrossCursor)
+        self.update()
+
+    def colour_at(self, where: QPoint) -> QColor:
+        """The screenshot's own pixel under a point in this overlay's coordinates.
+
+        One pixel, copied out of the pixmap and converted on its own.  Calling
+        ``toImage()`` on the whole thing would be thirty-three megabytes on a 4K
+        screen, every frame, which is the cost this overlay has spent two rounds
+        of work getting rid of.
+        """
+        physical = logical_rect_to_physical(QRect(where, QSize(1, 1)), self._metrics)
+        x = max(0, min(self._sharp.width() - 1, physical.x()))
+        y = max(0, min(self._sharp.height() - 1, physical.y()))
+        return self._sharp.copy(QRect(x, y, 1, 1)).toImage().pixelColor(0, 0)
+
+    def _pick_colour(self, *, css: bool) -> None:
+        colour = self.colour_at(self._current + self._offset)
+        text = (
+            css_of(colour.red(), colour.green(), colour.blue())
+            if css
+            else hex_of(colour.red(), colour.green(), colour.blue())
+        )
+        log.info("picked %s off the frozen screen", text)
+        self._finish(lambda: self.colour_picked.emit(text))
+
+    def _draw_swatch(self, painter: QPainter) -> None:
+        """The strip under the loupe: the pixel's own colour, and its hex.
+
+        Under rather than inside: the loupe's job is to show which pixel is
+        meant, and a label over the middle of it would cover the answer to that
+        with the answer to the other question.
+        """
+        colour = self.colour_at(self._current + self._offset)
+        strip = self._swatch_rect()
+        if strip.isNull():
+            return
+
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(colour)
+        painter.drawRoundedRect(strip, 4, 4)
+        painter.setPen(QPen(QColor(255, 255, 255, 200), 1))
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawRoundedRect(strip, 4, 4)
+
+        painter.setPen(QColor(*readable_on(colour.red(), colour.green(), colour.blue())))
+        font = QFont(self.font())
+        font.setBold(True)
+        painter.setFont(font)
+        painter.drawText(
+            strip,
+            int(Qt.AlignmentFlag.AlignCenter),
+            hex_of(colour.red(), colour.green(), colour.blue()),
+        )
+
+    def _repaint_loupe(self, was: QRect) -> None:
+        """Repaint where the loupe was and where it is, and nothing else."""
+        damage = self._loupe_rect().united(self._swatch_rect())
+        if not was.isNull():
+            damage = damage.united(was)
+        self.update(damage.translated(-self._offset).adjusted(-3, -3, 3, 3))
+
+    def _swatch_rect(self) -> QRect:
+        """Where the strip lands, so a partial repaint can include it."""
+        if not self._picking_colour:
+            return QRect()
+        target = self._loupe_rect()
+        strip = QRect(target.left(), target.bottom() + 4, target.width(), _SWATCH_HEIGHT)
+        bounds = self._visible_area().toRect()
+        if strip.bottom() > bounds.bottom() - _LABEL_MARGIN:
+            strip.moveTop(target.top() - _SWATCH_HEIGHT - 4)
+        return strip
 
     # ------------------------------------------------------------ redaction
 
@@ -993,7 +1117,7 @@ class SelectionOverlay(QWidget):
         drawing, and an outline that kept following them would be arguing with
         the selection they are making.
         """
-        if not self._window_rects or self._finished:
+        if not self._window_rects or self._finished or self._picking_colour:
             return None
         if self._dragging or self._has_selection or self._selecting_text:
             return None
@@ -1223,6 +1347,18 @@ class SelectionOverlay(QWidget):
             self._draw_text_selection(painter)
             self._draw_action_bar(painter)
             self._draw_badge(painter)
+            painter.end()
+            return
+
+        if self._picking_colour:
+            # No dimming: the question is what colour something *is*, and a
+            # wash over the screen would be answering it about a different
+            # picture than the one being looked at.  The loupe reads the
+            # screenshot either way, but aiming at a colour you cannot see is
+            # not much of an offer.
+            painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+            self._draw_loupe(painter)
+            self._draw_action_bar(painter)
             painter.end()
             return
 
@@ -1821,7 +1957,15 @@ class SelectionOverlay(QWidget):
         Not on hover: a magnifier that follows the pointer around a frozen
         screen is the cursor glow all over again, and the thing being solved
         here is putting an *edge* in the right place.
+
+        Colour picking is the exception, and it is not a contradiction: there
+        the loupe *is* the tool, it says which pixel is being read, and nobody
+        pays for it who did not ask for the mode.  It ignores the magnifier
+        setting for the same reason — that switch is about a thing appearing
+        uninvited during a drag.
         """
+        if self._picking_colour:
+            return not self._finished
         return (
             self._magnifier
             and not self._finished
@@ -1918,6 +2062,9 @@ class SelectionOverlay(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawEllipse(QRectF(target).adjusted(1, 1, -1, -1))
         painter.restore()
+
+        if self._picking_colour:
+            self._draw_swatch(painter)
 
     def _upload_line(self, physical: QRect) -> str:
         """What will actually leave, under the crop size.  Empty when nothing will.
@@ -2034,6 +2181,11 @@ class SelectionOverlay(QWidget):
             self._repaint_bar()
             return
 
+        if self._picking_colour:
+            # A click *is* the answer here; there is nothing to drag.
+            self._pick_colour(css=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier))
+            return
+
         # Text first, everywhere.  The one thing that outranks it is a resize
         # handle, which is a few pixels at the edge of a box the user put there
         # on purpose; everything else — including the inside of that box, which
@@ -2111,6 +2263,9 @@ class SelectionOverlay(QWidget):
         was_box = self._selection_rect() if self._dragging else QRect()
         was_floating = self._floating_rects() if self._dragging else []
         was_head = self._points[-1] if self._points else position
+        was_loupe = (
+            self._loupe_rect().united(self._swatch_rect()) if self._picking_colour else QRect()
+        )
         self._current = position
 
         # Hovering is only ever asked while nothing is being dragged: during a
@@ -2121,6 +2276,16 @@ class SelectionOverlay(QWidget):
         if (self._pressed_button is not None or idle) and self._update_hover(
             position + self._offset
         ):
+            if self._picking_colour:
+                # The loupe still has to leave the button it just moved onto.
+                self._repaint_loupe(was_loupe)
+            return
+
+        if self._picking_colour:
+            # The loupe *is* the tool here, so it follows the pointer — and only
+            # its own two rectangles are repainted, old place and new.
+            self.setCursor(Qt.CursorShape.CrossCursor)
+            self._repaint_loupe(was_loupe)
             return
 
         if self._selecting_text:
@@ -2308,7 +2473,27 @@ class SelectionOverlay(QWidget):
                 # away, and the black rectangles already placed are kept.
                 self._set_redacting(False)
                 return
+            if self._picking_colour:
+                self._set_picking_colour(False)
+                return
             self._cancel()
+            return
+
+        if self._picking_colour:
+            if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
+                self._pick_colour(
+                    css=bool(event.modifiers() & Qt.KeyboardModifier.ShiftModifier)
+                )
+                return
+            if key == Qt.Key.Key_K:
+                self._set_picking_colour(False)
+                return
+            # Nothing else applies: there is no selection to adjust or send.
+            super().keyPressEvent(event)
+            return
+
+        if key == Qt.Key.Key_K and self._showing_hint():
+            self._set_picking_colour(True)
             return
 
         if key == Qt.Key.Key_T and self._words:

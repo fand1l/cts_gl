@@ -61,6 +61,7 @@ _EN: dict[str, str] = {
         "KWin Scripts. The tray menu and the global shortcut still work."
     ),
     "notify.copied": "The selection was copied to the clipboard",
+    "notify.colour": "{colour} was copied to the clipboard",
     "notify.recent_gone": "That capture is no longer there",
     "notify.recent_cleared": "Forgot {count} kept capture(s)",
     "notify.saved": "The selection was saved",
@@ -351,6 +352,9 @@ _EN: dict[str, str] = {
         "Drag to select · drag across text to take the text · "
         "Esc or right-click to cancel"
     ),
+    "overlay.hint.colour": (
+        "click any pixel to copy its colour · Shift for rgb(…) · Esc to go back"
+    ),
     "overlay.scanning": "Reading the text on screen",
     "overlay.sending": "Sending it to Google Lens",
     "overlay.opening": "Opening it in the browser",
@@ -372,6 +376,7 @@ _EN: dict[str, str] = {
     "bar.back": "Back",
     "bar.mode.lasso": "Lasso",
     "bar.mode.rect": "Rectangle",
+    "bar.mode.colour": "Colour",
     "bar.last_area": "The same area",
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
@@ -431,6 +436,7 @@ _UK: dict[str, str] = {
         "працюють і без нього."
     ),
     "notify.copied": "Виділення скопійовано в буфер обміну",
+    "notify.colour": "{colour} скопійовано в буфер обміну",
     "notify.recent_gone": "Цього знімка вже немає",
     "notify.recent_cleared": "Забуто знімків: {count}",
     "notify.saved": "Виділення збережено",
@@ -723,6 +729,9 @@ _UK: dict[str, str] = {
         "Потягніть, щоб виділити · проведіть по тексту, щоб узяти текст · "
         "Esc або права кнопка — скасувати"
     ),
+    "overlay.hint.colour": (
+        "клацніть будь-який піксель, щоб скопіювати колір · Shift — rgb(…) · Esc — назад"
+    ),
     "overlay.scanning": "Читаю текст на екрані",
     "overlay.sending": "Надсилаю в Google Lens",
     "overlay.opening": "Відкриваю в браузері",
@@ -744,6 +753,7 @@ _UK: dict[str, str] = {
     "bar.back": "Назад",
     "bar.mode.lasso": "Ласо",
     "bar.mode.rect": "Прямокутник",
+    "bar.mode.colour": "Колір",
     "bar.last_area": "Те саме місце",
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",

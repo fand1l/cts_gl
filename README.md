@@ -38,6 +38,8 @@ That is the whole idea. Everything below is what happens around it.
   to send it.
 * **The same area as last time**, to the pixel — for watching a number that
   changes, where a rectangle redrawn by hand is never quite the same one.
+* **Pick a colour off the screen.** The screen is already frozen and already
+  magnified under your pointer; click a pixel and its hex is in the clipboard.
 * **Select the text on your frozen screen**, then search for the words
   themselves rather than a picture of them — or copy them, without any of it
   leaving the machine. An optional local text recognition, off until you turn it
@@ -113,6 +115,7 @@ You can also press **Meta+Shift+L**, or use **Capture now** in the tray menu.
 | **Click a window** | take exactly that window |
 | **Drag across text** | take the text instead of a picture |
 | **The same area**, or *R* | exactly where you selected last time |
+| **Colour**, or *K* | pick a colour off the screen instead |
 | **Esc** or right-click | forget it |
 
 Then the selection waits. Drag the eight handles to resize, the grip in the
@@ -136,6 +139,20 @@ address, the name in the corner — they are filled solid *before* the image is
 made, so there is no version of it with them still in. *Backspace* undoes the
 last one, *Esc* leaves the mode. The words under them are dropped from the
 recognised text too.
+
+### Picking a colour
+
+![The colour picker, magnifying a pixel](docs/images/overlay-colour.png)
+
+**Colour** (*K*) turns the overlay into a screen colour picker. The dimming
+lifts, the magnifier follows your pointer with the pixel's colour and hex under
+it, and a click copies `#rrggbb` — or `rgb(…)` with *Shift* held. *Esc* goes
+back to selecting.
+
+Plasma has an eyedropper of its own, so this is not new for the desktop. It is
+here because the answer was already on screen: by the time you wonder what
+colour that is, this program has frozen the screen and magnified it under your
+pointer, and was throwing the value away.
 
 ### Reading the text on screen
 

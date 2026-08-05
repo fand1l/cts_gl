@@ -11,8 +11,8 @@ Ordered by what I think they are worth, not by how hard they are.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** |
-| agreed, in this order | 7 colour · 5 pin · 6 history window · 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** |
+| agreed, in this order | 5 pin · 6 history window · 4 `--doctor` |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | dropped | 3 delay · 14 annotations |
 
@@ -191,7 +191,7 @@ about the right number.
 With a window, the limit becomes a setting, and "what was that error message I
 looked up last week" becomes answerable.
 
-## 7. The loupe already knows the colour
+## 7. The loupe already knows the colour — **done**
 
 A third chip beside *Lasso* and *Rectangle*: **Colour**.  Pick it and the overlay
 stops being a selection tool and becomes a screen colour picker.
@@ -224,6 +224,22 @@ to answer the question.
 
 Worth having on the same chip: *Shift* while picking copies `rgb(…)` instead, for
 CSS.
+
+*What shipped:* all of that, and two decisions the sketch had not made.
+
+* **Choosing it does not stick**, unlike the two shapes beside it.  Lasso and
+  rectangle are two ways to do the same job and are worth remembering; picking a
+  colour is a different job, and nobody wants yesterday's colour pick to be what
+  happens when they shake the mouse today.
+* **Nothing is dimmed while picking.**  Asking what colour something is, over a
+  wash, would be answering about a different picture than the one being looked
+  at — the same argument the readout in idea 8 rests on.
+
+One thing worth writing down for next time: the label over the swatch picks
+black or white by *linear* luminance (`colours.readable_on`), not by the cheap
+weighted sum of the stored channels.  The shortcut is wrong exactly where it is
+most visible — a mid green like `#00c800` comes out "dark" on it and gets white
+text, when black is four times as readable on it.
 
 *But Plasma already has one.*  True — there is a `plasma-colorpicker` widget and
 Spectacle can take a colour, and that is worth being honest about: this is not a
