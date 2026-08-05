@@ -3828,6 +3828,29 @@ _codes = qr.parse(
     "QR-Code:https://example.com/a:b?q=1\nEAN-13:4006381333931\nnot a line\n:\nQR-Code:"
 )
 check("zbar's lines are parsed", [c.kind for c in _codes] == ["QR-Code", "EAN-13"], str(_codes))
+
+# The real thing, pasted out of a terminal on the machine this runs on.  With
+# --polygon the line grows a field *between* the type and the data, so a parser
+# that split once would have handed back the corners as part of the payload.
+_real = qr.parse(
+    "QR-Code:+68,+67 +68,+230 +233,+232 +231,+67:https://uk.m.wikipedia.org/\n"
+)
+check("a polygon line is read", len(_real) == 1, str(_real))
+check("the payload survives it", _real[0].payload == "https://uk.m.wikipedia.org/",
+      _real[0].payload)
+check("with its corners", _real[0].points == ((68, 67), (68, 230), (233, 232), (231, 67)),
+      str(_real[0].points))
+check("and a box around them", _real[0].bounds == (68, 67, 165, 165), str(_real[0].bounds))
+check("which is big enough to point at", _real[0].located)
+# An older zbar without --polygon still answers, and the payload is still worth
+# having — it simply cannot be pointed at.
+check("a line with no polygon is still a code", _codes[0].points == (), str(_codes[0].points))
+check("and knows it cannot be pointed at", not _codes[0].located)
+# A payload that starts with something polygon-shaped must not be eaten.
+_tricky = qr.parse("QR-Code:1,2 3,4:rest")
+check("two corners are not a polygon",
+      _tricky[0].payload == "1,2 3,4:rest" and _tricky[0].points == (),
+      str(_tricky[0]))
 # A payload is very often a URL and full of colons of its own; splitting on all
 # of them would hand back a hostname.
 check("a payload keeps its own colons", _codes[0].payload == "https://example.com/a:b?q=1",

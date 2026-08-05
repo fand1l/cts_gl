@@ -67,15 +67,33 @@ class QrError(Exception):
 
 @dataclass(frozen=True)
 class Code:
-    """One symbol read out of the crop."""
+    """One symbol, and where in the image it was found."""
 
     #: ``QR-Code``, ``EAN-13``, … — zbar's own name for the symbology.
     kind: str
     payload: str
+    #: The corners zbar reported, in pixels of the image it was given, in the
+    #: order it reported them.  Empty when the decoder is too old to say — the
+    #: payload is still worth having, it just cannot be pointed at.
+    points: tuple[tuple[int, int], ...] = ()
 
     @property
     def is_qr(self) -> bool:
         return self.kind.upper().startswith("QR")
+
+    @property
+    def bounds(self) -> tuple[int, int, int, int]:
+        """``(left, top, width, height)`` around the corners, or all zeroes."""
+        if not self.points:
+            return (0, 0, 0, 0)
+        xs = [x for x, _ in self.points]
+        ys = [y for _, y in self.points]
+        return (min(xs), min(ys), max(xs) - min(xs), max(ys) - min(ys))
+
+    @property
+    def located(self) -> bool:
+        width, height = self.bounds[2], self.bounds[3]
+        return width >= MIN_SIDE and height >= MIN_SIDE
 
 
 def install_hint() -> str:
@@ -95,21 +113,53 @@ def is_available() -> bool:
     return binary_path() is not None
 
 
-def parse(raw: str) -> list[Code]:
-    """Turn zbarimg's ``TYPE:payload`` lines into codes.
+def _points(field: str) -> tuple[tuple[int, int], ...]:
+    """``+68,+67 +68,+230 …`` — zbar's SVG-shaped polygon, or nothing.
 
-    Split once, on purpose: a payload is very often a URL and contains colons
-    of its own, and splitting on all of them would hand back a hostname.
+    Returns an empty tuple for anything that is not one, which is how the
+    parser tells ``TYPE:POLYGON:payload`` from a plain ``TYPE:payload``: the
+    second field of the first is always a polygon and the second field of the
+    second is the start of the data.
+    """
+    pairs = field.split()
+    if len(pairs) < 3:
+        # Three corners is the fewest that encloses anything.  Two would also
+        # be a plausible misreading of a payload that happens to look numeric.
+        return ()
+    corners: list[tuple[int, int]] = []
+    for pair in pairs:
+        x, _, y = pair.partition(",")
+        try:
+            corners.append((int(x), int(y)))
+        except ValueError:
+            return ()
+    return tuple(corners)
+
+
+def parse(raw: str) -> list[Code]:
+    """Turn zbarimg's output lines into codes.
+
+    Two shapes, because ``--polygon`` is not in every zbar:
+
+        QR-Code:https://example.com/
+        QR-Code:+68,+67 +68,+230 +233,+232 +231,+67:https://example.com/
+
+    The payload is whatever is left after the fields in front of it, taken in
+    one piece: it is very often a URL and full of colons of its own, and
+    splitting on all of them would hand back a hostname.
     """
     codes: list[Code] = []
     for line in raw.splitlines():
-        if ":" not in line:
-            continue
-        kind, payload = line.split(":", 1)
+        kind, _, rest = line.partition(":")
         kind = kind.strip()
-        if not kind or not payload:
+        if not kind or not rest:
             continue
-        codes.append(Code(kind=kind, payload=payload))
+        maybe, _, tail = rest.partition(":")
+        corners = _points(maybe)
+        payload = tail if corners else rest
+        if not payload:
+            continue
+        codes.append(Code(kind=kind, payload=payload, points=corners))
     return codes
 
 
@@ -134,7 +184,9 @@ def decode(image: Image.Image) -> list[Code]:
         except (OSError, ValueError) as exc:
             raise QrError(f"cannot write the image for decoding: {exc}") from exc
 
-        command = [binary, "-q", "--nodbus", str(source)]
+        # --polygon is what makes the code point-at-able rather than just
+        # readable; an older zbar without it still answers, with no corners.
+        command = [binary, "-q", "--nodbus", "--polygon", str(source)]
         log.debug("running %s", " ".join(command))
         try:
             result = subprocess.run(
