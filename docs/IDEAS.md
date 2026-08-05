@@ -13,17 +13,20 @@ afterwards as a placeholder and now has an answer.
 | | |
 |---|---|
 | done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** |
-| agreed, in this order | 10 drag out · 12 QR |
+| agreed, in this order | 12 QR · 10 drag out — see the note under it |
 | last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
 
 The four that were left unordered were ordered on the same rule as before.  11
 went first and is done: it was wiring between three things that already existed
 and added no interface at all.  13 and 10 both change what a press does to a
-confirmed selection, so they are adjacent, and 13 goes first because half of it
-is already there.  12 is last of the four because it needs a decoder that is not
-installed, which makes it the only one carrying a dependency, the settings to
-make it optional, and three files of documentation.  15 comes after all of them
+confirmed selection, so they were put adjacent, and 13 went first because half
+of it was already there.  10 has since moved *behind* 12: starting on it turned
+up a question the sketch had not asked — there is nowhere to drop a picture
+while a fullscreen overlay is on top of every window — and the answer decides
+what the feature is.  12 needs a decoder that is not installed, which makes it
+the only one carrying a dependency, the settings to make it optional, and three
+files of documentation, but none of that is a question.  15 comes after all of them
 because it repaints whatever they leave behind.
 
 The order is not the ranking below.  It runs smallest-change-per-return first
@@ -353,6 +356,35 @@ is four, and the overlay is already holding the image.
 
 *What to watch:* the inside of the box now starts a new selection, so this needs
 its own affordance — most likely the move grip doing double duty, or a modifier.
+`Ctrl` and a press inside the box is the one going spare, and the confirm bar's
+caption is where it would be advertised.
+
+*And the thing that turns out to be in the middle of it,* found while starting
+on it and worth writing down before the design is settled:
+
+**The overlay is fullscreen, so there is nowhere to drop.**  A `QDrag` has to be
+started while the button is still down, which is while the overlay is still up
+— and the overlay covers every window the picture could be dropped into.  The
+drop would land on the overlay itself.
+
+That is not a detail to be discovered halfway through; it decides the shape of
+the feature.  Three ways out, none free:
+
+* **Hide the overlay and then `exec()` the drag.**  Qt allows it — the drag
+  manager holds the grab, not the widget — and it is the smallest change.  But
+  it is a fullscreen Wayland surface dropping its own grab mid-gesture, which
+  is precisely the kind of thing that works on one compositor and not another,
+  and it cannot be tested from here at all: `offscreen` has no drag-and-drop.
+* **Drag out of the pinned window instead** (idea 5, already shipped).  A pin is
+  a small ordinary window with the crop in it and nothing underneath it; a drag
+  from there is an ordinary drag with an ordinary drop target, and *P* then
+  drag is two gestures rather than four.  Cheapest and safest, and it moves the
+  feature to where it is not fighting the compositor.
+* **Both**, with the pinned window first.
+
+Not started, deliberately: the first option is a guess that only real hardware
+can settle, and the second may make the first unnecessary.  Worth ten minutes of
+conversation before it is worth an afternoon of code.
 
 ## 11. "Try another way" when the upload fails — **done**
 
