@@ -552,6 +552,22 @@ class AppSettings:
         self._settings.setValue("ocr_languages", value)
 
     @property
+    def qr_enabled(self) -> bool:
+        """Read a QR code out of the crop instead of uploading a picture of it.
+
+        On by default, which is the other way round from text recognition, and
+        deliberately: recognition needs a package the user may not want and
+        reads their whole screen, while this needs a package they very likely
+        have and its entire effect is to *stop* a picture going to Google.
+        Nothing happens either way when zbarimg is not installed.
+        """
+        return _as_bool(str(self._settings.value("qr_enabled", "true")))
+
+    @qr_enabled.setter
+    def qr_enabled(self, value: bool) -> None:
+        self._settings.setValue("qr_enabled", "true" if value else "false")
+
+    @property
     def lens_backend(self) -> str:
         """``browser`` (default), ``auto``, ``lens``, ``searchbyimage`` or a variant.
 

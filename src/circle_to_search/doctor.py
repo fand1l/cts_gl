@@ -447,6 +447,24 @@ def check_ocr(enabled: bool) -> Finding:
     return Finding("text recognition", OK, f"tesseract, {have}")
 
 
+def check_qr(enabled: bool) -> Finding:
+    """Reading a code out of the crop, which is the one check that saves an upload."""
+    from . import qr
+
+    if not qr.is_available():
+        if not enabled:
+            return Finding("QR codes", NOTE, "off, and zbar is not installed")
+        return Finding(
+            "QR codes",
+            NOTE,
+            "switched on, but zbar is not installed",
+            (f"  {qr.install_hint()}",),
+        )
+    if not enabled:
+        return Finding("QR codes", NOTE, f"{qr.BINARY} is there; switched off")
+    return Finding("QR codes", OK, f"{qr.BINARY}, so a code is read rather than uploaded")
+
+
 # --------------------------------------------------------------------------- #
 # Putting it together
 # --------------------------------------------------------------------------- #
@@ -468,6 +486,7 @@ def run_checks(screen: QScreen | None = None) -> list[Finding]:
         check_capture(screen),
         check_browser(),
         check_ocr(settings.ocr_enabled),
+        check_qr(settings.qr_enabled),
     ]
 
 

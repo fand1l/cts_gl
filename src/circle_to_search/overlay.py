@@ -249,6 +249,9 @@ ACTION_SAVE = "save"
 #: _commit like the other three, so the redaction and the lasso mask apply to it
 #: exactly as they do to an upload.
 ACTION_PIN = "pin"
+#: The crop turned out to hold a QR code, so there is a better answer than
+#: sending a picture of it to Google.
+ACTION_QR = "qr"
 #: Only the tray's recent list uses this one now: on the overlay the text is
 #: taken by dragging across it, not by asking for a whole region to be read.
 ACTION_TEXT = "text"
@@ -354,6 +357,13 @@ class SelectionOverlay(QWidget):
         self._upload_bytes = 0
         self._estimate_timer: QTimer | None = None
         self._estimated_for = QRect()
+        #: What was decoded out of the confirmed crop, if anything.  Answered by
+        #: the application off the GUI thread, on the same ask as the byte
+        #: count, and dropped the same way when it comes back about a crop that
+        #: has since been dragged somewhere else.
+        self._code = ""
+        self._code_kind = ""
+        self._code_link = ""
         self._estimated_marks: list[QRect] = []
         #: Bumped whenever anything that changes the answer changes — the crop,
         #: or what is blacked out inside it.  An answer that was asked for
@@ -629,6 +639,28 @@ class SelectionOverlay(QWidget):
             ]
         if self._confirming and self._has_selection:
             count = len(self._redactions)
+            if self._code:
+                # A code in the crop has a better answer than a picture of it,
+                # so it leads and takes *Enter* with it — Search is still there,
+                # because "what else is on this shelf label" is a fair question.
+                return [
+                    (
+                        ACTION_QR,
+                        tr("bar.qr_open") if self._code_link else tr("bar.qr_copy"),
+                        "Enter",
+                        True,
+                    ),
+                    (ACTION_SEARCH, tr("bar.search"), "", False),
+                    (ACTION_COPY, tr("bar.copy"), "C", False),
+                    (ACTION_SAVE, tr("bar.save"), "S", False),
+                    (
+                        BAR_REDACT,
+                        tr("bar.redact_count", count=count) if count else tr("bar.redact"),
+                        "B",
+                        self._redacting,
+                    ),
+                    (BAR_CANCEL, tr("bar.cancel"), "Esc", False),
+                ]
             return [
                 (ACTION_SEARCH, tr("bar.search"), "Enter", True),
                 (ACTION_COPY, tr("bar.copy"), "C", False),
@@ -2649,7 +2681,7 @@ class SelectionOverlay(QWidget):
             return
 
         if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter, Qt.Key.Key_Space):
-            self._commit(ACTION_SEARCH)
+            self._commit(self._primary_action())
             return
         if key == Qt.Key.Key_C:
             self._commit(ACTION_COPY)
@@ -2845,6 +2877,9 @@ class SelectionOverlay(QWidget):
         self._estimated_marks = marks
         self._estimate_serial += 1
         self._upload_bytes = 0
+        # The code belonged to the old crop.  Kept on the bar it would offer to
+        # open a link that is no longer inside the box.
+        self._code = self._code_kind = self._code_link = ""
         if wanted.isEmpty():
             if self._estimate_timer is not None:
                 self._estimate_timer.stop()
@@ -2861,6 +2896,35 @@ class SelectionOverlay(QWidget):
             return
         self._estimate_asked = self._estimate_serial
         self.estimate_requested.emit(QRect(self._estimated_for))
+
+    def code(self) -> tuple[str, str]:
+        """``(payload, link)`` for whatever was decoded, or two empty strings."""
+        return self._code, self._code_link
+
+    def set_code(self, crop: QRect, kind: str, payload: str, link: str) -> None:
+        """The answer to "is there a code in this?", for the crop it was asked about.
+
+        Dropped on the same terms as the byte count, and for the same reason: a
+        slow answer about a box that has been dragged somewhere else would put a
+        button on the bar that offers to open a link nobody selected.
+
+        The whole bar is repainted rather than a rectangle of it — this adds a
+        button, so every other button on it moves.
+        """
+        if crop != self._estimated_for or self._estimate_asked != self._estimate_serial:
+            return
+        if (payload, link) == (self._code, self._code_link):
+            return
+        was = self._bar_rect()
+        self._code = payload
+        self._code_kind = kind
+        self._code_link = link
+        log.info("the crop holds a %s%s", kind or "code", " (a link)" if link else "")
+        self.update(was.united(self._bar_rect()).translated(-self._offset).adjusted(-4, -4, 4, 4))
+
+    def _primary_action(self) -> str:
+        """What *Enter* means on the confirmed bar: whatever the lit button says."""
+        return ACTION_QR if self._code else ACTION_SEARCH
 
     def set_upload_size(self, crop: QRect, nbytes: int) -> None:
         """The answer to :attr:`estimate_requested`, for the crop it was asked about.

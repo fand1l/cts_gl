@@ -23,6 +23,14 @@ the release.
 
 ## 1.3.0 — “another-way”
 
+* **A QR code is read instead of uploaded.** When the confirmed selection
+  holds one, the bar leads with **Open the link** — and takes *Enter* with it —
+  rather than offering to send Google a picture of a thing that decodes locally
+  in a millisecond. A code that is not a link is copied instead. It needs
+  `zbar`, and does nothing at all without it; unlike text recognition it is on
+  by default and is not asked about first, because the trade is the other way
+  round: it costs nothing and its whole effect is to *stop* an upload. Whatever
+  has been blacked out is not read either.
 * **Select without a mouse.** The arrow keys raise a crosshair and move it —
   *Ctrl* to travel, *Shift* for one pixel at a time. *Space* pins one corner,
   the arrows size the box from it, *Space* again takes it, and from there it is

@@ -3816,6 +3816,141 @@ check("and it is the first thing init does",
 check("with the version it is really running",
       '"ScriptReady", SCRIPT_VERSION' in source)
 
+# --- reading a QR code instead of uploading it ------------------------------
+# Circling a code and sending it to Google is a network round trip for
+# something that decodes locally in a millisecond — and it hands a picture of
+# the code to a third party on the way, which for a Wi-Fi password or a payment
+# link is worse than useless.
+from circle_to_search import qr  # noqa: E402
+from circle_to_search.overlay import ACTION_QR  # noqa: E402
+
+_codes = qr.parse(
+    "QR-Code:https://example.com/a:b?q=1\nEAN-13:4006381333931\nnot a line\n:\nQR-Code:"
+)
+check("zbar's lines are parsed", [c.kind for c in _codes] == ["QR-Code", "EAN-13"], str(_codes))
+# A payload is very often a URL and full of colons of its own; splitting on all
+# of them would hand back a hostname.
+check("a payload keeps its own colons", _codes[0].payload == "https://example.com/a:b?q=1",
+      _codes[0].payload)
+check("junk is dropped, not guessed at", len(_codes) == 2, str(_codes))
+check("and a QR code knows it is one", _codes[0].is_qr and not _codes[1].is_qr)
+
+# More than one in the crop: somebody who circled a shelf label with both on it
+# meant the square one, and nobody wants a 13-digit EAN opened.
+check("the QR code wins over a barcode", qr.best(_codes) is _codes[0], str(qr.best(_codes)))
+check("a barcode alone is still offered", qr.best(_codes[1:]) is _codes[1])
+check("and nothing is nothing", qr.best([]) is None)
+
+with tempfile.TemporaryDirectory() as tmp:
+    fake_dir = Path(tmp)
+    os.environ["PATH"] = str(fake_dir)
+    check("a missing decoder is detected", not qr.is_available())
+    try:
+        qr.decode(Image.new("RGB", (60, 60), "white"))
+    except qr.QrError as exc:
+        check("and decoding without it raises", "not installed" in str(exc), str(exc))
+    else:
+        check("and decoding without it raises", False)
+
+    def fake_zbarimg(body: str) -> None:
+        binary = fake_dir / "zbarimg"
+        binary.write_text("#!/bin/sh\n" + body, encoding="utf-8")
+        binary.chmod(0o755)
+
+    fake_zbarimg('echo "QR-Code:https://example.com/thing"\n')
+    check("the binary is found", qr.is_available())
+    found = qr.decode(Image.new("RGB", (60, 60), "white"))
+    check("a code comes back through the pipe",
+          [c.payload for c in found] == ["https://example.com/thing"], str(found))
+
+    # The ordinary case: most selections are not codes.  zbarimg says so with
+    # exit 4, and that is not an error to be reported at anybody.
+    fake_zbarimg("exit 4\n")
+    check("nothing found is not a failure", qr.decode(Image.new("RGB", (60, 60), "white")) == [])
+
+    fake_zbarimg('echo "zbarimg: fell over" >&2\nexit 1\n')
+    try:
+        qr.decode(Image.new("RGB", (60, 60), "white"))
+    except qr.QrError as exc:
+        check("a real failure carries the reason", "fell over" in str(exc), str(exc))
+    else:
+        check("a real failure carries the reason", False)
+
+    fake_zbarimg('echo "QR-Code:x"\n')
+    check("a crop too small to hold one is not even asked about",
+          qr.decode(Image.new("RGB", (8, 8), "white")) == [])
+
+    for manager, expected in (("dnf", "dnf install zbar"), ("apt-get", "apt install zbar-tools"),
+                              ("pacman", "pacman -S zbar"), ("zypper", "zypper install zbar")):
+        (fake_dir / manager).write_text("#!/bin/sh\n", encoding="utf-8")
+        (fake_dir / manager).chmod(0o755)
+        check(f"the {manager} hint", expected in qr.install_hint(), qr.install_hint())
+        (fake_dir / manager).unlink()
+os.environ["PATH"] = original_path
+
+# What the bar does about it.  The button leads and takes Enter with it —
+# Search stays, because "what else is on this shelf label" is a fair question.
+
+
+def with_estimate() -> SelectionOverlay:
+    """A confirmed selection on an overlay that has asked about its crop."""
+    view = SelectionOverlay(
+        QPixmap.fromImage(pil_to_qimage(shot)),
+        metrics,
+        screen,
+        dim_percent=40,
+        mode=MODE_RECTANGLE,
+        confirm=True,
+        max_side=1000,
+    )
+    view.resize(screen.geometry().size())
+    drag(view, (100, 100), (300, 250))
+    view._ask_for_upload_size()
+    return view
+
+
+coded = with_estimate()
+check("no button until something is decoded",
+      next(placed.action for placed in coded._layout_buttons()) == ACTION_SEARCH)
+coded.set_code(
+    coded._estimated_for, "QR-Code", "https://example.com/x", "https://example.com/x"
+)
+_bar = [placed.action for placed in coded._layout_buttons()]
+check("a decoded link leads the bar", _bar[0] == ACTION_QR, str(_bar))
+check("and Search is still on it", ACTION_SEARCH in _bar, str(_bar))
+check("the button says what it will do",
+      button_named(coded, ACTION_QR).label == "Open the link",
+      button_named(coded, ACTION_QR).label)
+check("and Enter now means that", coded._primary_action() == ACTION_QR)
+
+# A code that is not a link is worth copying, not opening.
+plain = with_estimate()
+plain.set_code(plain._estimated_for, "QR-Code", "WIFI:S=home;T=WPA;P=hunter2;;", "")
+check("a code that is not a link says copy",
+      button_named(plain, ACTION_QR).label == "Copy the code",
+      button_named(plain, ACTION_QR).label)
+
+# The same staleness rule the byte count follows: an answer about a box that
+# has been dragged somewhere else would offer a link nobody selected.
+stale_code = with_estimate()
+stale_code.set_code(QRect(1, 2, 3, 4), "QR-Code", "https://example.com/no", "…")
+check("an answer about another crop is dropped", stale_code.code() == ("", ""),
+      str(stale_code.code()))
+
+moved = with_estimate()
+moved.set_code(moved._estimated_for, "QR-Code", "https://example.com/y", "https://example.com/y")
+press_key(moved, Qt.Key.Key_Right)
+check("and moving the box takes the button away again", moved.code() == ("", ""),
+      str(moved.code()))
+check("so Enter goes back to searching", moved._primary_action() == ACTION_SEARCH)
+
+for code in ("en", "uk"):
+    i18n.set_language(code)
+    for key in ("bar.qr_open", "bar.qr_copy", "notify.qr_copied", "settings.qr",
+                "settings.qr.hint", "settings.qr.missing"):
+        check(f"{code}: {key} has words", i18n.tr(key) != key, i18n.tr(key)[:40])
+i18n.set_language("en")
+
 # --- selecting without a mouse ----------------------------------------------
 # Half of this was already here: the arrows move and resize a box that has been
 # *taken*, and the bar says so.  The missing half was that there was no way to

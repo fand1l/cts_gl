@@ -40,6 +40,9 @@ That is the whole idea. Everything below is what happens around it.
   you need to read is behind the window you have to type into.
 * **The same area as last time**, to the pixel — for watching a number that
   changes, where a rectangle redrawn by hand is never quite the same one.
+* **A QR code is read here, not sent anywhere.** Circle one and the bar offers
+  to open the link in it before it offers Google a picture of it — decoded on
+  your machine, in about a millisecond.
 * **Pick a colour off the screen.** The screen is already frozen and already
   magnified under your pointer; click a pixel and its hex is in the clipboard.
 * **Select the text on your frozen screen**, then search for the words
@@ -176,6 +179,7 @@ now you can see what *Longest side* and *JPEG quality* are doing.
 | **Copy** | *C* | to the clipboard |
 | **Save** | *S* | a PNG in Pictures |
 | **Pin** | *P* | leave it on screen, above everything |
+| **Open the link** | *Enter* | when the selection holds a QR code |
 | **Black out** | *B* | paint over anything that must not leave |
 | **Cancel** | *Esc* | forget it |
 

@@ -942,6 +942,44 @@ with it.
 Everything above is read **fresh** every time the menu is opened. Caching it
 would reintroduce precisely the bug it is there to expose.
 
+### Reading a QR code instead of uploading it
+
+`qr.py` is `ocr.py`'s shape and for the same reasons: an outside program called
+through a pipe rather than a Python dependency, optional, never a hard
+requirement. `zbarimg` ships in every distribution this targets and pulls in
+nothing, where the alternatives are a compiled binding (`pyzbar`) or OpenCV,
+and neither belongs in `requirements.txt` for one button.
+
+**It is on by default and is never asked about, which is the opposite of text
+recognition — deliberately.** Recognition needs a package the user may not want
+and reads their whole screen, so it asks first. This needs a package they very
+likely already have, and its entire effect is to *stop* a picture going to
+Google. There is nothing to ask.
+
+It rides the byte-count question rather than having one of its own: both are
+asked about the same rectangle at the same moment, once the box has settled, by
+`estimate_requested`. The answer goes through `set_code()`, which drops it on
+exactly the terms `set_upload_size()` drops a stale byte count — a slow answer
+about a box that has since been dragged elsewhere would put a button on the bar
+offering to open a link nobody selected.
+
+Three details that are not obvious:
+
+* **Redactions are applied before decoding.** What has been blacked out is not
+  in the picture that would be sent, so it must not be in the code read out of
+  it either: a QR code half covered is not a code the user offered up.
+* **`zbarimg` exits 4 when it read the image and found nothing**, which is the
+  ordinary case — most selections are not codes, and this is asked about every
+  one of them. That is not an error and is not reported as one.
+* **The payload keeps its own colons.** zbar prints `TYPE:payload` and a
+  payload is very often a URL; splitting on every colon would hand back a
+  hostname.
+
+A code that is a link is opened; anything else — a Wi-Fi string, a 13-digit EAN
+— is copied, because there is nothing sensible to open and it is still what was
+asked for. *Search* stays on the bar either way: "what else is on this shelf
+label" is a fair question.
+
 ### Selecting without a mouse
 
 Half of this was already here — the arrow keys move and resize a box that has

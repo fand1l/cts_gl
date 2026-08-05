@@ -33,7 +33,7 @@ from PyQt6.QtGui import (
 )
 from PyQt6.QtWidgets import QApplication, QMenu, QMessageBox, QSystemTrayIcon
 
-from . import APP_ID, DBUS_SERVICE, ocr, version_label, websearch
+from . import APP_ID, DBUS_SERVICE, ocr, qr, version_label, websearch
 from .calibration_dialog import CalibrationDialog
 from .config import (
     AppSettings,
@@ -80,6 +80,7 @@ from .notify import URGENCY_CRITICAL, notify, notify_error, supports_actions
 from .overlay import (
     ACTION_COPY,
     ACTION_PIN,
+    ACTION_QR,
     ACTION_SAVE,
     ACTION_SEARCH,
     ACTION_TEXT,
@@ -305,6 +306,54 @@ class _EstimateTask(QRunnable):
         self.signals.finished.emit(self._crop, len(prepared.payload))
 
 
+class _QrSignals(QObject):
+    finished = pyqtSignal(QRect, str, str)
+
+
+class _QrTask(QRunnable):
+    """Ask zbarimg whether the confirmed crop is a code, off the GUI thread.
+
+    Rides the same question the byte count does, because it is asked at the same
+    moment and about the same rectangle: once the box has settled.  A process
+    per settle is affordable — the crop is small and zbar is fast — and the
+    alternative is deciding after the user has already pressed Search, which is
+    too late to offer them anything.
+    """
+
+    def __init__(self, image: Image.Image, crop: QRect, redactions: list[QRect] | None = None):
+        super().__init__()
+        self.setAutoDelete(False)
+        self.signals = _QrSignals()
+        self._image = image
+        self._crop = QRect(crop)
+        self._redactions = [QRect(rect) for rect in redactions or []]
+
+    @pyqtSlot()
+    def run(self) -> None:
+        box = (
+            self._crop.x(),
+            self._crop.y(),
+            self._crop.x() + self._crop.width(),
+            self._crop.y() + self._crop.height(),
+        )
+        try:
+            cropped = self._image.crop(box)
+            # Whatever has been blacked out is not in the picture that would be
+            # sent, so it must not be in the code that is read out of it either
+            # — a QR code half covered is not a code the user offered up.
+            cropped = black_out(cropped, rects_to_crop_space(self._redactions, self._crop))
+            found = qr.best(qr.decode(cropped))
+        except Exception:
+            # Nothing depends on this: without an answer the bar simply does not
+            # grow a button.  Answered with nothing so the caller can let go.
+            log.debug("could not decode the crop", exc_info=True)
+            self.signals.finished.emit(self._crop, "", "")
+            return
+        self.signals.finished.emit(
+            self._crop, found.kind if found else "", found.payload if found else ""
+        )
+
+
 class _OpenSignals(QObject):
     failed = pyqtSignal(str)
 
@@ -397,6 +446,9 @@ class CircleToSearchApp(QObject):
         #: everything else here: a pin is meant to still be there in ten
         #: minutes, long after the capture that made it was forgotten.
         self._pins: set[PinnedCrop] = set()
+        #: The payload decoded out of the crop that is on screen, and the link
+        #: in it if it is one.  See _finish_qr.
+        self._pending_code: tuple[str, str] = ("", "")
         self._busy = False
 
         # Learning from misfires: the movement the KWin script last sent, and
@@ -1159,6 +1211,9 @@ class CircleToSearchApp(QObject):
         if action == ACTION_TEXT:
             self._extract_text(cropped)
             return
+        if action == ACTION_QR and self._pending_code[0]:
+            self._use_code(*self._pending_code)
+            return
 
         if self._settings.copy_to_clipboard:
             self._copy_to_clipboard(cropped)
@@ -1379,6 +1434,52 @@ class CircleToSearchApp(QObject):
         )
         self._tasks.add(task)
         QThreadPool.globalInstance().start(task)
+
+        # The same ask, answered twice: "how big would this be" and "is it a
+        # code".  Only the first has to happen; the second is skipped entirely
+        # when the decoder is not installed or has been turned off.
+        if self._settings.qr_enabled and qr.is_available():
+            reader = _QrTask(image, crop, overlay.redactions())
+            reader.signals.finished.connect(
+                lambda measured, kind, payload, ref=reader, view=overlay: self._finish_qr(
+                    ref, view, measured, kind, payload
+                )
+            )
+            self._tasks.add(reader)
+            QThreadPool.globalInstance().start(reader)
+
+    def _finish_qr(
+        self, task: QRunnable, overlay: SelectionOverlay, crop: QRect, kind: str, payload: str
+    ) -> None:
+        self._tasks.discard(task)
+        if not payload:
+            return
+        # A code that is a link is worth opening; one that is a Wi-Fi password
+        # or a plain string is worth copying, and neither is worth uploading.
+        link = websearch.looks_like_url(payload)
+        # Kept here as well as on the overlay: the overlay is gone by the time
+        # the button it drew is acted on.  It cannot go stale — nothing can ask
+        # for it unless that same button is on screen.
+        self._pending_code = (payload, link)
+        overlay.set_code(crop, kind, payload, link)
+
+    def _use_code(self, payload: str, link: str) -> None:
+        """Do what the code says, which is never to upload a picture of it.
+
+        A link is opened; anything else — a Wi-Fi password, a plain string, a
+        13-digit barcode — goes to the clipboard, because there is nothing
+        sensible to open and it is still the thing that was asked for.
+        """
+        self._pending_code = ("", "")
+        if link:
+            log.info("opening the link out of the code instead of uploading it")
+            self._open_url(link)
+            return
+        clipboard = QGuiApplication.clipboard()
+        if clipboard is not None:
+            clipboard.setText(payload)
+        log.info("copied %d characters out of the code", len(payload))
+        notify(tr("notify.qr_copied"), ocr.summarise(payload), timeout_ms=8000)
 
     def _finish_estimate(
         self, task: QRunnable, overlay: SelectionOverlay, crop: QRect, nbytes: int

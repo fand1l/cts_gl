@@ -93,6 +93,16 @@ _EN: dict[str, str] = {
     "notify.ocr_failed_body": "{error}",
     "notify.ocr_missing": "Text recognition is not installed",
     "notify.ocr_missing_body": "It needs tesseract:\n{command}",
+    "settings.qr": "Read a QR code instead of uploading it",
+    "settings.qr.hint": (
+        "When the selection holds a code, the bar offers to open the link in it "
+        "before it offers to send Google a picture of it. Decoded here, on your "
+        "machine, and nothing is uploaded."
+    ),
+    "settings.qr.missing": "It needs zbar, which is not installed:\n{command}",
+    "bar.qr_open": "Open the link",
+    "bar.qr_copy": "Copy the code",
+    "notify.qr_copied": "The code was copied to the clipboard",
     "notify.ocr_off": "Text recognition is switched off",
     "notify.ocr_off_body": "Turn it on in Settings → General if you want it.",
     "about.text": (
@@ -497,6 +507,16 @@ _UK: dict[str, str] = {
     "notify.ocr_failed_body": "{error}",
     "notify.ocr_missing": "Розпізнавання тексту не встановлено",
     "notify.ocr_missing_body": "Потрібен tesseract:\n{command}",
+    "settings.qr": "Читати QR-код замість того, щоб надсилати його",
+    "settings.qr.hint": (
+        "Коли у виділенні є код, панель спершу запропонує відкрити посилання з "
+        "нього, а не надсилати Google його картинку. Розшифровується тут, на "
+        "вашій машині, і нікуди не вивантажується."
+    ),
+    "settings.qr.missing": "Потрібен zbar, якого немає:\n{command}",
+    "bar.qr_open": "Відкрити посилання",
+    "bar.qr_copy": "Скопіювати код",
+    "notify.qr_copied": "Код скопійовано в буфер обміну",
     "notify.ocr_off": "Розпізнавання тексту вимкнене",
     "notify.ocr_off_body": "Увімкніть його в Налаштуваннях → Загальні, якщо потрібно.",
     "about.text": (

@@ -30,7 +30,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
-from . import ocr
+from . import ocr, qr
 from .config import (
     AppSettings,
     DetectionSettings,
@@ -324,6 +324,16 @@ class SettingsDialog(QDialog):
         selection_layout.addWidget(_hint(tr("settings.ocr.hint", command=ocr.install_hint())))
         self.ocr_state = _hint(self._ocr_state())
         selection_layout.addWidget(self.ocr_state)
+
+        self.qr_box = QCheckBox(tr("settings.qr"), selection)
+        selection_layout.addWidget(self.qr_box)
+        selection_layout.addWidget(
+            _hint(
+                tr("settings.qr.hint")
+                if qr.is_available()
+                else tr("settings.qr.missing", command=qr.install_hint())
+            )
+        )
         layout.addWidget(selection)
 
         backend_row = QHBoxLayout()
@@ -440,6 +450,7 @@ class SettingsDialog(QDialog):
         self.confirm_box.setChecked(settings.confirm_selection)
         self.magnifier_box.setChecked(settings.magnifier)
         self.ocr_box.setChecked(settings.ocr_enabled)
+        self.qr_box.setChecked(settings.qr_enabled)
         self.ocr_state.setText(self._ocr_state())
         self.backend_combo.setCurrentIndex(
             max(0, self.backend_combo.findData(settings.lens_backend))
@@ -492,6 +503,7 @@ class SettingsDialog(QDialog):
         settings.confirm_selection = self.confirm_box.isChecked()
         settings.magnifier = self.magnifier_box.isChecked()
         settings.ocr_enabled = self.ocr_box.isChecked()
+        settings.qr_enabled = self.qr_box.isChecked()
         if self.ocr_box.isChecked():
             # Ticking it here counts as the answer, so the overlay does not ask
             # the same question again the first time T is pressed.

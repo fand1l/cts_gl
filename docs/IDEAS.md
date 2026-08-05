@@ -12,8 +12,8 @@ afterwards as a placeholder and now has an answer.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** |
-| agreed, in this order | 12 QR · 10 drag out — see the note under it |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** · **11 try another way** · **13 no-mouse** · **12 QR** |
+| agreed, in this order | 10 drag out — see the note under it |
 | last, on its own | 15 a new design, on Material 3 |
 | dropped | 3 delay · 14 annotations |
 
@@ -396,7 +396,7 @@ matters, the notification says *Google Lens request failed* and offers nothing.
 Meanwhile `notify.py` already has the whole action-button machinery, built for
 the misfire survey, sitting unused for anything else.
 
-## 12. Decode a QR code instead of uploading it
+## 12. Decode a QR code instead of uploading it — **done**
 
 If the crop contains one, offer *Open the link* before offering to send it
 anywhere.
