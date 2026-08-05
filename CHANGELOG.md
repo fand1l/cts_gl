@@ -40,9 +40,10 @@ Seven things, all of them about what happens *after* the screen freezes.
   judgement about a tray menu.
 
 Also: `./install.sh update` — fetch the `deploy` branch and reinstall, in the
-order that cannot leave you worse off. And a repaint bug fixed that smeared the
-handles, the grip and the action bar across the screen when the selection was
-moved.
+order that cannot leave you worse off, with `--dev` to take the `dev` branch
+instead when a change needs testing before it is merged. And a repaint bug fixed
+that smeared the handles, the grip and the action bar across the screen when the
+selection was moved.
 
 **A crash fixed** that was in 1.0.0 from the start: *About* and the one-time
 text-recognition question each opened a message box that blocked everything

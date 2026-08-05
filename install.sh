@@ -9,6 +9,8 @@
 #
 #   ./install.sh                     normal install
 #   ./install.sh update              fetch the deploy branch, then reinstall
+#   ./install.sh update --dev        ...fetch 'dev' instead: the newest work,
+#                                    before anybody has decided it is fit to run
 #   ./install.sh reinstall           remove what was installed, then install it again
 #   ./install.sh reinstall --config  ...and erase the settings as well (asks first)
 #
@@ -16,7 +18,8 @@
 #   --no-deps       never call the package manager
 #   --force         install even if the session checks fail, and update over a
 #                   checkout with local changes
-#   --branch NAME   update from this branch instead of 'deploy'
+#   --dev           update from 'dev' rather than 'deploy'
+#   --branch NAME   update from some other branch entirely
 #
 # "reinstall" has nothing to do with git: it installs *this* checkout, whatever
 # state it is in.  "update" brings the deploy branch first, in the order that
@@ -50,7 +53,12 @@ CLEAN_CONFIG=0
 #: whatever happens to be checked out: the machine running this is not the
 #: machine the work is done on, and "the code I have decided is fit to run" is
 #: a different question from "the code I was last editing".
-UPDATE_BRANCH="deploy"
+DEPLOY_BRANCH="deploy"
+#: And where the work lands on its way there.  --dev follows this one instead:
+#: same repository, same command, but nothing has been decided about it yet —
+#: it is "the code I was last editing", which is the other question.
+DEV_BRANCH="dev"
+UPDATE_BRANCH="$DEPLOY_BRANCH"
 REMOTE="origin"
 
 RED=$'\033[31m'; GREEN=$'\033[32m'; YELLOW=$'\033[33m'; BOLD=$'\033[1m'; RESET=$'\033[0m'
@@ -61,6 +69,19 @@ die()   { printf '%s[x]%s %s\n' "$RED$BOLD" "$RESET" "$*" >&2; exit 1; }
 #: The flags to hand on when "update" re-execs the installer it just pulled.
 PASSTHROUGH=()
 
+#: Which flag chose the branch, so a second one can be caught.  --dev and
+#: --branch answer the same question, and asking it twice with two different
+#: answers is a typo — one that installs the wrong code without saying so.
+BRANCH_FROM=""
+choose_branch() {
+    local wanted="$1" flag="$2"
+    if [[ -n "$BRANCH_FROM" && "$wanted" != "$UPDATE_BRANCH" ]]; then
+        die "$BRANCH_FROM asks for '$UPDATE_BRANCH' and $flag asks for '$wanted'. Pick one."
+    fi
+    UPDATE_BRANCH="$wanted"
+    BRANCH_FROM="$flag"
+}
+
 while (( $# )); do
     case "$1" in
         install|reinstall|update) COMMAND="$1" ;;
@@ -68,10 +89,11 @@ while (( $# )); do
         -y|--yes)      ASSUME_YES=1; PASSTHROUGH+=("$1") ;;
         --no-deps)     SKIP_DEPS=1;  PASSTHROUGH+=("$1") ;;
         --force)       FORCE=1;      PASSTHROUGH+=("$1") ;;
+        --dev)         choose_branch "$DEV_BRANCH" "--dev" ;;
         --branch)
             [[ -n "${2:-}" ]] || die "--branch needs a branch name."
-            UPDATE_BRANCH="$2"; shift ;;
-        --branch=*)    UPDATE_BRANCH="${1#--branch=}" ;;
+            choose_branch "$2" "--branch"; shift ;;
+        --branch=*)    choose_branch "${1#--branch=}" "--branch" ;;
         -h|--help)
             # Every comment line of the header, however long it grows.
             awk 'NR > 1 && /^#/ { sub(/^# ?/, ""); print; next } NR > 1 { exit }' \
@@ -84,6 +106,10 @@ done
 
 if [[ -z "$UPDATE_BRANCH" ]]; then
     die "--branch needs a branch name."
+fi
+
+if [[ -n "$BRANCH_FROM" && "$COMMAND" != "update" ]]; then
+    die "$BRANCH_FROM chooses what 'update' fetches, so it only means anything with 'update'."
 fi
 
 if (( CLEAN_CONFIG )) && [[ "$COMMAND" != "reinstall" ]]; then
@@ -344,11 +370,22 @@ update_checkout() {
         fi
     fi
 
+    if [[ "$UPDATE_BRANCH" != "$DEPLOY_BRANCH" ]]; then
+        warn "Updating from '$UPDATE_BRANCH', not '$DEPLOY_BRANCH'."
+        if [[ "$UPDATE_BRANCH" == "$DEV_BRANCH" ]]; then
+            warn "  That is where the work is pushed as it happens. Nothing on it has"
+            warn "  been decided to be fit to run, and it is expected to be broken"
+            warn "  sometimes. './install.sh update' goes back to $DEPLOY_BRANCH."
+        fi
+    fi
+
     info "Fetching $UPDATE_BRANCH from $REMOTE"
     git -C "$SOURCE_DIR" fetch --quiet "$REMOTE" "$UPDATE_BRANCH" 2>/dev/null \
         || die "Could not fetch '$UPDATE_BRANCH' from $REMOTE. Nothing has been touched.
       If the branch does not exist yet, make it:
           git push $REMOTE HEAD:refs/heads/$UPDATE_BRANCH
+      If it is there but you cannot read it, this checkout needs credentials
+      that can — an SSH remote, or a git credential helper holding a token.
       Otherwise check the network and the remote, and try again."
 
     local had

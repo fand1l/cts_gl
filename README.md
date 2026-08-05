@@ -95,6 +95,7 @@ name as well as a number, so `1.1.0 “screenshot-window”` says which one it i
 
 ```bash
 ./install.sh update               # fetch the deploy branch and reinstall
+./install.sh update --dev         # …fetch "dev" instead: the newest work, unreviewed
 ./install.sh reinstall            # reinstall this folder, whatever state it is in
 ./install.sh reinstall --config   # …and wipe the settings too (it asks twice)
 ./uninstall.sh                    # remove it, keep your captures
@@ -105,6 +106,10 @@ name as well as a number, so `1.1.0 “screenshot-window”` says which one it i
 that has been decided to be fit to run — and moves the checkout there if it is
 standing somewhere else. `reinstall` has nothing to do with git: it installs
 whatever is in the folder you are in.
+
+`--dev` follows **`dev`** instead, which is where work is pushed as it happens.
+Nothing on it has been looked at yet and it is expected to be broken sometimes,
+so it says so every time you use it. Plain `update` goes back to `deploy`.
 
 The order cannot leave you worse off: if the fetch fails, nothing has been moved
 or removed and the copy you had is still the one running. Your settings, your

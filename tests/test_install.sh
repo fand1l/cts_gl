@@ -42,6 +42,7 @@ set +e
 
 check "update follows a branch of its own by default" \
       "$(yes_no "$UPDATE_BRANCH" "deploy")" "$UPDATE_BRANCH"
+check "and --dev has one to switch to" "$(yes_no "$DEV_BRANCH" "dev")" "$DEV_BRANCH"
 
 WORKSPACE="$(mktemp -d)"
 trap 'rm -rf "$WORKSPACE"' EXIT
@@ -153,6 +154,28 @@ check "an unpacked tarball is told to use reinstall" \
 output="$(UPDATE_BRANCH=main attempt "$WORKSPACE/work")"
 check "--branch picks a different one" "$(yes_no "$(branch_of)" "main")" "$output"
 
+# --- --dev is the same command pointed one branch earlier -------------------
+# 'dev' is where the work is pushed as it happens; 'deploy' is what somebody
+# has decided is fit to run.  One flag between them, so it has to say which one
+# it took — installing the unreviewed branch by accident is not a thing you
+# notice until it breaks.
+git -C "$WORKSPACE/seed" checkout -q -b dev
+echo five > "$WORKSPACE/seed/marker"
+git -C "$WORKSPACE/seed" commit -qam "nobody has decided about this one yet"
+git -C "$WORKSPACE/seed" push -q origin dev
+
+output="$(UPDATE_BRANCH=dev attempt "$WORKSPACE/work")"
+check "--dev moves the checkout onto dev" "$(yes_no "$(branch_of)" "dev")" "$output"
+check "and the code on it arrives" "$(yes_no "$(cat "$WORKSPACE/work/marker")" "five")" \
+      "$(cat "$WORKSPACE/work/marker")"
+check "it says this is not the deployed branch" \
+      "$(says "$output" "Updating from 'dev', not 'deploy'")" "$output"
+check "and what that costs you" "$(says "$output" "expected to be broken")" "$output"
+check "the plain deploy update says none of that" \
+      "$(yes_no "$(UPDATE_BRANCH=deploy attempt "$WORKSPACE/work" | grep -c "not 'deploy'")" \
+                "0")" \
+      "$(UPDATE_BRANCH=deploy attempt "$WORKSPACE/work")"
+
 # --- it says which release you are getting ----------------------------------
 # The whole reason to name a release: "am I updating to the one I actually
 # need" is answerable from a word and not from three digits.
@@ -175,12 +198,45 @@ check "the real tree names its own release" \
       "$(SOURCE_DIR="$HERE/.." packaged_version)"
 
 # --- argument handling ------------------------------------------------------
+# The flags really do reach UPDATE_BRANCH.  Sourcing with arguments runs the
+# parsing and nothing else, since main is guarded.
+branch_for() {
+    ( source "$HERE/../install.sh" "$@" > /dev/null 2>&1; printf '%s' "$UPDATE_BRANCH" )
+}
+check "plain update follows deploy" "$(yes_no "$(branch_for update)" "deploy")" \
+      "$(branch_for update)"
+check "--dev follows dev" "$(yes_no "$(branch_for update --dev)" "dev")" \
+      "$(branch_for update --dev)"
+check "--branch still reaches anywhere else" \
+      "$(yes_no "$(branch_for update --branch wip)" "wip")" "$(branch_for update --branch wip)"
+check "--branch=NAME too" "$(yes_no "$(branch_for update --branch=wip)" "wip")" \
+      "$(branch_for update --branch=wip)"
+
 output="$("$HERE/../install.sh" update --config 2>&1)"
 check "update --config is refused before anything happens" \
       "$(says "$output" "only means anything with 'reinstall'")" "$output"
 output="$("$HERE/../install.sh" update --branch 2>&1)"
 check "--branch with nothing after it is refused" \
       "$(says "$output" "needs a branch name")" "$output"
+output="$("$HERE/../install.sh" update --branch= 2>&1)"
+check "and an empty one too" "$(says "$output" "needs a branch name")" "$output"
+
+# --dev and --branch answer the same question, so two different answers is a
+# typo, and the wrong one installs silently.
+output="$("$HERE/../install.sh" update --dev --branch other 2>&1)"
+check "two branches at once is refused" "$(says "$output" "Pick one")" "$output"
+check "but saying the same thing twice is not" \
+      "$(yes_no "$(branch_for update --dev --branch dev)" "dev")" \
+      "$(branch_for update --dev --branch dev)"
+
+# It chooses what 'update' fetches, so it means nothing anywhere else — and
+# "./install.sh --dev" quietly installing the checkout you are standing in is
+# exactly the surprise this is for.
+for command in "" "reinstall"; do
+    output="$("$HERE/../install.sh" $command --dev 2>&1)"
+    check "--dev with '${command:-no command}' is refused" \
+          "$(says "$output" "only means anything with 'update'")" "$output"
+done
 
 echo
 if (( FAIL )); then

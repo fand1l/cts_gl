@@ -168,6 +168,7 @@ when the script does.
 
 ```bash
 ./install.sh update                    # fetch the deploy branch, then reinstall
+./install.sh update --dev              # ...fetch 'dev' instead
 ./install.sh update --branch main      # ...from somewhere else, for a test
 ```
 
@@ -181,6 +182,35 @@ have decided is fit to run" is a different question from "the code I was last
 editing". So if the checkout is standing somewhere else, `update` moves it —
 which is safe, because the tree has to be clean to get that far and the commits
 on the branch being left are still on it afterwards. It says so when it does.
+
+#### The three branches
+
+| branch | what is on it |
+|---|---|
+| `main` | the default branch; where pull requests land |
+| `dev` | where work is pushed as it happens, before anybody has looked at it |
+| `deploy` | what has been decided to be fit to run — what `update` follows |
+
+`--dev` is the same command pointed one branch earlier, for testing a change
+before it is merged. It is not a quieter or a faster channel: nothing on `dev`
+has been decided about, and it is expected to be broken sometimes. So it warns,
+every time, and names the branch it is on — installing the unreviewed one by
+accident is not something you notice until it breaks. Plain `./install.sh
+update` goes back to `deploy`; nothing is remembered between runs.
+
+`--dev` and `--branch` answer the same question, so giving both with two
+different answers is refused rather than resolved. It is a typo, and the wrong
+one installs without saying anything. Both are refused outright with anything
+other than `update`, for the same reason `--config` is refused without
+`reinstall`: `./install.sh --dev` silently installing the checkout you happen to
+be standing in is exactly the surprise being avoided.
+
+A branch on a **public** repository is public, whatever it is called — GitHub
+has no per-branch access control, so `dev` is a separation of *intent*, not of
+audience. If the code needs to be private, the repository has to be. Should it
+become one, `update --dev` still works, but the checkout then needs credentials
+that can read it — an SSH remote or a credential helper holding a token — and
+the fetch failure says so.
 
 The order is the rest of the point:
 
