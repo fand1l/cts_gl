@@ -949,6 +949,79 @@ check("and while a bottom edge is being dragged",
       not readout.intersects(overlay._bar_rect()), f"{readout} vs {overlay._bar_rect()}")
 overlay._grab = None
 
+# --- the magnifier ---------------------------------------------------------
+# Arrow-key nudging exists because precision was missing, but it only helps
+# after the miss.  The loupe answers the same problem while the edge is still
+# being placed — and it is a matter of taste, so it is a switch.
+loupe = make_overlay(MODE_RECTANGLE)
+check("no loupe before a drag", not loupe._loupe_showing())
+_mouse(loupe, QEvent.Type.MouseButtonPress, (200, 200))
+_mouse(loupe, QEvent.Type.MouseMove, (400, 340))
+check("a drag brings it up", loupe._loupe_showing())
+check("it is square, and the size it says it is",
+      loupe._loupe_rect().width() == loupe._loupe_rect().height(), str(loupe._loupe_rect()))
+check("beside the pointer, not under it", not loupe._loupe_rect().contains(QPoint(400, 340)),
+      str(loupe._loupe_rect()))
+check("and on the screen", loupe._visible_area().toRect().contains(loupe._loupe_rect()),
+      str(loupe._loupe_rect()))
+_mouse(loupe, QEvent.Type.MouseButtonRelease, (400, 340))
+check("letting go takes it away", not loupe._loupe_showing())
+
+# It comes back for a handle, which is the other half of aiming.
+check("the drag is waiting to be confirmed", loupe._confirming)
+corner = loupe._handle_rects()["se"].center()
+_mouse(loupe, QEvent.Type.MouseButtonPress, (corner.x(), corner.y()))
+check("moving a handle brings it back", loupe._loupe_showing())
+_mouse(loupe, QEvent.Type.MouseButtonRelease, (corner.x(), corner.y()))
+check("and letting the handle go takes it away", not loupe._loupe_showing())
+
+# In the corner it has to flip rather than hang off the edge — and the readout
+# has to give way to it, because both want the space below and right.
+corner_loupe = make_overlay(MODE_RECTANGLE)
+_mouse(corner_loupe, QEvent.Type.MouseButtonPress, (200, 200))
+far = (corner_loupe.width() - 6, corner_loupe.height() - 6)
+_mouse(corner_loupe, QEvent.Type.MouseMove, far)
+placed = corner_loupe._loupe_rect()
+check("in the corner it flips", placed.right() < far[0] and placed.bottom() < far[1],
+      f"{placed} vs {far}")
+check("and stays wholly on screen",
+      corner_loupe._visible_area().toRect().contains(placed), str(placed))
+_text, _font, readout = corner_loupe._size_label(corner_loupe._selection_rect())
+check("the readout gives way to it", not readout.intersects(placed), f"{readout} vs {placed}")
+check("and stays on screen itself",
+      corner_loupe._visible_area().toRect().contains(readout), str(readout))
+
+# Switched off it does not exist at all, however hard it is dragged.
+plain = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(shot)),
+    metrics,
+    screen,
+    dim_percent=40,
+    mode=MODE_RECTANGLE,
+    magnifier=False,
+)
+plain.resize(screen.geometry().size())
+_mouse(plain, QEvent.Type.MouseButtonPress, (200, 200))
+_mouse(plain, QEvent.Type.MouseMove, (400, 340))
+check("switched off, there is no loupe", not plain._loupe_showing())
+plain.render(QPixmap(plain.size()))
+check("and the drag still paints", True)
+
+# It shows the frozen screen magnified, not the dimming over it: a green
+# screenshot has to come out green inside the circle even where the screen
+# around it has been darkened.
+zoomed = make_overlay(MODE_RECTANGLE)
+_mouse(zoomed, QEvent.Type.MouseButtonPress, (200, 200))
+_mouse(zoomed, QEvent.Type.MouseMove, (600, 600))
+canvas = QPixmap(zoomed.size())
+zoomed.render(canvas)
+lens_image = canvas.toImage()
+spot = zoomed._loupe_rect().center()
+in_lens = lens_image.pixelColor(spot.x() - 20, spot.y() - 20)
+outside = lens_image.pixelColor(spot.x(), zoomed._loupe_rect().top() - 20)
+check("the loupe is not dimmed", in_lens.green() > outside.green() + 30,
+      f"{in_lens.name()} vs {outside.name()}")
+
 # --- the overlay paints its dimming instead of keeping a second copy -------
 # Two full-resolution pixmaps are ~66 MB on a 4K screen, and with an overlay per
 # monitor that multiplies.  What matters is that the result still looks right:

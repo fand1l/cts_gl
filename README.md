@@ -355,6 +355,13 @@ a single drag. Clicking one keeps it: it is the setting from *Settings →
 General*, put where it is actually wanted. With one overlay per screen the
 others follow immediately.
 
+While a selection is being drawn — and while an edge is being moved — a 4×
+loupe with a crosshair follows the pointer, so the pixel an edge is about to
+land on is visible while it is still being placed. It is cut from the
+screenshot that is already in memory, nothing is captured again, and it shows
+the frozen screen undimmed. Turn it off with **Settings → General → Magnify
+while dragging** if a thing that follows the pointer bothers you.
+
 Before pressing anything the box can be adjusted: drag any of the eight
 handles, drag inside it to move the whole thing, or use the **arrow keys**
 (*Ctrl* for 10 px steps, *Shift* to stretch the far edge instead of moving).

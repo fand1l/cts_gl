@@ -45,7 +45,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, QPoint, QRect, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
@@ -129,6 +129,13 @@ BADGE_SENDING = "sending"
 #: down.  A dead-man's switch and nothing else: whatever goes wrong between the
 #: release and the browser, a frozen screen that never lifts is worse.
 SENDING_LIMIT_MS = 5000
+
+#: The loupe: how wide it is on screen, how much it magnifies, and how big the
+#: gap in the middle of its crosshair is.  Four times is enough to separate two
+#: adjacent pixels without turning the surroundings into abstract art.
+_LOUPE_SIZE = 132
+_LOUPE_ZOOM = 4
+_LOUPE_GAP = 5
 
 #: Grabbing a word needs a lot more slack than the glyphs occupy: text is small,
 #: pointers are not, and being made to hit a five-pixel-tall word exactly is the
@@ -227,6 +234,7 @@ class SelectionOverlay(QWidget):
         mode: str = MODE_LASSO,
         mask_outside: bool = False,
         confirm: bool = True,
+        magnifier: bool = True,
         group_bounds: QRect | None = None,
         parent: QWidget | None = None,
     ) -> None:
@@ -241,6 +249,8 @@ class SelectionOverlay(QWidget):
         self._drag_mode = self._mode
         #: Stop after the drag and let the user check and adjust the selection.
         self._confirm = confirm
+        #: A loupe beside the pointer while a drag or a handle is being moved.
+        self._magnifier = magnifier
         self._finished = False
         self._fullscreen_attempts = 0
 
@@ -979,6 +989,7 @@ class SelectionOverlay(QWidget):
             self._draw_handles(painter)
             self._draw_action_bar(painter)
         if not self._finished:
+            self._draw_loupe(painter)
             self._draw_size_label(painter, selection)
         self._draw_badge(painter)
         painter.end()
@@ -1234,6 +1245,112 @@ class SelectionOverlay(QWidget):
 
         painter.restore()
 
+    # --------------------------------------------------------------- the loupe
+
+    def _loupe_showing(self) -> bool:
+        """Only while something is actually being aimed.
+
+        Not on hover: a magnifier that follows the pointer around a frozen
+        screen is the cursor glow all over again, and the thing being solved
+        here is putting an *edge* in the right place.
+        """
+        return (
+            self._magnifier
+            and not self._finished
+            and (self._dragging or self._grab is not None)
+            and not self._selecting_text
+        )
+
+    def _loupe_rect(self) -> QRect:
+        """Where the loupe goes: beside the pointer, flipped when there is no room."""
+        cursor = self._current + self._offset
+        bounds = self._visible_area().toRect()
+        x = cursor.x() + _LABEL_MARGIN * 2
+        y = cursor.y() + _LABEL_MARGIN * 2
+        if x + _LOUPE_SIZE > bounds.right() - _LABEL_MARGIN:
+            x = cursor.x() - _LOUPE_SIZE - _LABEL_MARGIN * 2
+        if y + _LOUPE_SIZE > bounds.bottom() - _LABEL_MARGIN:
+            y = cursor.y() - _LOUPE_SIZE - _LABEL_MARGIN * 2
+        x = max(bounds.left() + _LABEL_MARGIN, x)
+        y = max(bounds.top() + _LABEL_MARGIN, y)
+        return QRect(x, y, _LOUPE_SIZE, _LOUPE_SIZE)
+
+    def _draw_loupe(self, painter: QPainter) -> None:
+        """A 4× circle of the frozen screen, with a crosshair on the pointer.
+
+        The arrow-key nudging exists because precision was missing — but it only
+        helps *after* the miss.  This is the same problem answered before it
+        happens: the pixel the edge will land on is visible while the edge is
+        still being placed.
+
+        Drawn from the screenshot that is already resident, so it costs one
+        scaled blit of a few thousand pixels; nothing is captured again.
+        """
+        if not self._loupe_showing():
+            return
+
+        target = self._loupe_rect()
+        cursor = self._current + self._offset
+        side = max(2, _LOUPE_SIZE // _LOUPE_ZOOM)
+        # The source in *physical* pixels of the screenshot, unclamped: clamping
+        # it would slide the magnified image sideways near the edges of the
+        # screen, which is exactly where careful aiming happens.
+        source = QRectF(
+            (cursor.x() - side / 2) * self._metrics.scale_x,
+            (cursor.y() - side / 2) * self._metrics.scale_y,
+            side * self._metrics.scale_x,
+            side * self._metrics.scale_y,
+        )
+
+        painter.save()
+        circle = QPainterPath()
+        circle.addEllipse(QRectF(target))
+        painter.setClipPath(circle)
+        painter.fillRect(target, QColor(0, 0, 0))
+
+        whole = QRectF(0.0, 0.0, float(self._sharp.width()), float(self._sharp.height()))
+        visible = source.intersected(whole)
+        if not visible.isEmpty():
+            # Past the edge of the screenshot there is nothing to show, so the
+            # part that does exist is placed where it belongs and the rest stays
+            # black rather than being stretched to fill the circle.
+            fx = target.width() / source.width()
+            fy = target.height() / source.height()
+            painter.drawPixmap(
+                QRectF(
+                    target.x() + (visible.x() - source.x()) * fx,
+                    target.y() + (visible.y() - source.y()) * fy,
+                    visible.width() * fx,
+                    visible.height() * fy,
+                ),
+                self._sharp,
+                visible,
+            )
+
+        centre = QRectF(target).center()
+        arms = (
+            (QPointF(target.left(), centre.y()), QPointF(centre.x() - _LOUPE_GAP, centre.y())),
+            (QPointF(centre.x() + _LOUPE_GAP, centre.y()), QPointF(target.right(), centre.y())),
+            (QPointF(centre.x(), target.top()), QPointF(centre.x(), centre.y() - _LOUPE_GAP)),
+            (QPointF(centre.x(), centre.y() + _LOUPE_GAP), QPointF(centre.x(), target.bottom())),
+        )
+        # A dark line under a light one: the loupe shows whatever the screen had
+        # there, so a crosshair in one colour is invisible against something.
+        for width, colour in ((3, QColor(0, 0, 0, 110)), (1, self._accent)):
+            pen = QPen(colour)
+            pen.setWidth(width)
+            painter.setPen(pen)
+            for start, end in arms:
+                painter.drawLine(start, end)
+
+        painter.setClipping(False)
+        ring = QPen(QColor(255, 255, 255, 220))
+        ring.setWidth(2)
+        painter.setPen(ring)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        painter.drawEllipse(QRectF(target).adjusted(1, 1, -1, -1))
+        painter.restore()
+
     def _size_label(self, selection: QRect) -> tuple[str, QFont, QRect]:
         """The pixel readout: what it says, in what, and where it goes."""
         physical = logical_rect_to_physical(selection, self._metrics)
@@ -1265,10 +1382,21 @@ class SelectionOverlay(QWidget):
         y = max(self._offset.y() + _LABEL_MARGIN, y)
 
         box = QRect(x, y, width, height)
+        bounds = self._visible_area().toRect()
         bar = self._bar_rect()
         if not bar.isNull() and box.intersects(bar):
             # Resizing by a bottom handle can still bring the two together.
             box.moveBottom(bar.top() - _LABEL_MARGIN)
+        if self._loupe_showing():
+            # Both want the space just below and right of the pointer, and the
+            # loupe is the one that has to be there.
+            loupe = self._loupe_rect()
+            if box.intersects(loupe):
+                box.moveTop(loupe.bottom() + _LABEL_MARGIN)
+                if box.bottom() > bounds.bottom() - _LABEL_MARGIN:
+                    box.moveBottom(loupe.top() - _LABEL_MARGIN)
+                box.moveLeft(loupe.left())
+        box.moveTop(max(bounds.top() + _LABEL_MARGIN, box.top()))
         return text, font, box
 
     def _draw_size_label(self, painter: QPainter, selection: QRect) -> None:

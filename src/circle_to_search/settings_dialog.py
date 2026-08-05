@@ -236,6 +236,10 @@ class SettingsDialog(QDialog):
         selection_layout.addWidget(self.confirm_box)
         selection_layout.addWidget(_hint(tr("settings.confirm.hint")))
 
+        self.magnifier_box = QCheckBox(tr("settings.magnifier"), selection)
+        selection_layout.addWidget(self.magnifier_box)
+        selection_layout.addWidget(_hint(tr("settings.magnifier.hint")))
+
         self.ocr_box = QCheckBox(tr("settings.ocr"), selection)
         selection_layout.addWidget(self.ocr_box)
         selection_layout.addWidget(_hint(tr("settings.ocr.hint", command=ocr.install_hint())))
@@ -352,6 +356,7 @@ class SettingsDialog(QDialog):
         self.keep_recent_box.setChecked(settings.keep_recent)
         self.all_screens_box.setChecked(settings.all_screens)
         self.confirm_box.setChecked(settings.confirm_selection)
+        self.magnifier_box.setChecked(settings.magnifier)
         self.ocr_box.setChecked(settings.ocr_enabled)
         self.ocr_state.setText(self._ocr_state())
         self.backend_combo.setCurrentIndex(
@@ -402,6 +407,7 @@ class SettingsDialog(QDialog):
         settings.keep_recent = self.keep_recent_box.isChecked()
         settings.all_screens = self.all_screens_box.isChecked()
         settings.confirm_selection = self.confirm_box.isChecked()
+        settings.magnifier = self.magnifier_box.isChecked()
         settings.ocr_enabled = self.ocr_box.isChecked()
         if self.ocr_box.isChecked():
             # Ticking it here counts as the answer, so the overlay does not ask

@@ -450,6 +450,22 @@ class AppSettings:
         self._settings.setValue("confirm_selection", bool(value))
 
     @property
+    def magnifier(self) -> bool:
+        """Show a loupe beside the pointer while a selection is being dragged.
+
+        On by default.  The arrow-key nudging exists because precision was
+        missing, but it only helps *after* the miss; this is the same problem
+        answered before it happens.  It is a matter of taste all the same —
+        some people find a thing that follows the pointer distracting — so it
+        is a switch rather than a decision made for everybody.
+        """
+        return self._get_bool("magnifier", True)
+
+    @magnifier.setter
+    def magnifier(self, value: bool) -> None:
+        self._settings.setValue("magnifier", bool(value))
+
+    @property
     def save_directory(self) -> str:
         """Where *S* writes.  Empty means "ask QStandardPaths for Pictures"."""
         return str(self._settings.value("save_directory", "") or "")

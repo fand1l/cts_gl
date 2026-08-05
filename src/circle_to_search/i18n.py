@@ -272,6 +272,13 @@ _EN: dict[str, str] = {
     "settings.restart_note": "Detection settings are applied to KWin immediately.",
     "settings.group.selection": "Selection",
     "settings.mode": "Selection shape:",
+    "settings.magnifier": "Magnify while dragging",
+    "settings.magnifier.hint": (
+        "A 4x loupe with a crosshair beside the pointer while a selection is "
+        "being drawn or an edge moved, so the pixel an edge lands on is visible "
+        "while it is still being placed. The arrow keys do the same job, but "
+        "only after the miss."
+    ),
     "settings.mode.lasso": "Lasso (freehand)",
     "settings.mode.rect": "Rectangle",
     "settings.mode.hint": (
@@ -596,6 +603,13 @@ _UK: dict[str, str] = {
     "settings.restart_note": "Налаштування детекції застосовуються до KWin одразу.",
     "settings.group.selection": "Виділення",
     "settings.mode": "Форма виділення:",
+    "settings.magnifier": "Збільшувати під час виділення",
+    "settings.magnifier.hint": (
+        "Лупа з чотириразовим збільшенням і перехрестям біля курсора, поки ви "
+        "малюєте виділення або рухаєте край, — щоб бачити піксель, на який "
+        "потрапить край, ще коли ви його ставите. Стрілки роблять те саме, але "
+        "вже після промаху."
+    ),
     "settings.mode.lasso": "Ласо (від руки)",
     "settings.mode.rect": "Прямокутник",
     "settings.mode.hint": (

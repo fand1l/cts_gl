@@ -622,6 +622,7 @@ class CircleToSearchApp(QObject):
             mode=self._settings.selection_mode,
             mask_outside=self._settings.lasso_mask,
             confirm=self._settings.confirm_selection,
+            magnifier=self._settings.magnifier,
         )
         overlay.text_selected.connect(self._on_text_selected)
         overlay.mode_changed.connect(self._on_mode_changed)
@@ -690,6 +691,7 @@ class CircleToSearchApp(QObject):
                     mode=self._settings.selection_mode,
                     mask_outside=self._settings.lasso_mask,
                     confirm=self._settings.confirm_selection,
+                    magnifier=self._settings.magnifier,
                     group_bounds=bounds,
                 )
             )

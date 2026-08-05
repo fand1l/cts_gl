@@ -73,7 +73,7 @@ read and sent at the same time.  Four things worth writing down:
   the overlay would have closed, and a badge for them would be claiming to wait
   for something that has already happened.
 
-## 3. A magnifier while dragging  — **with a setting**  ← next
+## 3. A magnifier while dragging  — **with a setting**  ← done
 
 A small 4× loupe with a crosshair beside the pointer, while a drag or a handle
 is being moved.  Off by default is wrong for a thing this useful, but it is a
@@ -83,7 +83,20 @@ matter of taste, so: `magnifier` in the application settings, on.
 only helps *after* the miss.  The placement logic is already written in
 `_draw_size_label`, which flips the label when there is no room.
 
-## 4. A tray icon that shows the state
+**As built.**  A circle rather than a square, cut from the screenshot already in
+memory, at nearest-neighbour so the pixels are pixels.  Three decisions worth
+recording:
+
+* **Only while something is being aimed**, never on hover.  A magnifier that
+  follows the pointer around a frozen screen is the cursor glow again, and what
+  is being solved here is putting an *edge* in the right place.
+* **Near the edges of the screen the source is not clamped.**  Clamping would
+  slide the magnified image sideways exactly where careful aiming happens, so
+  the part that exists is drawn where it belongs and the rest stays black.
+* **The pixel readout gave way to it.**  Both wanted the space below and right
+  of the pointer; the loupe is the one that has to be there.
+
+## 4. A tray icon that shows the state  ← next
 
 Dimmed icon and a live tooltip when shake detection is off.
 
