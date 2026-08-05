@@ -23,7 +23,7 @@ os.environ["QT_QPA_PLATFORM"] = "offscreen"
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from PyQt6.QtCore import QPoint, QRect, Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QColor, QPixmap
 from PyQt6.QtWidgets import QApplication
 
 app = QApplication(sys.argv[:1])
@@ -1752,6 +1752,246 @@ welcome.language_combo.setCurrentIndex(welcome.language_combo.findData("en"))
 welcome.apply()
 check("saving happens once", fake_settings.language == "uk", fake_settings.language)
 i18n.set_language("auto")
+
+# --- the lasso stroke ------------------------------------------------------
+# Designed in docs/STROKE.md from photographs of the real thing, which
+# corrected two drafts: the line carries no colour, the colour is a glow under
+# its head, and it stretches because it is a fading trail rather than a shape
+# computed from velocity.
+from circle_to_search.stroke import (  # noqa: E402
+    GLOW_RADIUS,
+    LINE_WIDTH,
+    Blob,
+    Trail,
+    glow_colour,
+)
+
+# The ramp hits its four colours at its four heights.
+for fraction, name in ((0.00, "#4285f4"), (0.40, "#ea4335"),
+                       (0.62, "#fbbc05"), (1.00, "#34a853")):
+    got = glow_colour(fraction * 1000, 1000).name()
+    check(f"the ramp is {name} at {int(fraction * 100)} %", got == name, got)
+
+# Between them it interpolates, and it clamps rather than wrapping.
+midway = glow_colour(200, 1000)          # between blue at 0 % and red at 40 %
+check("halfway to red is neither", midway.name() not in ("#4285f4", "#ea4335"), midway.name())
+check("and it is on the way there",
+      QColor("#4285f4").red() < midway.red() < QColor("#ea4335").red(), midway.name())
+check("above the top is still blue", glow_colour(-500, 1000).name() == "#4285f4")
+check("below the bottom is still green", glow_colour(5000, 1000).name() == "#34a853")
+check("a screen with no height does not divide by zero",
+      glow_colour(10, 0).name() == "#4285f4", glow_colour(10, 0).name())
+
+# The colour comes from the height on screen, not from a clock: the same place
+# twice is the same colour, whenever it happened.
+check("the same height is the same colour, always",
+      glow_colour(300, 1000).name() == glow_colour(300, 1000).name())
+check("and two heights are two colours",
+      glow_colour(100, 1000).name() != glow_colour(900, 1000).name())
+
+# The trail: what is kept, what is dropped, and in what order.
+trail = Trail(lifetime_ms=500, min_gap_ms=0)
+for index in range(5):
+    trail.add(QPoint(index * 100, 200), glow_colour(200, 1000), index * 100)
+check("everything recent is kept", len(trail) == 5, str(len(trail)))
+check("in the order it arrived",
+      [blob.point.x() for blob in trail.blobs] == [0, 100, 200, 300, 400],
+      str([b.point.x() for b in trail.blobs]))
+
+trail.prune(650)
+check("and what is too old is dropped", [blob.point.x() for blob in trail.blobs] == [200, 300, 400],
+      str([b.point.x() for b in trail.blobs]))
+trail.prune(2000)
+check("eventually there is nothing left", len(trail) == 0, str(len(trail)))
+
+# The fade is a function of age, so it never has to be stored.
+fading = Trail(lifetime_ms=500, min_gap_ms=0)
+fading.add(QPoint(0, 0), glow_colour(0, 1000), 0)
+check("a fresh blob is at full strength", fading.alive(0)[0][1] == 1.0, str(fading.alive(0)))
+check("halfway through its life it is half gone",
+      abs(fading.alive(250)[0][1] - 0.5) < 1e-9, str(fading.alive(250)))
+check("and past the end it is not there at all", fading.alive(600) == [])
+
+# The rate cap: a gaming mouse reports at 1000 Hz and every sample would
+# otherwise become a blob to draw.
+capped = Trail(lifetime_ms=500, min_gap_ms=11)
+taken = sum(capped.add(QPoint(i, i), glow_colour(i, 1000), i) for i in range(100))
+check("samples arriving too fast are dropped", taken < 100 and taken >= 8, str(taken))
+check("but the first one is always taken", len(capped) >= 1)
+
+# Moving fast, the blobs spread over the distance the pointer covered; standing
+# still, they collapse onto one place.  This is the whole stretch mechanism —
+# no velocity is ever calculated.
+fast = Trail(lifetime_ms=500, min_gap_ms=0)
+for index in range(6):
+    fast.add(QPoint(index * 120, 300), glow_colour(300, 1000), index * 10)
+spread = fast.bounds(0)
+check("a fast pointer spreads the glow along its path",
+      spread.width() == 600, str(spread))
+
+still = Trail(lifetime_ms=500, min_gap_ms=0)
+for index in range(6):
+    still.add(QPoint(400, 300), glow_colour(300, 1000), index * 10)
+check("a still pointer collapses it to one place", still.bounds(0).width() == 0,
+      str(still.bounds(0)))
+check("and they really are all stacked up", len(still) == 6, str(len(still)))
+
+# A stroke that covers vertical distance carries the whole ramp along itself;
+# the same stroke along one height carries one colour.
+down = Trail(lifetime_ms=5000, min_gap_ms=0)
+for index in range(11):
+    y = index * 100
+    down.add(QPoint(500, y), glow_colour(y, 1000), index)
+check("top to bottom carries every colour",
+      len({blob.colour.name() for blob in down.blobs}) == 11,
+      str(len({b.colour.name() for b in down.blobs})))
+across = Trail(lifetime_ms=5000, min_gap_ms=0)
+for index in range(11):
+    across.add(QPoint(index * 100, 400), glow_colour(400, 1000), index)
+check("along one height carries one",
+      len({blob.colour.name() for blob in across.blobs}) == 1,
+      str({b.colour.name() for b in across.blobs}))
+
+# The rectangle the fade asks to have repainted.  This is the one that matters
+# most: the cursor glow that had to be taken back out repainted a large area at
+# about ten frames a second.
+lasso_overlay = make_overlay(MODE_LASSO)
+_mouse(lasso_overlay, QEvent.Type.MouseButtonPress, (300, 300))
+for step in range(1, 8):
+    _mouse(lasso_overlay, QEvent.Type.MouseMove, (300 + step * 10, 300 + step * 8))
+damage = lasso_overlay._stroke_damage()
+check("the fade repaints a small rectangle", damage.isValid(), str(damage))
+check("a few hundred pixels square, not the screen",
+      damage.width() < 500 and damage.height() < 500, str(damage))
+screen_area = lasso_overlay.width() * lasso_overlay.height()
+check("a small fraction of the whole overlay",
+      damage.width() * damage.height() * 4 < screen_area,
+      f"{damage.width() * damage.height()} of {screen_area}")
+check("the stroke animates while the drag is on",
+      lasso_overlay._stroke_timer is not None and lasso_overlay._stroke_timer.isActive())
+
+# Something is remembered, but the rate cap is doing its job: eight moves in
+# the same millisecond are not eight blobs to draw.
+check("the drag collects a trail", len(lasso_overlay._trail) > 0,
+      str(len(lasso_overlay._trail)))
+check("and the rate cap keeps it short", len(lasso_overlay._trail) < 8,
+      str(len(lasso_overlay._trail)))
+
+# Without the cap it follows every move, including the ones the polygon drops
+# for being too close together to be worth keeping.
+every_move = make_overlay(MODE_LASSO)
+every_move._trail.min_gap_ms = 0
+_mouse(every_move, QEvent.Type.MouseButtonPress, (300, 300))
+for step in range(1, 10):
+    _mouse(every_move, QEvent.Type.MouseMove, (300 + step, 300))   # 1 px steps
+check("the glow follows every move, not every kept point",
+      len(every_move._trail) == 10 and len(every_move._points) < 10,
+      f"{len(every_move._trail)} blobs, {len(every_move._points)} points")
+
+# The visible line is open; the one used for masking still closes, because a
+# mask needs a closed shape and at twelve pixels a closing line is a bar across
+# the middle of whatever is being circled.
+_mouse(lasso_overlay, QEvent.Type.MouseButtonRelease, (400, 380))
+check("the drawn stroke is open",
+      lasso_overlay._stroke_path().elementCount() == len(lasso_overlay._points),
+      f"{lasso_overlay._stroke_path().elementCount()} vs {len(lasso_overlay._points)}")
+check("and the masking path still closes",
+      lasso_overlay._selection_path().elementCount() > len(lasso_overlay._points),
+      str(lasso_overlay._selection_path().elementCount()))
+check("the stroke is what gets drawn for a lasso", lasso_overlay._stroke_showing())
+
+# Adjust the box by hand and the loop no longer describes it, so the ribbon
+# goes: drawing one would claim a shape that is not there.
+press_key(lasso_overlay, Qt.Key.Key_Right)
+check("an edited box is not a ribbon any more", not lasso_overlay._stroke_showing())
+
+# A rectangle selection is never a ribbon.
+rect_stroke = make_overlay(MODE_RECTANGLE)
+drag(rect_stroke, (100, 100), (300, 250))
+check("a rectangle is drawn as a rectangle", not rect_stroke._stroke_showing())
+check("and it collects no trail", len(rect_stroke._trail) == 0, str(len(rect_stroke._trail)))
+
+# Letting go does not cut the tail off: it keeps ticking for a fifth of a
+# second so the smear is seen settling into a circle.
+settling = make_overlay(MODE_LASSO)
+settling._trail.min_gap_ms = 0
+_mouse(settling, QEvent.Type.MouseButtonPress, (300, 300))
+for step in range(1, 6):
+    _mouse(settling, QEvent.Type.MouseMove, (300 + step * 20, 300 + step * 10))
+_mouse(settling, QEvent.Type.MouseButtonRelease, (400, 350))
+check("the tail is still there when the button comes up", len(settling._trail) > 0,
+      str(len(settling._trail)))
+check("and the timer is still running", settling._stroke_timer.isActive())
+check("with an end in sight",
+      settling._stroke_settles_at >= settling._stroke_clock(),
+      f"{settling._stroke_settles_at} vs {settling._stroke_clock()}")
+
+# Age the tail past its lifetime and put the settle in the past: it ages out
+# and the animation stops itself rather than ticking for the life of the
+# overlay.  Aged explicitly rather than by shortening the lifetime, because a
+# blob added in the same millisecond as the tick would survive that.
+settling._trail.blobs = [
+    Blob(QPoint(340, 320), glow_colour(320, 800), settling._stroke_clock() - 10_000)
+]
+settling._stroke_settles_at = -1.0
+settling._tick_stroke()
+check("the tail ages out", len(settling._trail) == 0, str(len(settling._trail)))
+check("and the animation stops itself", not settling._stroke_timer.isActive())
+
+# Cancelling stops the animation rather than leaving a timer running on a
+# window that is on its way out.
+lasso_overlay._cancel()
+check("finishing stops the stroke timer",
+      lasso_overlay._stroke_timer is None or not lasso_overlay._stroke_timer.isActive())
+
+# --- what the stroke looks like, in pixels ---------------------------------
+# White line, coloured glow, and the two must not bleed into each other.
+white_shot = Image.new("RGB", (screen.geometry().width() * 2,
+                              screen.geometry().height() * 2), (255, 255, 255))
+painted_stroke = SelectionOverlay(
+    QPixmap.fromImage(pil_to_qimage(white_shot)),
+    hidpi.measure_screen(screen.name(), screen.geometry(), white_shot.size, 2.0),
+    screen,
+    dim_percent=0,          # no dimming, so nothing but the stroke is in the way
+    mode=MODE_LASSO,
+    magnifier=False,
+)
+painted_stroke.resize(screen.geometry().size())
+painted_stroke._trail.min_gap_ms = 0
+_mouse(painted_stroke, QEvent.Type.MouseButtonPress, (200, 400))
+for step in range(1, 16):
+    _mouse(painted_stroke, QEvent.Type.MouseMove, (200 + step * 20, 400))
+canvas = QPixmap(painted_stroke.size())
+painted_stroke.render(canvas)
+drawn = canvas.toImage()
+
+# Drawn along one axis, the bounding box has no area — which used to leave the
+# screen blank while the user was still drawing the line.
+check("a stroke with no area is still drawn",
+      painted_stroke._selection_rect().height() < 1
+      and drawn.pixelColor(300, 392) != drawn.pixelColor(300, 600),
+      f"{painted_stroke._selection_rect()} {drawn.pixelColor(300, 392).name()}")
+
+on_line = drawn.pixelColor(300, 400)
+check("a pixel on the line is white",
+      on_line.red() > 240 and on_line.green() > 240 and on_line.blue() > 240, on_line.name())
+head = drawn.pixelColor(500, 400)
+check("and it is still white right beside the brightest glow",
+      head.red() > 240 and head.green() > 240 and head.blue() > 240, head.name())
+
+in_glow = drawn.pixelColor(500, 400 + LINE_WIDTH + 20)
+check("a pixel in the glow is coloured",
+      max(in_glow.red(), in_glow.green(), in_glow.blue())
+      - min(in_glow.red(), in_glow.green(), in_glow.blue()) > 20, in_glow.name())
+away = drawn.pixelColor(500, 400 + GLOW_RADIUS + 60)
+check("and one a glow-radius away is not",
+      abs(away.red() - away.green()) < 12 and abs(away.green() - away.blue()) < 12, away.name())
+
+# A white line on a white page is invisible without the shadow.  Android draws
+# over photographs and does not need one; we draw over whatever was on screen.
+edge = drawn.pixelColor(300, 400 - LINE_WIDTH // 2 - 2)
+check("the shadow keeps a white line visible on white",
+      edge.red() < 235, edge.name())
 
 # --- the window under the pointer ------------------------------------------
 # A Wayland client cannot see anybody else's geometry, so the compositor sends

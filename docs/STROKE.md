@@ -189,3 +189,33 @@ All constants at the top of the file, one line each to change:
   once, on hardware, before ruling it out for good.
 * **A setting.** It is lasso only; the rectangle is untouched, and that is the
   setting.
+
+---
+
+## As built
+
+All of the above, with three things worth recording.
+
+**Built and tested on its own**, after the other seven items of `docs/POLISH.md`
+were in and settled — which is what it was moved to the end for.
+
+**One repaint claim had to be narrowed.**  This file said the stroke "repaints
+only the glow's own rectangle".  That is true of the *animation timer*, which is
+the new thing: while the pointer is still, and for the fifth of a second after
+the button comes up, only `Trail.bounds()` is damaged — a few hundred pixels
+square, and the tests assert it directly.  It is not true of an ordinary drag
+move, which still repaints the whole overlay, because the un-dimmed bounding box
+grows as the loop is drawn and a partial update there would leave stale pixels
+behind.  That was already the case before any of this: the wide stroke costs
+nothing extra on a moving pointer, and the thing that made the old cursor glow
+unusable — a separate always-on-top window repainting the desktop — is not what
+this is.
+
+**A bug came out of the drawing, not the design.**  A stroke drawn along one
+axis has a bounding box with no area, and `paintEvent` returned early on exactly
+that condition, so a horizontal line left the screen blank while it was being
+drawn.  At one pixel nobody had noticed.  There is a test for it now.
+
+**Additive blending is still worth trying once on hardware.**  Source-over was
+the right call: a stationary pointer saturates into a deep amber, which is what
+the photographs show, and the offscreen render confirms it.

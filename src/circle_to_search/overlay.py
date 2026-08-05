@@ -45,7 +45,17 @@ from __future__ import annotations
 from collections.abc import Callable
 from dataclasses import dataclass
 
-from PyQt6.QtCore import QEvent, QPoint, QPointF, QRect, QRectF, Qt, QTimer, pyqtSignal
+from PyQt6.QtCore import (
+    QElapsedTimer,
+    QEvent,
+    QPoint,
+    QPointF,
+    QRect,
+    QRectF,
+    Qt,
+    QTimer,
+    pyqtSignal,
+)
 from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
@@ -59,6 +69,7 @@ from PyQt6.QtGui import (
     QPen,
     QPixmap,
     QPolygon,
+    QRadialGradient,
     QResizeEvent,
     QScreen,
 )
@@ -69,6 +80,15 @@ from .hidpi import ScreenMetrics, logical_rect_to_physical, physical_rect_to_log
 from .i18n import tr
 from .logging_setup import get_logger
 from .ocr import Word, words_to_text
+from .stroke import (
+    GLOW_RADIUS,
+    LINE_WIDTH,
+    SETTLE_MS,
+    SHADOW_EXTRA,
+    TICK_MS,
+    Trail,
+    glow_colour,
+)
 from .windows import window_at
 
 log = get_logger("overlay")
@@ -323,6 +343,16 @@ class SelectionOverlay(QWidget):
         #: needed — six text measurements, cheaper than keeping it in step.
         self._hovered_button: str | None = None
         self._pressed_button: str | None = None
+
+        #: The lasso stroke.  The trail is the last handful of head positions,
+        #: each keeping the colour its height gave it; the elapsed timer is the
+        #: one clock they are all measured against, so no wall clock is read in
+        #: the paint path.
+        self._trail = Trail()
+        self._stroke_started = QElapsedTimer()
+        self._stroke_started.start()
+        self._stroke_timer: QTimer | None = None
+        self._stroke_settles_at = 0.0
 
         #: Where the other windows are, in this screen's coordinates, front-most
         #: first.  From the compositor: a Wayland client cannot see anybody
@@ -1019,7 +1049,12 @@ class SelectionOverlay(QWidget):
 
         selection = self._selection_rect()
         if selection.width() < 1 or selection.height() < 1:
+            # A stroke drawn along one axis has a bounding box with no area, and
+            # this used to leave the screen blank while the user was drawing it.
             self._dim_everything(painter)
+            if self._stroke_showing():
+                painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+                self._draw_stroke(painter)
             self._draw_badge(painter)
             painter.end()
             return
@@ -1040,29 +1075,19 @@ class SelectionOverlay(QWidget):
         # the first rectangle appeared.
         self._draw_word_hints(painter)
 
-        pen = QPen(self._accent)
-        pen.setWidth(1)
-        pen.setCosmetic(True)
-        painter.setBrush(Qt.BrushStyle.NoBrush)
-
-        if (
-            self._has_selection
-            and self._drag_mode == MODE_LASSO
-            and not self._mask_outside
-            and not self._box_edited
-        ):
-            # Show both: the stroke follows the hand, the dashed box is the crop.
-            outline = QColor(self._accent)
-            outline.setAlpha(150)
-            dashed = QPen(outline)
-            dashed.setWidth(1)
-            dashed.setCosmetic(True)
-            dashed.setStyle(Qt.PenStyle.DashLine)
-            painter.setPen(dashed)
-            painter.drawRect(selection.adjusted(0, 0, -1, -1))
-
-        painter.setPen(pen)
-        painter.drawPath(self._selection_path())
+        if self._stroke_showing():
+            # The lasso is a ribbon, not a hairline.  No dashed box around it:
+            # with lasso_mask off — the default — the un-dimmed area *is* the
+            # bounding box already, so the rectangle was a second drawing of the
+            # same fact, and next to a stroke this wide it is noise.
+            self._draw_stroke(painter)
+        else:
+            pen = QPen(self._accent)
+            pen.setWidth(1)
+            pen.setCosmetic(True)
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.setPen(pen)
+            painter.drawPath(self._selection_path())
 
         if self._confirming and self._has_selection and not self._finished:
             self._draw_handles(painter)
@@ -1111,6 +1136,149 @@ class SelectionOverlay(QWidget):
         rect = self._selection_rect()
         path.addRect(float(rect.x()), float(rect.y()), float(rect.width()), float(rect.height()))
         return path
+
+    # ------------------------------------------------------------ the stroke
+
+    def _stroke_showing(self) -> bool:
+        """True when the lasso is drawn as a ribbon rather than a hairline.
+
+        Only for a real freehand loop: once the box has been adjusted by hand
+        the loop no longer describes it, and a rectangle drawn as a ribbon would
+        be claiming a shape that is not there.
+        """
+        return (
+            self._has_selection
+            and self._drag_mode == MODE_LASSO
+            and len(self._points) >= 2
+            and not self._box_edited
+        )
+
+    def _stroke_path(self) -> QPainterPath:
+        """The visible lasso line: open, unlike the one used for masking.
+
+        ``_selection_path()`` has to keep closing, because ``_reveal_path()``
+        uses it when ``lasso_mask`` is on and a mask needs a closed shape.  At
+        one pixel that closing line was a hint; at twelve it is a bar across the
+        middle of whatever is being circled.  In the photographs the two ends
+        simply pass each other without joining, so the drawing gets its own
+        path — which is what these two things always were.
+        """
+        path = QPainterPath()
+        if len(self._points) < 2:
+            return path
+        points = [point + self._offset for point in self._points]
+        path.moveTo(float(points[0].x()), float(points[0].y()))
+        for point in points[1:]:
+            path.lineTo(float(point.x()), float(point.y()))
+        return path
+
+    def _draw_stroke(self, painter: QPainter) -> None:
+        """The glow, then the shadow, then the white line — in that order.
+
+        The cap sits on top of its own glow, which is how it looks in every
+        photograph, and the shadow is under both because a white line on a white
+        page would otherwise be invisible.
+        """
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        self._draw_glow(painter)
+
+        path = self._stroke_path()
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        for width, colour in (
+            (LINE_WIDTH + SHADOW_EXTRA, QColor(0, 0, 0, 90)),
+            (LINE_WIDTH, QColor(255, 255, 255)),
+        ):
+            pen = QPen(colour)
+            pen.setWidth(width)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+            painter.drawPath(path)
+        painter.restore()
+
+    def _draw_glow(self, painter: QPainter) -> None:
+        """One soft blob per remembered head position, fading with age.
+
+        Plain source-over, not additive: a stationary glow saturates towards its
+        own colour instead of blowing out to white, which is what the
+        photographs show.
+        """
+        alive = self._trail.alive(self._stroke_clock())
+        if not alive:
+            return
+        painter.save()
+        painter.setPen(Qt.PenStyle.NoPen)
+        for blob, left in alive:
+            centre = QPointF(blob.point)
+            gradient = QRadialGradient(centre, float(GLOW_RADIUS))
+            inner = QColor(blob.colour)
+            inner.setAlpha(round(150 * left))
+            middle = QColor(blob.colour)
+            middle.setAlpha(round(45 * left))
+            edge = QColor(blob.colour)
+            edge.setAlpha(0)
+            # Most of the falloff in the outer half, so a blob has a bright core
+            # and a long soft skirt rather than being a hard disc.
+            gradient.setColorAt(0.0, inner)
+            gradient.setColorAt(0.45, middle)
+            gradient.setColorAt(1.0, edge)
+            painter.setBrush(gradient)
+            painter.drawEllipse(centre, float(GLOW_RADIUS), float(GLOW_RADIUS))
+        painter.restore()
+
+    def _stroke_clock(self) -> float:
+        """Milliseconds since the overlay was built.  One clock for the trail."""
+        return float(self._stroke_started.elapsed())
+
+    def _remember_head(self, position: QPoint) -> None:
+        """Take one more head position, in the colour that height gives it."""
+        head = position + self._offset
+        # Height on *this screen*, not on the virtual desktop: otherwise the
+        # same gesture would come out a different colour on a second monitor.
+        colour = glow_colour(float(position.y()), float(max(1, self.height())))
+        self._trail.add(head, colour, self._stroke_clock())
+
+    def _stroke_damage(self) -> QRect:
+        """What the fade needs repainted, in widget coordinates.
+
+        A few hundred pixels square, not the whole 4K screenshot.  This is the
+        number that matters most: the cursor glow that had to be taken back out
+        repainted a large area at about ten frames a second.
+        """
+        bounds = self._trail.bounds()
+        if bounds.isNull():
+            return QRect()
+        return bounds.translated(-self._offset).intersected(self.rect())
+
+    def _start_stroke_animation(self) -> None:
+        timer = self._stroke_timer
+        if timer is None:
+            timer = QTimer(self)
+            timer.setInterval(TICK_MS)
+            timer.timeout.connect(self._tick_stroke)
+            self._stroke_timer = timer
+        self._stroke_settles_at = 0.0
+        if not timer.isActive():
+            timer.start()
+
+    def _stop_stroke_animation(self) -> None:
+        if self._stroke_timer is not None:
+            self._stroke_timer.stop()
+
+    def _tick_stroke(self) -> None:
+        """Fade the tail, and repaint only where the tail is.
+
+        Runs while a drag is in progress and for a fifth of a second after it
+        ends, so the smear is seen settling into a circle instead of vanishing.
+        """
+        now = self._stroke_clock()
+        damaged = self._stroke_damage()
+        self._trail.prune(now)
+        if damaged.isValid():
+            self.update(damaged)
+        if not self._trail and self._stroke_settles_at and now >= self._stroke_settles_at:
+            self._stop_stroke_animation()
 
     # ------------------------------------------------------ the text layer
 
@@ -1563,6 +1731,10 @@ class SelectionOverlay(QWidget):
         self._anchor = position
         self._current = position
         self._points = [position]
+        self._trail.clear()
+        if self._drag_mode == MODE_LASSO:
+            self._remember_head(position)
+            self._start_stroke_animation()
         self._changed()
 
     def mouseMoveEvent(self, event: QMouseEvent) -> None:
@@ -1622,6 +1794,9 @@ class SelectionOverlay(QWidget):
                 or abs(position.y() - last.y()) >= _LASSO_MIN_STEP
             ):
                 self._points.append(position)
+            # Every move, not every kept point: the glow follows the hand even
+            # while the polygon is dropping samples that are too close together.
+            self._remember_head(position)
         self._changed()
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
@@ -1652,6 +1827,9 @@ class SelectionOverlay(QWidget):
         self._current = event.position().toPoint()
         if self._drag_mode == MODE_LASSO:
             self._points.append(self._current)
+            # Keep ticking for a fifth of a second so the smear is seen settling
+            # into a circle rather than disappearing with the button.
+            self._stroke_settles_at = self._stroke_clock() + SETTLE_MS
         selection = self._selection_rect()
 
         if selection.width() < MIN_SELECTION or selection.height() < MIN_SELECTION:
@@ -2041,6 +2219,8 @@ class SelectionOverlay(QWidget):
         self._changed()
 
     def _reset_selection(self) -> None:
+        self._stop_stroke_animation()
+        self._trail.clear()
         self._text_anchor = None
         self._text_focus = None
         self._selecting_text = False
@@ -2062,6 +2242,7 @@ class SelectionOverlay(QWidget):
             return
         self._finished = True
         self.releaseKeyboard()
+        self._stop_stroke_animation()
 
         if sending:
             # Do not vanish into a second of nothing.  Preparing the image and

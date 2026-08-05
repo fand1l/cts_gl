@@ -333,6 +333,39 @@ Application-only settings live in
 | `use_layer_shell` | `false` | See above |
 | `keep_launcher` | `false` | Keep the browser launcher page instead of deleting it after ten minutes |
 
+### The lasso is a ribbon
+
+The lasso is drawn the way Android draws it: a wide white line — twelve logical
+pixels, opaque, round caps — with a soft coloured glow under its head. The line
+carries no colour at all; the colour is in the glow, and it comes from **where
+on the screen the glow is**: blue at the top, red across the middle, yellow a
+little below that, green at the bottom. A fast swipe from one corner to the
+other lays all four out at once.
+
+The stretch is not computed from velocity. The last half-second of head
+positions is kept, each with the colour its own height gave it, and the glow is
+drawn at every one of them fading with age — so moving fast they lie far apart
+and the glow *is* a smear, and standing still they stack on one spot and it is a
+bright round circle that settles into a deep amber. Nothing snaps when the
+direction changes, because no direction is ever calculated. It keeps fading for
+a fifth of a second after the button comes up, and while it fades only the
+trail's own rectangle is repainted — a few hundred pixels square, never the
+screenshot.
+
+The drawn line is **open**: the two ends pass each other without joining, as
+they do in the photographs. The path used for `lasso_mask` still closes,
+because a mask needs a closed shape — at one pixel the closing line was a hint,
+at twelve it is a bar across the middle of whatever you circled. There is no
+dashed rectangle around the loop any more either: with `lasso_mask` off the
+un-dimmed area *is* the bounding box, so it was drawing the same fact twice.
+
+Under the white line there is a translucent dark one a few pixels wider.
+Android draws over photographs and does not need one; we draw over whatever you
+had on screen, and a white line on a white page is invisible.
+
+The full design, and the two drafts the photographs corrected, are in
+[`docs/STROKE.md`](docs/STROKE.md).
+
 Lens always receives a rectangle. By default a lasso is uploaded as the plain
 crop around the loop — nothing is painted over, exactly like circling something
 on Android. `lasso_mask=true` instead whitens everything outside the loop, which

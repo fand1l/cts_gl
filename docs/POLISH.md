@@ -212,7 +212,7 @@ The layout is buffered exactly like the movement trace, staleness check
 included: it arrives immediately before the trigger, and a layout left over
 from an earlier one would outline windows that have since moved.
 
-## 8. The Android stroke  — last, and on its own  ← next
+## 8. The Android stroke  — last, and on its own  ← done
 
 A wide white lasso line with a coloured glow at the pointer.  Designed in
 `docs/STROKE.md`, from two photographs of the real thing — which corrected the
@@ -228,3 +228,23 @@ something already working rather than adding to it, it is the only one with an
 animation timer, and the last thing wearing that description had to be taken
 back out again.  So: after everything else is in and settled, on its own branch
 of work, with its own round of testing on real hardware.
+
+**As built** — the full account is in `docs/STROKE.md`.  In short: the design
+survived contact, one claim in it had to be narrowed, and drawing it turned up a
+bug that had been there all along.
+
+* The **repaint claim** now says what is true.  The animation timer damages only
+  the trail's own rectangle, which is the new cost and the one that mattered; an
+  ordinary drag move still repaints the whole overlay, exactly as it did before
+  the stroke existed, because the un-dimmed bounding box grows as the loop is
+  drawn.
+* A **stroke along one axis has a bounding box with no area**, and `paintEvent`
+  returned early on precisely that condition — so a horizontal line left the
+  screen blank while it was being drawn.  At one pixel wide nobody had noticed
+  in a year of use.
+* The **open path** landed as designed: `_selection_path()` keeps closing for
+  the mask, and the visible ribbon gets its own path, which is what those two
+  things always were.
+
+Still to try once on real hardware, as the design file says: additive blending,
+and the seven numbers at the bottom of it.
