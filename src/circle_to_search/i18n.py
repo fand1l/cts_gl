@@ -21,6 +21,19 @@ _EN: dict[str, str] = {
     "tray.recent.text": "Read the text",
     "tray.recent.forget": "Forget this one",
     "tray.recent.clear": "Forget all of them",
+    "tray.recent.all": "All of them…",
+    "history.title": "Circle to Search — Captures",
+    "history.search": "Search what was recognised in them…",
+    "history.total": "{total} kept",
+    "history.found": "{shown} of {total}",
+    "history.empty": (
+        "Nothing kept yet. Captures are remembered unless you switch it off in "
+        "Settings → General."
+    ),
+    "history.no_match": (
+        "Nothing matches “{query}”. Only text that was recognised can be "
+        "searched, and that is off until you turn it on."
+    ),
     "tray.state.ok": "Circle to Search — shake the cursor to select a region",
     "tray.state.off": (
         "Circle to Search — shake detection is off.\n"
@@ -239,12 +252,17 @@ _EN: dict[str, str] = {
         "After the overlay closes. Only when the keyboard ended up nowhere — a "
         "browser tab opened by a search keeps the focus it took."
     ),
-    "settings.keep_recent": "Keep the last few selections for the tray menu",
+    "settings.keep_recent": "Keep the selections, so they can be used again",
     "settings.keep_recent.hint": (
-        "The {limit} most recent crops stay in {directory} so they can be "
-        "searched, copied or saved again without redoing the gesture. Older "
-        "ones are deleted as new ones arrive; “Forget all of them” in the tray "
-        "empties it now."
+        "They stay in {directory} so they can be searched, copied or saved "
+        "again without redoing the gesture. The newest few are in the tray "
+        "menu; “All of them…” opens a window that searches the text found in "
+        "them. Older ones are deleted as new ones arrive."
+    ),
+    "settings.recent_limit": "How many to keep:",
+    "settings.recent_limit.hint": (
+        "Five used to be the ceiling because a tray menu of thirty is "
+        "unusable. The window has a search box, so this is your decision now."
     ),
     "settings.all_screens": "Show the overlay on every screen",
     "settings.all_screens.hint": (
@@ -396,6 +414,19 @@ _UK: dict[str, str] = {
     "tray.recent.text": "Розпізнати текст",
     "tray.recent.forget": "Забути цей",
     "tray.recent.clear": "Забути всі",
+    "tray.recent.all": "Усі знімки…",
+    "history.title": "Обвести й знайти — Знімки",
+    "history.search": "Шукати серед розпізнаного в них…",
+    "history.total": "збережено: {total}",
+    "history.found": "{shown} з {total}",
+    "history.empty": (
+        "Поки нічого немає. Знімки зберігаються, якщо ви не вимкнули це в "
+        "Налаштуваннях → Загальні."
+    ),
+    "history.no_match": (
+        "Нічого не збігається з «{query}». Шукати можна лише по розпізнаному "
+        "тексту, а він вимкнений, доки ви його не ввімкнете."
+    ),
     "tray.state.ok": "Circle to Search — потрясіть курсором, щоб виділити ділянку",
     "tray.state.off": (
         "Circle to Search — детекцію струшування вимкнено.\n"
@@ -615,12 +646,17 @@ _UK: dict[str, str] = {
         "Після закриття оверлея. Лише якщо фокус нікуди не потрапив — вкладка "
         "браузера, відкрита пошуком, свій фокус залишає собі."
     ),
-    "settings.keep_recent": "Зберігати кілька останніх виділень для меню в треї",
+    "settings.keep_recent": "Зберігати виділення, щоб користуватися ними знову",
     "settings.keep_recent.hint": (
-        "Останні {limit} знімків лежать у {directory}, щоб їх можна було "
-        "повторно знайти, скопіювати чи зберегти без повторення жесту. Старіші "
-        "видаляються, коли з’являються нові; «Забути всі» в треї очищає теку "
-        "одразу."
+        "Вони лежать у {directory}, щоб їх можна було повторно знайти, "
+        "скопіювати чи зберегти без повторення жесту. Кілька найновіших — у "
+        "меню трея; «Усі знімки…» відкриє вікно, у якому можна шукати серед "
+        "розпізнаного в них тексту. Старіші видаляються, коли зʼявляються нові."
+    ),
+    "settings.recent_limit": "Скільки зберігати:",
+    "settings.recent_limit.hint": (
+        "Пʼять було стелею через те, що меню трея з тридцяти пунктів "
+        "непридатне. У вікні є пошук, тож тепер це ваше рішення."
     ),
     "settings.all_screens": "Показувати оверлей на всіх екранах",
     "settings.all_screens.hint": (

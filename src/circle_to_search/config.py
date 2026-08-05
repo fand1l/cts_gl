@@ -444,6 +444,20 @@ class AppSettings:
         self._settings.setValue("keep_recent", bool(value))
 
     @property
+    def recent_limit(self) -> int:
+        """How many captures to keep.
+
+        Five was never a judgement about the right number — it was a judgement
+        about the tray *menu*, which is unusable at thirty.  Now that there is a
+        window with a search box, the ceiling can be somebody's own decision.
+        """
+        return max(1, min(500, self._get_int("recent_limit", 5)))
+
+    @recent_limit.setter
+    def recent_limit(self, value: int) -> None:
+        self._settings.setValue("recent_limit", int(value))
+
+    @property
     def last_area(self) -> str:
         """Where the last selection was, as ``"<screen> x y w h"`` (see lastarea.py).
 

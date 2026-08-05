@@ -47,6 +47,7 @@ from .config import (
 from .dbus_service import ServiceObject, register_service, unregister_service
 from .hidpi import ScreenMetrics, measure_screen, physical_rect_to_logical
 from .history import RecentCaptures
+from .history_window import HistoryWindow
 from .i18n import current_language, set_language, tr
 from .imageops import (
     black_out,
@@ -105,6 +106,11 @@ TRACE_MAX_AGE_S = 5.0
 #: to Qt's idea of where the pointer is.  One round trip through kglobalaccel,
 #: KWin and back is a few milliseconds; this is generous.
 SHORTCUT_GRACE_MS = 600
+
+#: How many of the kept captures the tray menu itself offers.  Not the limit —
+#: that is a setting now — but as many as a menu can carry before it stops being
+#: quicker than the window it points at.
+_TRAY_RECENT = 5
 
 #: The misfire question stays up this long.  Long enough to notice after the
 #: browser tab opened, short enough not to pile up.
@@ -361,6 +367,7 @@ class CircleToSearchApp(QObject):
         self._group: OverlayGroup | None = None
         self._desktop: VirtualDesktop | None = None
         self._dialog: SettingsDialog | None = None
+        self._history: HistoryWindow | None = None
         self._calibration: CalibrationDialog | None = None
         self._welcome: WelcomeDialog | None = None
         self._tasks: set[QRunnable] = set()
@@ -387,7 +394,9 @@ class CircleToSearchApp(QObject):
         #: What was read off the frozen screen, in physical pixels of it.
         self._ocr_words: list[ocr.Word] = []
 
-        self._recent = RecentCaptures()
+        # The ceiling is a setting now: five was a judgement about a tray menu,
+        # and there is a window with a search box behind it.
+        self._recent = RecentCaptures(limit=self._settings.recent_limit)
 
         self._icon = self._load_icon()
         #: The same icon greyed out, for every state in which shaking the
@@ -544,7 +553,7 @@ class CircleToSearchApp(QObject):
             empty.setEnabled(False)
             return
 
-        for entry in entries:
+        for entry in entries[:_TRAY_RECENT]:
             submenu = menu.addMenu(entry.label)
             icon = QIcon(
                 QPixmap(str(entry.path)).scaled(
@@ -575,8 +584,29 @@ class CircleToSearchApp(QObject):
             )
 
         menu.addSeparator()
+        every = menu.addAction(tr("tray.recent.all"))
+        every.triggered.connect(self.show_history)
         clear = menu.addAction(tr("tray.recent.clear"))
         clear.triggered.connect(self._clear_recent)
+
+    @pyqtSlot()
+    def show_history(self) -> None:
+        """The kept captures, in a window that can be searched."""
+        if self._history is None:
+            self._history = HistoryWindow(self._recent)
+            self._history.reuse_requested.connect(self._reuse)
+            self._history.finished.connect(self._on_history_closed)
+        else:
+            self._history.reload()
+        self._history.show()
+        self._history.raise_()
+        self._history.activateWindow()
+
+    def _on_history_closed(self) -> None:
+        window = self._history
+        self._history = None
+        if window is not None:
+            window.deleteLater()
 
     def _reuse(self, path: Path, action: str) -> None:
         """Do something with a kept selection instead of making a new one."""
@@ -589,6 +619,8 @@ class CircleToSearchApp(QObject):
 
     def _clear_recent(self) -> None:
         removed = self._recent.clear()
+        if self._history is not None:
+            self._history.reload()
         if removed:
             notify(tr("notify.recent_cleared", count=removed), transient=True, timeout_ms=4000)
 
@@ -1080,6 +1112,9 @@ class CircleToSearchApp(QObject):
             self._stop_sending()
         if remember and self._settings.keep_recent:
             self._recent.add(cropped, text=text)
+            if self._history is not None:
+                # It is open and now out of date by one.
+                self._history.reload()
         if action == ACTION_TEXT and text:
             clipboard = QGuiApplication.clipboard()
             if clipboard is not None:
@@ -1640,6 +1675,11 @@ class CircleToSearchApp(QObject):
         self.refresh_tray()
         self._survey = self._load_survey()
         self._arm_trace_collection()
+        # Lowering the ceiling has to take effect on the ones already kept, or
+        # the setting would only apply to captures not taken yet.
+        self._recent.set_limit(self._settings.recent_limit)
+        if self._history is not None:
+            self._history.reload()
 
     @pyqtSlot()
     def show_welcome(self) -> None:

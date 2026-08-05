@@ -205,8 +205,19 @@ needed, and it is off until you ask for it.
 The icon dims when shaking will not work, and its tooltip says which of the
 several possible reasons it is — including the one that is genuinely hard to
 guess, where KWin is still running an older copy of the script than the one on
-disk. **Recent captures** keeps the last five so you can search one again
-without re-taking it.
+disk.
+
+**Recent captures** has the newest few, and **All of them…** opens a window with
+the rest.
+
+![The captures window](docs/images/captures.png)
+
+The box at the top searches **the text that was recognised inside them**, so
+"what was that error I looked up last week" is answerable. Every capture can be
+searched again, copied, saved or read from here, and *Delete* forgets one.
+
+How many are kept is up to you now — it used to be five, because a tray menu of
+thirty is unusable, which was a statement about the menu.
 
 ---
 
@@ -224,6 +235,7 @@ Most of it you will never need. The ones worth knowing:
 | **Check the selection before sending it** | on — off goes back to sending the moment you let go |
 | **Magnify while dragging** | the loupe beside the pointer |
 | **Make the text on screen selectable** | the optional local text recognition |
+| **How many to keep** | the captures the tray and the captures window offer |
 | **Open an overlay on every monitor** | so a selection can cross the seam |
 
 The ten raw thresholds are folded away behind **Advanced**, because calibrating

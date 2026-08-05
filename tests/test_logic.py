@@ -3230,6 +3230,101 @@ with tempfile.TemporaryDirectory() as tmp:
 
 check("a missing directory is not an error", RecentCaptures(Path("/nonexistent/x")).entries() == [])
 
+# --- a window for the captures, not a submenu -------------------------------
+# Whatever was recognised inside each crop has been sitting on disk beside it
+# the whole time, so there was already a searchable corpus of everything ever
+# looked up — and a tray submenu, which is why the number of them had to stay
+# at five.
+import time  # noqa: E402
+
+from circle_to_search.history import matches as history_matches  # noqa: E402
+from circle_to_search.history_window import HistoryWindow  # noqa: E402
+
+check("an empty query matches everything", history_matches("", "anything"))
+check("and so does whitespace", history_matches("   ", "anything"))
+check("a word anywhere counts", history_matches("conn", "error: connection refused"))
+check("case does not", history_matches("REFUSED", "connection refused"))
+check("every word has to be there, not just one",
+      history_matches("error db", "error at db-01")
+      and not history_matches("error zz", "error at db-01"))
+check("and they may be far apart, or in another field",
+      history_matches("14:02 refused", "14:02:33", "connection refused"))
+
+with tempfile.TemporaryDirectory() as tmp:
+    shelf = RecentCaptures(Path(tmp), limit=50)
+    for text, colour in (
+        ("error: connection refused at db-01", (200, 40, 40)),
+        ("Deployment finished", (40, 160, 60)),
+        ("", (60, 90, 200)),
+    ):
+        shelf.add(Image.new("RGB", (40, 20), colour), text=text)
+        time.sleep(0.005)
+
+    window = HistoryWindow(shelf)
+    check("every kept capture gets a tile", window.list.count() == 3,
+          str(window.list.count()))
+    check("and the total is stated", "3" in window.status.text(), window.status.text())
+
+    window.search.setText("refused")
+    visible = [i for i in range(window.list.count()) if not window.list.item(i).isHidden()]
+    check("the box searches the recognised text", len(visible) == 1, str(len(visible)))
+    check("and says how much of the shelf that is", window.status.text() == i18n.tr(
+        "history.found", shown=1, total=3), window.status.text())
+
+    window.search.setText("error deployment")
+    visible = [i for i in range(window.list.count()) if not window.list.item(i).isHidden()]
+    check("two words that are not in the same one match nothing", visible == [], str(visible))
+    check("and it says why that might be",
+          "recognised" in window.status.text() or "розпізнан" in window.status.text(),
+          window.status.text())
+
+    window.search.setText("")
+    check("clearing brings them all back",
+          all(not window.list.item(i).isHidden() for i in range(3)))
+
+    # The four things a kept capture can be used for, and the one that removes
+    # it — all of them need something selected first.
+    check("nothing selected, nothing to do",
+          window.selected_path() is None
+          and not any(button.isEnabled() for button, _ in window._buttons))
+    window.list.item(0).setSelected(True)
+    check("selecting one offers them", all(button.isEnabled() for button, _ in window._buttons))
+
+    asked: list[tuple[str, str]] = []
+    window.reuse_requested.connect(lambda path, action: asked.append((path.name, action)))
+    window._act(ACTION_SEARCH)
+    check("it hands the path and the action over, and does neither itself",
+          len(asked) == 1 and asked[0][1] == ACTION_SEARCH, str(asked))
+
+    # A hidden tile is not a selected tile, or the buttons would act on
+    # something the search box says is not there.
+    window.list.item(0).setSelected(True)
+    window.search.setText("deployment")
+    check("filtering something out deselects it", window.selected_path() is None
+          or not window.selected_path().name.startswith(asked[0][0][:20]),
+          str(window.selected_path()))
+    window.search.setText("")
+
+    gone = window.list.item(0)
+    doomed = Path(str(gone.data(int(Qt.ItemDataRole.UserRole))))
+    gone.setSelected(True)
+    window._forget()
+    check("forgetting removes the file", not doomed.exists())
+    check("and the tile with it", window.list.count() == 2, str(window.list.count()))
+
+    shelf.add(Image.new("RGB", (40, 20), (10, 10, 10)))
+    window.reload()
+    check("reload picks up what arrived while it was open", window.list.count() == 3,
+          str(window.list.count()))
+
+    # The ceiling is a setting now, and lowering it has to apply to what is
+    # already kept rather than only to captures not taken yet.
+    shelf.set_limit(2)
+    window.reload()
+    check("lowering the limit prunes the shelf", window.list.count() == 2,
+          str(window.list.count()))
+    window.deleteLater()
+
 # --- learning from misfires ------------------------------------------------
 import itertools  # noqa: E402
 import json  # noqa: E402

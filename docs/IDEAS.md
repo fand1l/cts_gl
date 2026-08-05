@@ -12,8 +12,8 @@ afterwards and is deliberately still a placeholder.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** |
-| agreed, in this order | 6 history window · 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** |
+| agreed, in this order | 4 `--doctor` |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | to be discussed | 15 a new design — after 5, 6 and 4, and not before |
 | dropped | 3 delay · 14 annotations |
@@ -198,7 +198,7 @@ Three more things came out of using it rather than designing it:
   somebody else's screen does: a white crop pinned on a white background has no
   shape at all.
 
-## 6. A window for the captures, not a submenu
+## 6. A window for the captures, not a submenu — **done**
 
 A grid of thumbnails with a search box that matches the text found in each.
 
@@ -211,6 +211,20 @@ about the right number.
 
 With a window, the limit becomes a setting, and "what was that error message I
 looked up last week" becomes answerable.
+
+*What shipped:* that, as a `QListWidget` in icon mode — a reflowing grid,
+keyboard navigation, selection and scrolling all arrive with it, and each is
+something a hand-rolled tile would get subtly wrong.  Three things the sketch
+did not contain:
+
+* **every thumbnail is padded onto one fixed tile size.**  With icons at their
+  own shapes, a wide crop leaves room for two lines of caption and a tall one
+  leaves room for none, so the captions land at different heights and the elided
+  ones lose the size.  Found by looking at the first screenshot of it;
+* the searchable text is read **once, when the window is filled**.  Going back to
+  disk on every keystroke would make typing in that box feel like the disk;
+* a tile the search hides is **deselected**, or the buttons act on something the
+  box says is not there.
 
 ## 7. The loupe already knows the colour — **done**
 
