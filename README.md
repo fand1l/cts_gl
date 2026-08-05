@@ -262,6 +262,17 @@ Writing the calibration on the argument that tuning six numbers by hand is the
 wrong job for a person, and then putting those numbers first, said the
 opposite.
 
+Above the button is the gesture itself: a dot travelling the exact path the
+current settings are asking for. It is not a drawing of "the" gesture that
+could drift out of step with the code — `reversals` sets how many strokes there
+are, `minAmplitudePx` how long each one is, `minSpeedPxPerSec` how fast the dot
+travels, `angleTolerance` how far the strokes lean off the 45° diagonal, and
+`windowMs` decides whether it says the strokes will not all fit in the time
+allowed at the minimum speed. Change a threshold and the movement changes while
+you watch; calibrate, and it becomes your own shake. The same panel is the
+second thing the first-run window shows, because a movement is very hard to
+write down and very easy to show.
+
 Settings → **Calibrate the gesture…** (also in the tray menu) measures your own
 shake and writes the numbers for you:
 

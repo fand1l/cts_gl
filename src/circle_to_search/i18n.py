@@ -135,6 +135,11 @@ _EN: dict[str, str] = {
         "Rather than guessing at six thresholds: shake the way that feels "
         "natural a few times and let the numbers follow from that."
     ),
+    "gesture.too_slow": (
+        "At the minimum speed these strokes do not fit the time window — you "
+        "will have to shake faster than the threshold"
+    ),
+    "gesture.caption": "This is the movement your current settings are looking for.",
     "calibrate.title": "Circle to Search — Calibration",
     "calibrate.instructions": (
         "Shake the pointer the way you would to open the overlay — diagonally, "
@@ -487,6 +492,11 @@ _UK: dict[str, str] = {
         "Замість того щоб вгадувати шість порогів: потрясіть кілька разів так, "
         "як вам зручно, і числа виведуться з цього."
     ),
+    "gesture.too_slow": (
+        "На мінімальній швидкості ці махи не влазять у часове вікно — доведеться "
+        "трясти швидше за поріг"
+    ),
+    "gesture.caption": "Саме такий рух шукають ваші поточні налаштування.",
     "calibrate.title": "Circle to Search — Калібрування",
     "calibrate.instructions": (
         "Потрясіть курсором так, як робили б це для відкриття оверлея — по "

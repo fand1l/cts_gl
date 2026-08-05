@@ -39,6 +39,7 @@ from .config import (
     set_autostart,
     write_detection,
 )
+from .gesture import GesturePreview
 from .history import LIMIT as RECENT_LIMIT
 from .history import RECENT_DIR
 from .i18n import available_languages, tr
@@ -106,6 +107,14 @@ class SettingsDialog(QDialog):
 
         self.enabled_box = QCheckBox(tr("settings.enabled"), shake)
         form.addRow(self.enabled_box)
+
+        # The movement, animated from the settings themselves — so it is not a
+        # drawing of "the" gesture that can drift out of step with the code, it
+        # is what these numbers are currently asking for.  Above the button,
+        # because it is also the answer to "did the calibration do anything?".
+        self.preview = GesturePreview(self._detection, shake)
+        form.addRow(self.preview)
+        form.addRow(_hint(tr("gesture.caption")))
 
         calibrate = QPushButton(tr("settings.calibrate"), shake)
         calibrate.clicked.connect(self.calibrate_requested)
@@ -181,6 +190,18 @@ class SettingsDialog(QDialog):
         advanced_form.addRow(self.debug_box)
         advanced_form.addRow(_hint(tr("settings.debug.hint")))
 
+        # The four numbers the animation is made of, wired straight into it: a
+        # threshold set to something absurd shows up as absurd movement before
+        # the dialog is even closed, which is a great deal faster than shaking
+        # the mouse and guessing.
+        for spin in (
+            self.reversals_spin,
+            self.window_spin,
+            self.amplitude_spin,
+            self.speed_spin,
+        ):
+            spin.valueChanged.connect(self._preview_current)
+
         # A checkable QGroupBox disables its contents rather than hiding them,
         # which would make an unopened section look like ten broken spin boxes.
         self._advanced_margins = advanced_form.contentsMargins()
@@ -203,6 +224,10 @@ class SettingsDialog(QDialog):
         layout.addStretch(1)
         self._show_advanced(False)
         return page
+
+    def _preview_current(self) -> None:
+        """Animate what is in the boxes now, not what was last saved."""
+        self.preview.set_detection(self.collect())
 
     def _show_advanced(self, shown: bool) -> None:
         """Fold the thresholds away, without pretending they are unavailable.
@@ -394,6 +419,7 @@ class SettingsDialog(QDialog):
         self.debug_box.setChecked(detection.debug)
         self.restore_focus_box.setChecked(detection.restoreFocus)
         self.shortcut_edit.setKeySequence(QKeySequence(detection.shortcut))
+        self.preview.set_detection(detection)
 
         settings = self._app_settings
         self.quality_spin.setValue(settings.jpeg_quality)

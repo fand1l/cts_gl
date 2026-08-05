@@ -34,6 +34,7 @@ from .config import (
     set_autostart,
     write_detection,
 )
+from .gesture import GesturePreview
 from .i18n import available_languages, set_language, tr
 from .logging_setup import get_logger
 
@@ -76,6 +77,11 @@ class WelcomeDialog(QDialog):
         )
         gesture.setTextFormat(Qt.TextFormat.RichText)
         gesture.setWordWrap(True)
+
+        # Three lines of prose about a physical movement, and then the movement.
+        # This is the one thing a first-run window has to get across, and it is
+        # the one thing prose is worst at.
+        self.preview = GesturePreview(self._detection, self)
 
         choices = QGroupBox(tr("welcome.choices"), self)
         form = QFormLayout(choices)
@@ -125,6 +131,7 @@ class WelcomeDialog(QDialog):
         layout = QVBoxLayout(self)
         layout.addWidget(heading)
         layout.addWidget(gesture)
+        layout.addWidget(self.preview)
         layout.addWidget(choices)
         layout.addWidget(calibrate, 0, Qt.AlignmentFlag.AlignLeft)
         layout.addWidget(hint)

@@ -13,6 +13,7 @@ needed.
 from __future__ import annotations
 
 import itertools
+import math
 import os
 import re
 import sys
@@ -1751,6 +1752,109 @@ welcome.language_combo.setCurrentIndex(welcome.language_combo.findData("en"))
 welcome.apply()
 check("saving happens once", fake_settings.language == "uk", fake_settings.language)
 i18n.set_language("auto")
+
+# --- the gesture, animated from the settings -------------------------------
+# The welcome window explains a physical movement in three lines of prose, and
+# the README has a placeholder for a screenshot of it that does not exist.
+from circle_to_search.gesture import GesturePreview, build_gesture  # noqa: E402
+
+shape = build_gesture(DetectionSettings.defaults())
+check("two reversals means three strokes", len(shape.points) == 4, str(len(shape.points)))
+check("and the swings agree", shape.swings == 3, str(shape.swings))
+check("a stroke takes amplitude over speed",
+      abs(shape.swing_ms - 150 / 700 * 1000) < 1, str(shape.swing_ms))
+check("and the whole thing three of those",
+      abs(shape.total_ms - 3 * shape.swing_ms) < 1, str(shape.total_ms))
+check("the defaults are achievable", shape.fits_window)
+
+# It is the settings, not a picture of them: change a number, change the path.
+more = DetectionSettings.defaults()
+more.reversals = 4
+check("more reversals, more strokes", len(build_gesture(more).points) == 6,
+      str(len(build_gesture(more).points)))
+longer = DetectionSettings.defaults()
+longer.minAmplitudePx = 300
+check("a longer swing draws bigger",
+      build_gesture(longer).width > shape.width * 1.9, str(build_gesture(longer).width))
+slower = DetectionSettings.defaults()
+slower.minSpeedPxPerSec = 350
+check("a lower speed takes longer",
+      abs(build_gesture(slower).swing_ms - shape.swing_ms * 2) < 1,
+      str(build_gesture(slower).swing_ms))
+
+# The two things the detector actually measures are the length of a stroke and
+# its angle, so the drawing has to satisfy both — otherwise it is a picture of
+# a gesture that would not be accepted.
+strokes = list(itertools.pairwise(shape.points))
+lengths = [math.hypot(b[0] - a[0], b[1] - a[1]) for a, b in strokes]
+check("every stroke is as long as the threshold asks",
+      all(abs(length - 150) < 1e-6 for length in lengths), str(lengths))
+angles = [math.degrees(math.atan2(abs(b[1] - a[1]), abs(b[0] - a[0]))) for a, b in strokes]
+check("and every one is within the angle tolerance of 45°",
+      all(abs(angle - 45) <= DetectionSettings.defaults().angleTolerance for angle in angles),
+      str(angles))
+check("consecutive strokes do not retrace exactly",
+      shape.points[0] != shape.points[2], str(shape.points[:3]))
+check("nothing is drawn at a negative coordinate",
+      all(x >= 0 and y >= 0 for x, y in shape.points), str(shape.points))
+
+# A tolerance of nothing means strokes right on the diagonal, retraced.
+tight = DetectionSettings.defaults()
+tight.angleTolerance = 0
+straight_shape = build_gesture(tight)
+check("no tolerance, no lean",
+      all(abs(abs(b[0] - a[0]) - abs(b[1] - a[1])) < 1e-6
+          for a, b in itertools.pairwise(straight_shape.points)),
+      str(straight_shape.points))
+
+# The dot travels the path in order and arrives at the end.
+def _close(a, b):
+    return abs(a[0] - b[0]) < 1e-6 and abs(a[1] - b[1]) < 1e-6
+
+
+check("it starts at the beginning", _close(shape.at(0), shape.points[0]), str(shape.at(0)))
+check("it finishes at the end", _close(shape.at(shape.total_ms), shape.points[-1]),
+      str(shape.at(shape.total_ms)))
+check("halfway through the first stroke is halfway along it",
+      _close(shape.at(shape.swing_ms / 2),
+             ((shape.points[0][0] + shape.points[1][0]) / 2,
+              (shape.points[0][1] + shape.points[1][1]) / 2)),
+      str(shape.at(shape.swing_ms / 2)))
+check("time before the start is the start", _close(shape.at(-500), shape.points[0]))
+check("time after the end is the end", _close(shape.at(shape.total_ms * 5), shape.points[-1]))
+
+# Two numbers that look independent and are not: at the slowest speed the
+# detector accepts, four reversals do not fit in a 600 ms window.
+crowded = DetectionSettings.defaults()
+crowded.reversals = 4
+check("it says when the numbers fight each other", not build_gesture(crowded).fits_window)
+crowded.windowMs = 3000
+check("and stops saying it when they do not", build_gesture(crowded).fits_window)
+
+# Absurd settings must animate, not divide by zero.
+for name, field, value in (
+    ("no speed at all", "minSpeedPxPerSec", 0),
+    ("no amplitude", "minAmplitudePx", 0),
+    ("one reversal", "reversals", 1),
+    ("nonsense reversals", "reversals", 0),
+):
+    odd = DetectionSettings.defaults()
+    setattr(odd, field, value)
+    built = build_gesture(odd)
+    check(f"{name} still builds a path", len(built.points) >= 2 and built.total_ms > 0,
+          f"{name}: {built.points}")
+    panel = GesturePreview(odd)
+    panel.resize(400, 150)
+    panel.render(QPixmap(panel.size()))
+    check(f"{name} still paints", True)
+
+# The panel does not repaint anything while it is not on screen.
+panel = GesturePreview(DetectionSettings.defaults())
+check("no timer before it is shown", not panel._timer.isActive())
+panel.show()
+check("it animates once it is", panel._timer.isActive())
+panel.hide()
+check("and stops when it goes away", not panel._timer.isActive())
 
 # --- the settings window ---------------------------------------------------
 # The calibration was written on the argument that tuning six thresholds by

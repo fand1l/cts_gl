@@ -145,7 +145,7 @@ towards `minimumSizeHint()` after opening the section lays the word-wrapped
 hint labels on top of the spin boxes, because `heightForWidth` is not part of
 that number.  So it only ever grows.
 
-## 6. Show the gesture instead of describing it  ← next
+## 6. Show the gesture instead of describing it  ← done
 
 A small panel in the welcome window and beside the calibration button where a
 dot travels the exact path the detector wants.
@@ -159,7 +159,22 @@ the speed, `reversals` the count.  So it is not a drawing of the gesture, it is
 *the current settings*, animated — after a calibration it shows your own
 gesture, and absurd thresholds are visible as absurd movement.
 
-## 7. Highlight the window under the pointer
+**As built.**  A fifth setting joined in, and it settled the one real design
+question.  The strokes have to be separated or the animation is a dot sliding
+along a single line segment — but any separation invented for the drawing would
+have distorted the two things the detector actually measures.  Taking the lean
+out of `angleTolerance` instead means every stroke is exactly `minAmplitudePx`
+long *and* within the accepted angle: the picture is of a gesture that would
+really be accepted, which is the whole claim.
+
+The spin boxes are wired straight into it, so a threshold set to something
+absurd is absurd movement before the dialog is even closed.  And the panel says
+one thing the numbers cannot: when the strokes would not fit inside `windowMs`
+at the minimum speed.  In amber, not red — it is not impossible, it means you
+will have to shake faster than the threshold, and those two numbers look
+independent until something says otherwise.
+
+## 7. Highlight the window under the pointer  ← next
 
 Before a drag starts, outline the window the pointer is over; a click without a
 drag captures exactly it.
