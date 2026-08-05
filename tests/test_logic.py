@@ -3816,6 +3816,142 @@ check("and it is the first thing init does",
 check("with the version it is really running",
       '"ScriptReady", SCRIPT_VERSION' in source)
 
+# --- --doctor --------------------------------------------------------------
+# Six moving parts in four processes, and when one is wrong the symptom is
+# silence.  Every check here is a function of what it was told, so the whole
+# report can be driven from a table instead of from a broken desktop.
+from circle_to_search import DBUS_SERVICE, doctor  # noqa: E402
+
+check("no session bus is a failure of its own",
+      doctor.check_daemon(None).status == doctor.FAIL)
+check("the daemon on the bus is what OK means",
+      doctor.check_daemon(["org.freedesktop.DBus", DBUS_SERVICE]).status == doctor.OK)
+check("and its absence names the unit to look at",
+      "journalctl" in " ".join(doctor.check_daemon(["org.freedesktop.DBus"]).fix))
+
+check("no systemctl is not a fault", doctor.check_service(None).status == doctor.NOTE)
+check("active and enabled is OK",
+      doctor.check_service(("active", "enabled")).status == doctor.OK)
+check("running but not enabled is a warning, not a failure",
+      doctor.check_service(("active", "disabled")).status == doctor.WARN)
+check("and not running at all is a failure",
+      doctor.check_service(("inactive", "enabled")).status == doctor.FAIL)
+check("which repeats what systemd called it",
+      "inactive" in doctor.check_service(("inactive", "enabled")).detail)
+
+# The one this whole command exists for.
+_saved_kwin = (doctor.kwin_script_installed, doctor.kwin_script_enabled,
+               doctor.kwin_script_version)
+try:
+    doctor.kwin_script_installed = lambda: None
+    doctor.kwin_script_enabled = lambda: True
+    doctor.kwin_script_version = lambda: ""
+    check("no script at all is a failure", doctor.check_kwin_script("").status == doctor.FAIL)
+
+    doctor.kwin_script_installed = lambda: Path("/tmp/x")
+    doctor.kwin_script_enabled = lambda: False
+    check("installed but switched off, too",
+          doctor.check_kwin_script("").status == doctor.FAIL)
+    check("and it says where the switch is",
+          "KWin Scripts" in " ".join(doctor.check_kwin_script("").fix))
+
+    doctor.kwin_script_enabled = lambda: True
+    doctor.kwin_script_version = lambda: "1.11.0"
+    stale = doctor.check_kwin_script("1.10.0")
+    check("a stale script is the failure it was written for",
+          stale.status == doctor.FAIL, stale.status)
+    check("with both versions in the line",
+          "1.10.0" in stale.detail and "1.11.0" in stale.detail, stale.detail)
+    check("and the fix that actually works",
+          "log out" in " ".join(stale.fix).lower(), str(stale.fix))
+    check("a matching one is OK",
+          doctor.check_kwin_script("1.11.0").status == doctor.OK)
+    # Silence is not evidence — the same rule the tray icon follows.
+    check("and never having heard is not a fault",
+          doctor.check_kwin_script("").status == doctor.NOTE)
+finally:
+    (doctor.kwin_script_installed, doctor.kwin_script_enabled,
+     doctor.kwin_script_version) = _saved_kwin
+
+_saved_actions = doctor._shortcut_actions
+try:
+    doctor._shortcut_actions = lambda: ["CircleToSearch", "Switch Window Up"]
+    check("kglobalaccel knowing the action is OK",
+          doctor.check_shortcut(["org.kde.kglobalaccel"]).status == doctor.OK)
+    doctor._shortcut_actions = lambda: ["Switch Window Up"]
+    check("not knowing it is a failure",
+          doctor.check_shortcut(["org.kde.kglobalaccel"]).status == doctor.FAIL)
+    # A wrong D-Bus signature answers like an unregistered action, so "could
+    # not tell" has to be its own answer rather than bad news.
+    doctor._shortcut_actions = lambda: None
+    check("and an unanswered question is neither",
+          doctor.check_shortcut(["org.kde.kglobalaccel"]).status == doctor.NOTE)
+    check("kglobalaccel missing only warns — shaking does not go through it",
+          doctor.check_shortcut([]).status == doctor.WARN)
+finally:
+    doctor._shortcut_actions = _saved_actions
+
+check("no display at all is a failure with a reason",
+      doctor.check_capture(None).status == doctor.FAIL
+      and bool(doctor.check_capture(None).fix))
+
+_saved_ocr = (ocr.is_available, ocr.installed_languages)
+try:
+    ocr.is_available = lambda: False
+    check("no tesseract while it is off is only a note",
+          doctor.check_ocr(False).status == doctor.NOTE)
+    check("but switched on without it is a failure",
+          doctor.check_ocr(True).status == doctor.FAIL)
+    ocr.is_available = lambda: True
+    ocr.installed_languages = lambda: []
+    check("installed with no language data is a failure too",
+          doctor.check_ocr(True).status == doctor.FAIL)
+    ocr.installed_languages = lambda: ["eng", "ukr"]
+    check("and with them it is OK", doctor.check_ocr(True).status == doctor.OK)
+    check("off but present is a note that says so",
+          doctor.check_ocr(False).status == doctor.NOTE
+          and "switched off" in doctor.check_ocr(False).detail)
+finally:
+    (ocr.is_available, ocr.installed_languages) = _saved_ocr
+
+# The promise the command makes: the fix is next to the failure.  A report that
+# says something is broken and stops there is the thing it was meant to replace.
+_every = [
+    doctor.check_daemon(None),
+    doctor.check_daemon(["x"]),
+    doctor.check_service(("inactive", "enabled")),
+    doctor.check_service(("active", "disabled")),
+    doctor.check_capture(None),
+    doctor.check_session(),
+]
+for _finding in _every:
+    if _finding.status in (doctor.WARN, doctor.FAIL):
+        check(f"{_finding.label!r} says what to do about it", bool(_finding.fix),
+              _finding.detail)
+
+_report = doctor.format_report([
+    doctor.Finding("session", doctor.OK, "Wayland, KDE"),
+    doctor.Finding("daemon", doctor.FAIL, "not on the bus", ("start it",)),
+    doctor.Finding("text recognition", doctor.NOTE, "off"),
+], colour=False)
+check("the report names the build it is reporting on", version_label() in _report, _report)
+check("a failure carries its fix into the text", "start it" in _report, _report)
+check("and a note does not pretend to be a problem",
+      "1 of 3 broken" in _report, _report)
+_clean = doctor.format_report([doctor.Finding("session", doctor.OK, "fine")], colour=False)
+check("all clear says so", "Everything is working" in _clean, _clean)
+_warned = doctor.format_report(
+    [doctor.Finding("service", doctor.WARN, "not enabled", ("enable it",))], colour=False)
+check("a warning alone is not broken", "Nothing is broken" in _warned, _warned)
+check("but it still carries its fix", "enable it" in _warned, _warned)
+
+# --doctor is a real flag on the real parser, and it does not need a display to
+# be one.
+from circle_to_search.__main__ import parse_args  # noqa: E402
+
+check("--doctor is a flag", parse_args(["--doctor"]).doctor)
+check("and it is off by default", not parse_args([]).doctor)
+
 print()
 if failures:
     print("FAILURES:", ", ".join(failures))

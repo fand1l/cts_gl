@@ -12,8 +12,8 @@ afterwards and is deliberately still a placeholder.
 
 | | |
 |---|---|
-| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** |
-| agreed, in this order | 4 `--doctor` |
+| done | **2 search the text** · **8 what will be sent** · **9 the same area** · **1 redact** · **7 colour** · **5 pin** · **6 history window** · **4 `--doctor`** |
+| agreed, in this order | — everything ordered is done |
 | agreed, not yet ordered | 10 drag out · 11 try another way · 12 QR · 13 no-mouse |
 | to be discussed | 15 a new design — after 5, 6 and 4, and not before |
 | dropped | 3 delay · 14 annotations |
@@ -128,7 +128,7 @@ That is a real but much smaller feature than I sold.  Worth doing cheaply if at
 all: a `QTimer` in the daemon and a countdown in the tray tooltip; the capture
 path itself does not change.
 
-## 4. `circle-to-search --doctor`
+## 4. `circle-to-search --doctor` — **done**
 
 One command that checks every joint and prints what to do about each.
 

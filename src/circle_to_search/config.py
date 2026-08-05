@@ -645,6 +645,20 @@ def autostart_enabled() -> bool:
     return result.stdout.strip() == "enabled"
 
 
+def service_state() -> tuple[str, str] | None:
+    """``(is-active, is-enabled)`` as systemd words them, or None without it.
+
+    Both raw, because the interesting cases are the ones that are neither
+    "active" nor "failed" — "activating" while it is still coming up, and
+    "inactive" for a unit that was never enabled.
+    """
+    active = _systemctl("is-active", SERVICE_NAME)
+    enabled = _systemctl("is-enabled", SERVICE_NAME)
+    if active is None or enabled is None:
+        return None
+    return active.stdout.strip(), enabled.stdout.strip()
+
+
 def set_autostart(enabled: bool) -> bool:
     action = "enable" if enabled else "disable"
     result = _systemctl(action, SERVICE_NAME)

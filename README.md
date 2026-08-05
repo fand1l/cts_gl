@@ -264,6 +264,26 @@ is nearly always the better way round.
 
 ## If something does not work
 
+Ask it:
+
+```bash
+circle-to-search --doctor
+```
+
+It checks every moving part — the session, the daemon, its service, the KWin
+script and whether KWin is running the copy that is installed, the shortcut,
+the screen capture (by really taking one), the browser, and the text
+recognition — and prints the fix next to whatever is wrong.
+
+```
+  ✓  daemon            io.github.fand1l.CircleToSearch is on the bus
+  ✗  KWin script       KWin is running v1.10.0, but v1.11.0 is installed
+                       KWin loads a script once, at login, and keeps running that copy.
+                       Toggle it off and on in System Settings → Window Management →
+                       KWin Scripts, or log out and back in.
+  ✓  screen capture    kwin-screenshot2, 3840×2160 px in 84 ms
+```
+
 **Nothing happens when I shake.** Hover the tray icon — it will tell you which
 part is wrong. Most often the answer is *log out and back in*: KWin loads a
 script once, at login, and keeps running that copy.

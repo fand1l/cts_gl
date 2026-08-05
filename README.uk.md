@@ -261,6 +261,29 @@ Ubuntu, Arch, openSUSE — і спитає, перш ніж щось стави�
 
 ## Якщо щось не працює
 
+Спитайте в неї самої:
+
+```bash
+circle-to-search --doctor
+```
+
+Вона перевіряє кожен вузол — сеанс, демон, його службу, скрипт KWin і чи виконує
+KWin саме ту копію, яку встановлено, сполучення клавіш, знімок екрана (справді
+роблячи його), браузер і розпізнавання тексту — і поруч із тим, що не так, пише,
+що з цим робити.
+
+```
+  ✓  daemon            io.github.fand1l.CircleToSearch is on the bus
+  ✗  KWin script       KWin is running v1.10.0, but v1.11.0 is installed
+                       KWin loads a script once, at login, and keeps running that copy.
+                       Toggle it off and on in System Settings → Window Management →
+                       KWin Scripts, or log out and back in.
+  ✓  screen capture    kwin-screenshot2, 3840×2160 px in 84 ms
+```
+
+Звіт англійською навмисне: його пишуть, щоб вставити в баг-репорт, як і вивід
+`install.sh` і всю технічну документацію тут.
+
 **Нічого не відбувається, коли трясу.** Наведіть на іконку в треї — вона скаже,
 яка частина не та. Найчастіше відповідь — *вийти з сеансу і зайти знову*: KWin
 завантажує скрипт один раз, при вході, і далі виконує саме ту копію.

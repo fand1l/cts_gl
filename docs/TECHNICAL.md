@@ -1190,7 +1190,7 @@ stops recording altogether.
 
 ```bash
 ruff check src tests               # lint (clean)
-python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, raw decode, overlay, lasso
+python3 tests/test_logic.py        # HiDPI crop math, Lens parsing, overlay, lasso, doctor
 node    tests/test_detection.js    # the real main.js against a fake KWin API
 node    tests/replay-trace.js FILE # replay a recorded cursor trace
 python3 tests/test_browser_upload.py   # the launcher page, in a real Chromium
@@ -1232,6 +1232,64 @@ python3 src/circle_to_search/__main__.py --verbose
 ---
 
 ## What can break, and how to debug it
+
+### Start here: `circle-to-search --doctor`
+
+Everything below this line, in one command, with the fix printed next to
+whichever part is wrong. Exit code 1 when something is broken, so it is usable
+from a script.
+
+```
+Circle to Search 1.2.0 “better-version-control” (build 10001)
+
+  ✓  session           Wayland, KDE
+  ✓  daemon            io.github.fand1l.CircleToSearch is on the bus
+  ✓  service           circle-to-search.service is active and enabled
+  ✗  KWin script       KWin is running v1.10.0, but v1.11.0 is installed
+                       KWin loads a script once, at login, and keeps running that copy.
+                       Toggle it off and on in System Settings → Window Management →
+                       KWin Scripts, or log out and back in.
+  ✓  shortcut          kwin/CircleToSearch — Meta+Shift+L
+  ✓  screen capture    kwin-screenshot2, 3840×2160 px in 84 ms
+  ✓  result page       text/html opens in firefox.desktop
+  ·  text recognition  tesseract is there (eng, ukr); switched off
+
+1 of 8 broken. Start at the first ✗.
+```
+
+Four statuses, and the difference between them is the point: `✗` is why nothing
+happens, `!` works but will bite later, `·` is an optional part that is simply
+switched off, and only the first two ever print a fix — advice under something
+that works is noise pretending to be help.
+
+The order is the order a failure cascades: the session, then the two processes,
+then the compositor, then the things that are only reached once all of that
+works. Read top to bottom and the first `✗` is the cause rather than the
+loudest symptom.
+
+Three things about it are deliberate:
+
+* **The screen capture is really taken**, because "should work" is what this
+  command exists to stop being an answer. The back ends are tried in the same
+  order the daemon tries them and the first that answers wins — so the portal
+  is not reached while something above it works, since it is the one that can
+  raise a permission dialog and provoking that to confirm a path nothing will
+  take is not a diagnostic.
+* **"Could not tell" is its own answer.** `allActionsForComponent` is declared
+  `as` → `aas`, and a plain Python list would go out as `av` — the signature
+  mismatch `notify.py` was written around, which fails with `UnknownMethod` and
+  looks from here exactly like "the shortcut is not registered". When the
+  question cannot be answered it says so rather than inventing bad news. Same
+  for a KWin script that has never announced its version: silence is not
+  evidence, which is the rule `traystate.py` already follows.
+* **The report is English** while the rest of the interface follows the system
+  language. It is written to be pasted into a bug report, and so are the other
+  two diagnostic surfaces here — `install.sh` and this document.
+
+Nearly none of it is new code. It calls the same functions the daemon calls —
+`kwin_script_version()`, `capture_screen`'s back-end loop, `ocr.is_available()`
+— and prints what they say; what is new is that they are all called at once, in
+a fixed order, by somebody who has not yet worked out which one to suspect.
 
 ### A setting has no effect, or a new feature is missing
 

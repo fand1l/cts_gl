@@ -48,6 +48,11 @@ comparable, and quietens the installer that reports them.
   only if that step failed — its warnings are shown either way. The long
   "if nothing happens" list now appears only when the final check found
   something. `--debug` (or `--verbose`) prints all of it as before.
+* **`circle-to-search --doctor`.** One command that checks every joint — the
+  session, the daemon, its service, the KWin script *and whether KWin is
+  running the copy that is installed*, the shortcut, the screen capture by
+  really taking one, the browser, the text recognition — and prints the fix
+  next to whichever line is wrong. Exit code 1 when something is broken.
 * The build is visible everywhere the version is: `circle-to-search --version`,
   the tray's *About*, the daemon's first line in the journal, and both of
   `update`'s version lines.
