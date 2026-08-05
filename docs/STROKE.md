@@ -1,137 +1,146 @@
 # The lasso stroke
 
-> A wide white line, with colour only where the pointer is moving right now —
-> the way Circle to Search draws on Android.
+> A wide white line, and a coloured glow where the finger is.
 
-This is item 2 of `docs/POLISH.md`.  It replaces what was originally proposed
-there (a dark outline under the thin accent line) and folds that outline in, as
-the shadow that keeps a white stroke visible on a white background.
+This is item 2 of `docs/POLISH.md`.
 
-Lasso only.  A rectangle has no "where you are moving", so it keeps a plain
-outline; the same shadow trick applies to it.
+## What the screenshots actually show
+
+An earlier draft of this file described a four-colour gradient running along the
+stroke.  That was wrong, and two photographs of the real thing settled it:
+
+* **The line is white.**  All of it, end to end, at full opacity, with round
+  caps.  There is no colour on the line anywhere.
+* **The colour is a glow at the head** — a soft round blob of light under the
+  end of the line, about three times its width across.
+* **The glow changes colour** over time: orange in one photograph, yellow in the
+  other.
+* **The glow stretches when the finger moves.**  Moving, it is an elongated
+  smear pointing back the way it came; nearly stopped, it is a bright round
+  circle.
+* **The line is open.**  In the second photograph it goes right round an icon
+  and the two ends simply pass each other without joining.
+
+So: one plain white polyline, and one small animated light source at its end.
 
 ---
 
-## What it looks like
+## The line
 
-* The stroke is **wide** — about 12 logical pixels — with round caps and round
-  joins, so it reads as one continuous ribbon rather than a chain of segments.
-* Behind the pointer it is **white**.
-* The last stretch of it — roughly 160 logical pixels of *path length*, not of
-  straight-line distance — carries a gradient running blue → red → yellow →
-  green → white, with the newest colour at the pointer.  Circling slowly draws a
-  short colourful head; a fast sweep stretches it out.
-* Under all of it, a translucent black stroke a few pixels wider, so the white
-  is visible on a white page.
-* When the button is released the colour **slides off the end** over about a
-  quarter of a second and the stroke settles to plain white.  Nothing is moving
-  any more, so nothing is coloured.
+Wide (~12 logical px), opaque white, round caps and round joins so it reads as
+one ribbon.  Under it, a translucent black stroke a few pixels wider — Android
+draws over photographs and does not need one, but a white line on a white page
+is invisible, and we are drawing over whatever the user had on screen.
 
-## Why it has to be drawn segment by segment
+Open, not closed.  `_selection_path()` today ends with `closeSubpath()`, which
+at one pixel is a hint and at twelve is a bar across the middle of whatever is
+being circled.  That method has to keep closing, because `_reveal_path()` uses
+it when `lasso_mask` is on and a mask needs a closed shape — so the *visible*
+stroke gets its own open path, which is what these two things always were.
 
-`QPen` takes a `QBrush`, so a gradient pen is possible — but a `QLinearGradient`
-is laid out in **device space**, not along the path.  On a straight line that
-looks right; on a loop it paints a gradient across the *screen* while the stroke
-wanders through it, which is not the effect at all.  `QPainterPathStroker` has
-the same problem: it gives an outline polygon, still filled in device space.
+## The glow
 
-So the head is drawn as individual line segments, each with its own solid
-colour, which is the ordinary way to get a gradient along a path in Qt.  Round
-caps and joins make the seams disappear, and every colour is **fully opaque** —
-overlapping translucent segments would darken every joint and every place the
-loop crosses itself.
+A radial gradient — the colour at the centre, transparent at the rim — filled as
+an ellipse under the head of the line.  Drawn **before** the white stroke, so
+the cap sits on top of it, which is how it looks in both photographs.
 
-## Keeping it cheap
+The colour drifts continuously through Google's four (blue `#4285F4`, red
+`#EA4335`, yellow `#FBBC05`, green `#34A853`) on a cycle of a few seconds.  Two
+photographs a moment apart showing orange and yellow is exactly what a slow
+hue drift looks like caught twice.
 
-A lasso accumulates a point every 3 px (`_LASSO_MIN_STEP`), so a long loop is
-several hundred points, and the overlay repaints on every mouse move.  Several
-hundred wide antialiased segments per frame is not free.
+## The stretch, as a decay trail
 
-Only the head needs per-segment work.  Everything older than the coloured band
-is one colour, so it is one `QPainterPath` and one stroke:
+The obvious way to elongate a glow is to compute a shape: take the velocity,
+build an ellipse along it, scale by speed.  That means differentiating a noisy
+pointer signal, and it produces a shape that snaps around when the direction
+changes.
+
+The user's suggestion is better, and it is what this will do: **keep the last
+handful of head positions and draw the glow at every one of them, fading with
+age.**
+
+* Moving fast, those positions are far apart, so the blobs lay out along the
+  path and the glow *is* a smear — no velocity is ever calculated.
+* Nearly still, they pile up on the same spot, so the blobs stack and the glow
+  is round and brighter — which is exactly the difference between the two
+  photographs.
+* Lifting the finger, or stopping, lets the tail age out over a fifth of a
+  second, so the smear settles into a circle by itself.
+
+Each remembered position keeps the colour it had when it was recorded, so a fast
+sweep shows a slight hue drift along the smear — a glow that both stretches and
+changes colour, from one mechanism.
+
+Stacking is plain source-over blending, not additive: a stationary glow
+saturates towards its colour instead of blowing out to white.
 
 ```
-points:  [0] ....................................... [n-3] [n-2] [n-1]
-         └────────── one white path ──────────┘ └── ~40 coloured segments ──┘
+    fast                              slow
+    ·∘○◍●  ← older, fainter, spread   ◉  ← all on top of each other
 ```
 
-The split point is found from a running total of path length kept beside the
-points — appended when a point is appended, so finding "the index 160 px back"
-is a short walk from the end, not a rescan.
+## Why this is not the cursor glow that had to be removed
 
-That also bounds the work: the coloured part is a fixed *length* of path, so it
-is a roughly constant number of segments no matter how long the loop gets.
+That one was a separate always-on-top window that followed the pointer around
+the desktop.  It stole focus, and it repainted a large area at about ten frames
+a second.
 
-## The colour ramp
+This one is *inside* the overlay that already has the focus and is already
+frozen, and it repaints **only the glow's own rectangle** — a few hundred pixels
+square — using the same partial-update trick as the "reading the screen" badge.
+The screenshot underneath is not re-blitted; Qt clips it to the damaged region.
 
-A pure function of one number — how far back along the path a segment sits — so
-it can be unit-tested without a screen:
+There is one timer, running at ~60 Hz while a drag is in progress and for a
+fifth of a second after it ends, so the tail can be seen fading rather than
+disappearing.
 
-```python
-def stroke_colour(distance_from_head: float, band: float = BAND) -> QColor
-```
+## What to delete while doing this
 
-* `0.00` → Google blue `#4285F4`
-* `0.25` → red `#EA4335`
-* `0.50` → yellow `#FBBC05`
-* `0.75` → green `#34A853`
-* `1.00` and beyond → white
+The dashed accent rectangle drawn around a lasso.  With `lasso_mask` off — the
+default — the un-dimmed area *is* the bounding box already, so the dashed
+rectangle is a second drawing of the same fact, and next to a ribbon this wide
+it is visual noise.  Android does not draw one.
 
-with linear interpolation between the stops, in plain RGB.  The stops are the
-familiar four, in the order the Android animation uses them.
+## Testing
 
-The release animation is the same function with an offset added to every
-distance: as the offset grows past `band`, the whole stroke is white and the
-timer stops.  One value to animate, no second code path.
+The trail is a list of (point, colour, age) and the fade is a function of age,
+so most of it is arithmetic and needs no screen:
 
-## Drawing order
+* points older than the lifetime are dropped, newer ones kept in order;
+* a stationary pointer collapses the trail to one place; a fast one spreads it
+  over a distance that matches how far the pointer went;
+* the colour cycle is continuous and returns to where it started.
 
-Inside the existing `paintEvent`, where `drawPath(self._selection_path())` is
-today:
+The drawing is checked by rendering offscreen and reading pixels, the way the
+lit text layer already is:
 
-1. the shadow — the whole polyline, translucent black, `WIDTH + 4`;
-2. the white tail — one path, one stroke;
-3. the coloured head — segment by segment, newest last;
-4. the dashed bounding box, thinner and quieter than it is now, because with a
-   ribbon this wide it no longer has to carry the whole message of "this is what
-   gets uploaded".
+* a pixel on the line is white, and stays white next to a bright glow — the
+  colour never leaks onto the stroke;
+* a pixel in the glow is coloured, and one a glow-radius away is not;
+* a white line drawn on a white screenshot is still distinguishable, which is
+  what the shadow is for;
+* the damaged rectangle asked for during a drag stays small — this is the one
+  that matters most, because it is the thing that went wrong last time.
 
-## One thing to change while doing it
+## Numbers to tune on real hardware
 
-`_selection_path()` currently ends with `closeSubpath()`, which draws a line
-from the pointer back to where the loop started.  At one pixel that is a hint;
-at twelve it is a bar across the middle of whatever is being circled.
+All constants at the top of the file, one line each to change:
 
-The visual stroke should be an **open** polyline.  `_selection_path()` itself
-has to keep closing, because it is also what `_reveal_path()` uses when
-`lasso_mask` is on and a mask needs a closed shape — so these become two paths
-for two purposes, which they always were in truth.
-
-## How it gets tested
-
-The ramp is a pure function: stops land on their colours, values between them
-interpolate, anything past the band is white, and adding the release offset
-whitens the whole thing.
-
-The drawing is checked the way the lit text layer already is — render the
-overlay offscreen and read pixels back:
-
-* a pixel on the stroke near the pointer is coloured (its channels differ), one
-  far down the tail is white (they do not);
-* sampling across the stroke finds white for at least the full width, and the
-  darker shadow just outside it;
-* a stroke drawn over a white screenshot is still distinguishable from it, which
-  is the whole point of the shadow;
-* a long loop still only colours a bounded number of segments — the split index
-  is a plain function of the running lengths, so this is arithmetic, not a
-  benchmark.
+| | first guess |
+|---|---|
+| line width | 12 px |
+| shadow width | line + 4 px |
+| glow radius | 38 px |
+| trail lifetime | 180 ms |
+| trail sample rate | every pointer move, capped at 90 per second |
+| colour cycle | 3 s for all four |
+| settle after release | 200 ms |
 
 ## Deliberately not doing
 
-* **Colour that reacts to speed.** Android stretches the band when you move
-  fast. That comes for free here: the band is a fixed length of *path*, so a
-  fast sweep already lays it over more screen.
-* **A shimmer on the resting stroke.** Colour means "moving". A stroke that
-  keeps sparkling after the pointer has stopped says the opposite.
-* **A setting.** It is lasso only, and the rectangle is untouched; anyone who
-  dislikes it already has the rectangle.
+* **Velocity maths.** The trail gives the stretch for free and never snaps.
+* **A shimmer on the resting line.** Colour means "here is the pointer".  A line
+  that keeps sparkling after the pointer has gone says something untrue.
+* **A setting.** It is lasso only; the rectangle is untouched, and that is the
+  setting.

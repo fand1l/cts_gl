@@ -30,9 +30,14 @@ straight onto it.
 
 ## 2. The Android stroke
 
-A wide white lasso line with colour only where the pointer is moving.  Designed
-in `docs/STROKE.md` — it replaces the plain contrast outline that was originally
-proposed here, and folds that outline in as the dark under-stroke.
+A wide white lasso line with a coloured glow at the pointer.  Designed in
+`docs/STROKE.md`, from two photographs of the real thing — which corrected the
+first draft: the line carries no colour at all, the colour is a glow under its
+head, and it stretches because it is a fading trail of the last few positions
+rather than a shape computed from velocity.
+
+It also folds in the dark outline originally proposed here, as the shadow that
+keeps a white line visible on a white page.
 
 ## 3. Say that the sending is happening
 
