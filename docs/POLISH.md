@@ -126,7 +126,7 @@ and the daemon compares it against the version it reads out of the installed
 Read fresh on every menu opening.  Anything cached would be capable of exactly
 the disagreement it exists to expose.
 
-## 5. The numbers behind "Advanced"  ← next
+## 5. The numbers behind "Advanced"  ← done
 
 Collapse the ten threshold spin boxes into a closed `QGroupBox`; leave the
 switches and the calibration button in the open.
@@ -135,7 +135,17 @@ switches and the calibration button in the open.
 thresholds by hand is the wrong job for a user, and then those six thresholds
 were left as the most prominent thing in the window.
 
-## 6. Show the gesture instead of describing it
+**As built.**  Hidden rather than greyed out — a checkable `QGroupBox` disables
+its contents by default, and ten disabled spin boxes say "you may not change
+this", which is untrue; the box is simply shut.  Its margins collapse with it,
+so a closed section is a title and not a title over an empty frame.
+
+One Qt trap, worth the comment it got in the code: resizing the window down
+towards `minimumSizeHint()` after opening the section lays the word-wrapped
+hint labels on top of the spin boxes, because `heightForWidth` is not part of
+that number.  So it only ever grows.
+
+## 6. Show the gesture instead of describing it  ← next
 
 A small panel in the welcome window and beside the calibration button where a
 dot travels the exact path the detector wants.

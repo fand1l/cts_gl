@@ -89,6 +89,13 @@ _EN: dict[str, str] = {
     "settings.tab.general": "General",
     "settings.group.shake": "Cursor shake",
     "settings.group.shortcut": "Global shortcut",
+    "settings.group.advanced": "Advanced: the raw thresholds",
+    "settings.group.advanced.hint": (
+        "Calibrating sets all of these from a few real shakes, which is almost "
+        "always the better way round. They are here for the cases it cannot "
+        "help with — a pointer that behaves oddly, or a value you already know "
+        "you want."
+    ),
     "settings.group.image": "Image sent to Lens",
     "settings.group.behaviour": "Behaviour",
     "settings.enabled": "Detect cursor shake",
@@ -434,6 +441,12 @@ _UK: dict[str, str] = {
     "settings.tab.general": "Загальне",
     "settings.group.shake": "Трясіння курсора",
     "settings.group.shortcut": "Глобальний хоткей",
+    "settings.group.advanced": "Додатково: самі порогові значення",
+    "settings.group.advanced.hint": (
+        "Калібрування встановлює їх усі з кількох справжніх махів — майже "
+        "завжди це кращий шлях. Вони тут для випадків, де воно не допоможе: "
+        "дивна поведінка вказівника або значення, яке ви вже знаєте."
+    ),
     "settings.group.image": "Зображення для Lens",
     "settings.group.behaviour": "Поведінка",
     "settings.enabled": "Розпізнавати трясіння курсора",

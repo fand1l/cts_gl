@@ -1752,6 +1752,38 @@ welcome.apply()
 check("saving happens once", fake_settings.language == "uk", fake_settings.language)
 i18n.set_language("auto")
 
+# --- the settings window ---------------------------------------------------
+# The calibration was written on the argument that tuning six thresholds by
+# hand is the wrong job for a user, and then those thresholds were left as the
+# most prominent thing in the window, which says the opposite.
+from PyQt6.QtWidgets import QAbstractSpinBox  # noqa: E402
+
+from circle_to_search.config import AppSettings  # noqa: E402
+from circle_to_search.settings_dialog import SettingsDialog  # noqa: E402
+
+dialog = SettingsDialog(AppSettings())
+check("the thresholds are behind Advanced", dialog.advanced.isCheckable()
+      and not dialog.advanced.isChecked())
+numbers = dialog.advanced.findChildren(QAbstractSpinBox)
+check("all ten of them are in there", len(numbers) == 10, str(len(numbers)))
+check("and they start out of sight", all(box.isHidden() for box in numbers))
+check("the calibration button is not", dialog.advanced.findChildren(QPushButton) == [],
+      str([b.text() for b in dialog.advanced.findChildren(QPushButton)]))
+check("nor is the switch that turns detection on",
+      dialog.enabled_box.parent() is not dialog.advanced)
+
+# Folded away, not taken away: the values still load and still save.
+dialog.advanced.setChecked(True)
+check("opening it shows them", not any(box.isHidden() for box in numbers))
+before = dialog.speed_spin.value()
+dialog.speed_spin.setValue(before + 100)
+dialog.advanced.setChecked(False)
+check("closing it does not reset anything", dialog.speed_spin.value() == before + 100,
+      str(dialog.speed_spin.value()))
+check("and the values are still readable while shut",
+      dialog.reversals_spin.value() > 0, str(dialog.reversals_spin.value()))
+dialog.deleteLater()
+
 # --- recent captures -------------------------------------------------------
 from circle_to_search.history import RecentCaptures  # noqa: E402
 

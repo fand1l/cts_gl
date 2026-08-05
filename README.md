@@ -253,9 +253,17 @@ four seconds.
 
 ### Calibrate the gesture instead of guessing
 
-Six thresholds are six chances to get it wrong by hand. Settings →
-**Calibrate the gesture…** (also in the tray menu) measures your own shake and
-writes the numbers for you:
+Six thresholds are six chances to get it wrong by hand, which is why the
+Detection tab does not open on a wall of spin boxes. What it offers is the
+switch, the **Calibrate the gesture…** button, and two other switches; the ten
+raw numbers are all still there, unchanged, inside **Advanced: the raw
+thresholds**, one click away for the cases calibration cannot help with.
+Writing the calibration on the argument that tuning six numbers by hand is the
+wrong job for a person, and then putting those numbers first, said the
+opposite.
+
+Settings → **Calibrate the gesture…** (also in the tray menu) measures your own
+shake and writes the numbers for you:
 
 1. The dialog puts the KWin script into `calibrating` mode. In that mode the
    script **never opens the overlay** — it only measures — so nothing pops up

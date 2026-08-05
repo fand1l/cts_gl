@@ -10,7 +10,7 @@ from __future__ import annotations
 import shutil
 import subprocess
 
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QTimer, pyqtSignal
 from PyQt6.QtGui import QKeySequence
 from PyQt6.QtWidgets import (
     QCheckBox,
@@ -116,39 +116,6 @@ class SettingsDialog(QDialog):
         form.addRow(self.fullscreen_box)
         form.addRow(_hint(tr("settings.fullscreen.hint")))
 
-        self.reversals_spin = self._spin(shake, 1, 6, 1)
-        form.addRow(tr("settings.reversals"), self.reversals_spin)
-
-        self.window_spin = self._spin(shake, 150, 3000, 50, suffix=" ms")
-        form.addRow(tr("settings.window"), self.window_spin)
-
-        self.amplitude_spin = self._spin(shake, 20, 1000, 10, suffix=" px")
-        form.addRow(tr("settings.amplitude"), self.amplitude_spin)
-
-        self.angle_spin = self._spin(shake, 5, 44, 1, suffix=" °")
-        form.addRow(tr("settings.angle"), self.angle_spin)
-
-        self.poll_spin = self._spin(shake, 20, 200, 5, suffix=" ms")
-        form.addRow(tr("settings.poll"), self.poll_spin)
-
-        self.cooldown_spin = self._spin(shake, 200, 10000, 100, suffix=" ms")
-        form.addRow(tr("settings.cooldown"), self.cooldown_spin)
-
-        self.step_spin = self._spin(shake, 1, 40, 1, suffix=" px")
-        form.addRow(tr("settings.step"), self.step_spin)
-
-        self.speed_spin = self._spin(shake, 0, 5000, 50)
-        form.addRow(tr("settings.speed"), self.speed_spin)
-        form.addRow(_hint(tr("settings.speed.hint")))
-
-        self.curvature_spin = self._spin(shake, 100, 400, 10, suffix=" %")
-        form.addRow(tr("settings.curvature"), self.curvature_spin)
-        form.addRow(_hint(tr("settings.curvature.hint")))
-
-        self.reversal_spin = self._spin(shake, 5, 90, 5, suffix=" °")
-        form.addRow(tr("settings.reversal"), self.reversal_spin)
-        form.addRow(_hint(tr("settings.reversal.hint")))
-
         self.learn_box = QCheckBox(tr("settings.learn"), shake)
         form.addRow(self.learn_box)
         form.addRow(
@@ -162,11 +129,63 @@ class SettingsDialog(QDialog):
             )
         )
 
-        self.debug_box = QCheckBox(tr("settings.debug"), shake)
-        form.addRow(self.debug_box)
-        form.addRow(_hint(tr("settings.debug.hint")))
-
         layout.addWidget(shake)
+
+        # The ten thresholds, folded away.  The calibration exists on the
+        # argument that tuning six numbers by hand is the wrong job for a
+        # person — and then those numbers were left as the most prominent thing
+        # in the window, which says the opposite.  They are still all here,
+        # unchanged, one click away, for the case the calibration cannot help
+        # with; but the first thing the window offers is the button that does
+        # the tuning for you.
+        self.advanced = QGroupBox(tr("settings.group.advanced"), page)
+        self.advanced.setCheckable(True)
+        self.advanced.setChecked(False)
+        advanced_form = QFormLayout(self.advanced)
+        advanced_form.addRow(_hint(tr("settings.group.advanced.hint")))
+
+        self.reversals_spin = self._spin(self.advanced, 1, 6, 1)
+        advanced_form.addRow(tr("settings.reversals"), self.reversals_spin)
+
+        self.window_spin = self._spin(self.advanced, 150, 3000, 50, suffix=" ms")
+        advanced_form.addRow(tr("settings.window"), self.window_spin)
+
+        self.amplitude_spin = self._spin(self.advanced, 20, 1000, 10, suffix=" px")
+        advanced_form.addRow(tr("settings.amplitude"), self.amplitude_spin)
+
+        self.angle_spin = self._spin(self.advanced, 5, 44, 1, suffix=" °")
+        advanced_form.addRow(tr("settings.angle"), self.angle_spin)
+
+        self.poll_spin = self._spin(self.advanced, 20, 200, 5, suffix=" ms")
+        advanced_form.addRow(tr("settings.poll"), self.poll_spin)
+
+        self.cooldown_spin = self._spin(self.advanced, 200, 10000, 100, suffix=" ms")
+        advanced_form.addRow(tr("settings.cooldown"), self.cooldown_spin)
+
+        self.step_spin = self._spin(self.advanced, 1, 40, 1, suffix=" px")
+        advanced_form.addRow(tr("settings.step"), self.step_spin)
+
+        self.speed_spin = self._spin(self.advanced, 0, 5000, 50)
+        advanced_form.addRow(tr("settings.speed"), self.speed_spin)
+        advanced_form.addRow(_hint(tr("settings.speed.hint")))
+
+        self.curvature_spin = self._spin(self.advanced, 100, 400, 10, suffix=" %")
+        advanced_form.addRow(tr("settings.curvature"), self.curvature_spin)
+        advanced_form.addRow(_hint(tr("settings.curvature.hint")))
+
+        self.reversal_spin = self._spin(self.advanced, 5, 90, 5, suffix=" °")
+        advanced_form.addRow(tr("settings.reversal"), self.reversal_spin)
+        advanced_form.addRow(_hint(tr("settings.reversal.hint")))
+
+        self.debug_box = QCheckBox(tr("settings.debug"), self.advanced)
+        advanced_form.addRow(self.debug_box)
+        advanced_form.addRow(_hint(tr("settings.debug.hint")))
+
+        # A checkable QGroupBox disables its contents rather than hiding them,
+        # which would make an unopened section look like ten broken spin boxes.
+        self._advanced_margins = advanced_form.contentsMargins()
+        self.advanced.toggled.connect(self._show_advanced)
+        layout.addWidget(self.advanced)
 
         shortcut = QGroupBox(tr("settings.group.shortcut"), page)
         shortcut_layout = QVBoxLayout(shortcut)
@@ -182,7 +201,41 @@ class SettingsDialog(QDialog):
         layout.addWidget(shortcut)
 
         layout.addStretch(1)
+        self._show_advanced(False)
         return page
+
+    def _show_advanced(self, shown: bool) -> None:
+        """Fold the thresholds away, without pretending they are unavailable.
+
+        Everything inside the box is hidden rather than greyed out: a disabled
+        spin box says "you may not change this", which is not true — the box is
+        simply shut.  The window is re-laid out afterwards so it shrinks back
+        instead of leaving a hole where the numbers were.
+        """
+        layout = self.advanced.layout()
+        if layout is None:
+            return
+        for index in range(layout.count()):
+            item = layout.itemAt(index)
+            widget = item.widget() if item is not None else None
+            if widget is not None:
+                widget.setVisible(shown)
+        # Otherwise a shut section is a title with an empty box under it.
+        if shown:
+            layout.setContentsMargins(self._advanced_margins)
+        else:
+            layout.setContentsMargins(0, 0, 0, 0)
+        layout.activate()
+        if shown:
+            # Grow if the numbers need more room than the window currently has.
+            # Only ever grow: half of what is in here is word-wrapped prose, and
+            # a window resized down towards minimumSizeHint() lays those labels
+            # out on top of the spin boxes, because heightForWidth is not part
+            # of that number.  An oversized window is merely roomy.
+            QTimer.singleShot(0, self._grow_to_fit)
+
+    def _grow_to_fit(self) -> None:
+        self.resize(self.width(), max(self.sizeHint().height(), self.height()))
 
     def _build_general_tab(self) -> QWidget:
         page = QWidget(self)
