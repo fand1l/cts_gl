@@ -619,6 +619,7 @@ class CircleToSearchApp(QObject):
             confirm=self._settings.confirm_selection,
         )
         overlay.text_selected.connect(self._on_text_selected)
+        overlay.mode_changed.connect(self._on_mode_changed)
         for signal, action in (
             (overlay.selected, ACTION_SEARCH),
             (overlay.copy_requested, ACTION_COPY),
@@ -695,6 +696,7 @@ class CircleToSearchApp(QObject):
             # Taking text closes the whole group, so it cannot go through the
             # group's own committed/cancelled pair.
             overlay.text_selected.connect(self._on_text_selected)
+            overlay.mode_changed.connect(self._on_mode_changed)
         self._group = group
         self._desktop = desktop
         self._opening_trace = trace
@@ -955,6 +957,23 @@ class CircleToSearchApp(QObject):
 
     def _group_overlays(self) -> list[SelectionOverlay]:
         return self._group.overlays if self._group is not None else []
+
+    @pyqtSlot(str)
+    def _on_mode_changed(self, mode: str) -> None:
+        """The chip on the overlay is the setting, reached where it is wanted.
+
+        Kept rather than lasting for one capture: someone who switches to the
+        rectangle mid-gesture almost certainly wants it next time too, and
+        *Shift* is already there for changing it for exactly one drag.  In a
+        group every overlay is told, so the other screens agree with this one.
+        """
+        if mode == self._settings.selection_mode:
+            return
+        self._settings.selection_mode = mode
+        self._settings.sync()
+        log.info("selection mode is now %s", mode)
+        for overlay in self._group_overlays():
+            overlay.set_mode(mode)
 
     @pyqtSlot(str)
     def _on_text_selected(self, text: str) -> None:

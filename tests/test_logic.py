@@ -12,6 +12,7 @@ needed.
 
 from __future__ import annotations
 
+import itertools
 import os
 import sys
 from pathlib import Path
@@ -558,11 +559,18 @@ check("nothing listed when identical", describe_changes(base, base) == [])
 from PyQt6.QtCore import QEvent, QPointF  # noqa: E402
 from PyQt6.QtGui import QKeyEvent, QMouseEvent  # noqa: E402
 
+from circle_to_search.ocr import Word  # noqa: E402
 from circle_to_search.overlay import (  # noqa: E402
     ACTION_COPY,
     ACTION_SAVE,
     ACTION_SEARCH,
     ACTION_TEXT,
+    BAR_CANCEL,
+    BAR_MODE_LASSO,
+    BAR_MODE_RECT,
+    BAR_TEXT_ALL,
+    BAR_TEXT_BACK,
+    BAR_TEXT_COPY,
 )
 
 
@@ -592,6 +600,46 @@ def drag(overlay: SelectionOverlay, start: tuple[int, int], end: tuple[int, int]
 
 def press_key(overlay: SelectionOverlay, key: Qt.Key, modifiers=Qt.KeyboardModifier.NoModifier):
     overlay.keyPressEvent(QKeyEvent(QEvent.Type.KeyPress, key, modifiers))
+
+
+def _mouse(overlay: SelectionOverlay, kind: QEvent.Type, point: tuple[int, int]) -> None:
+    position = QPointF(float(point[0]), float(point[1]))
+    button = (
+        Qt.MouseButton.NoButton
+        if kind == QEvent.Type.MouseMove
+        else Qt.MouseButton.LeftButton
+    )
+    event = QMouseEvent(
+        kind,
+        position,
+        position,
+        button,
+        Qt.MouseButton.LeftButton,
+        Qt.KeyboardModifier.NoModifier,
+    )
+    if kind == QEvent.Type.MouseButtonPress:
+        overlay.mousePressEvent(event)
+    elif kind == QEvent.Type.MouseMove:
+        overlay.mouseMoveEvent(event)
+    else:
+        overlay.mouseReleaseEvent(event)
+
+
+def click(overlay: SelectionOverlay, point: tuple[int, int], release=None) -> None:
+    """Press and let go, optionally somewhere else — that is how a click is taken back."""
+    _mouse(overlay, QEvent.Type.MouseButtonPress, point)
+    _mouse(overlay, QEvent.Type.MouseButtonRelease, release or point)
+
+
+def hover(overlay: SelectionOverlay, point: tuple[int, int]) -> None:
+    _mouse(overlay, QEvent.Type.MouseMove, point)
+
+
+def button_named(overlay: SelectionOverlay, action: str):
+    for placed in overlay._layout_buttons():
+        if placed.action == action:
+            return placed
+    raise AssertionError(f"no {action} button in {[b.action for b in overlay._layout_buttons()]}")
 
 
 def confirming(mode: str = MODE_RECTANGLE, mask_outside: bool = False) -> tuple:
@@ -721,6 +769,184 @@ drag(overlay, (500, 500), (503, 502))
 check("a stray click selects nothing",
       not overlay._confirming and results == {}, str(results))
 
+# --- the action bar --------------------------------------------------------
+# The whole gesture is mouse work and then it used to demand the keyboard: the
+# bottom of the screen said "Enter — search · C — copy · …", which is
+# documentation, not an interface.  These are real buttons now.
+# Before anything is drawn the bar carries the choice the next drag will use.
+# Holding Shift has always swapped lasso and rectangle for one selection, and
+# nothing on screen ever said so.
+bare = make_overlay(MODE_RECTANGLE)
+actions = [placed.action for placed in bare._layout_buttons()]
+check("the idle bar offers the two modes", actions == [BAR_MODE_LASSO, BAR_MODE_RECT],
+      str(actions))
+check("the current one is lit", button_named(bare, BAR_MODE_RECT).primary
+      and not button_named(bare, BAR_MODE_LASSO).primary)
+check("and Shift is shown against the other one",
+      button_named(bare, BAR_MODE_LASSO).key == "Shift"
+      and button_named(bare, BAR_MODE_RECT).key == "", str(bare._layout_buttons()))
+check("the hint is the caption, not a second box",
+      "Esc" in bare._bar_caption(), bare._bar_caption())
+
+switched: list[str] = []
+bare.mode_changed.connect(switched.append)
+target = button_named(bare, BAR_MODE_LASSO)
+click(bare, (target.rect.center().x(), target.rect.center().y()))
+check("clicking a chip switches the mode", bare._mode == MODE_LASSO, bare._mode)
+check("and says so, because it is a setting", switched == [MODE_LASSO], str(switched))
+check("the chips swap over", button_named(bare, BAR_MODE_LASSO).primary
+      and button_named(bare, BAR_MODE_RECT).key == "Shift")
+click(bare, (target.rect.center().x(), target.rect.center().y()))
+check("clicking the lit one changes nothing", switched == [MODE_LASSO], str(switched))
+check("and does not start a drag", not bare._dragging and not bare._has_selection)
+bare.set_mode(MODE_RECTANGLE)
+check("a group can follow along", bare._mode == MODE_RECTANGLE and switched == [MODE_LASSO])
+
+# A drag that starts anywhere else is still a drag.
+away = make_overlay(MODE_RECTANGLE)
+drag(away, (60, 400), (260, 520))
+check("the chips do not swallow the rest of the screen",
+      away._selection_rect() == QRect(60, 400, 200, 120), str(away._selection_rect()))
+check("and they are gone once there is a selection",
+      [placed.action for placed in away._layout_buttons()] != [BAR_MODE_LASSO, BAR_MODE_RECT],
+      str([placed.action for placed in away._layout_buttons()]))
+
+overlay, results = confirming()
+actions = [placed.action for placed in overlay._layout_buttons()]
+check("four buttons once a selection is waiting",
+      actions == [ACTION_SEARCH, ACTION_COPY, ACTION_SAVE, BAR_CANCEL], str(actions))
+check("search is the primary one", button_named(overlay, ACTION_SEARCH).primary)
+check("the keys are still shown",
+      [placed.key for placed in overlay._layout_buttons()] == ["Enter", "C", "S", "Esc"],
+      str([placed.key for placed in overlay._layout_buttons()]))
+placed_bar = overlay._layout_buttons()
+check("the buttons do not overlap",
+      all(a.rect.right() < b.rect.left()
+          for a, b in itertools.pairwise(placed_bar)))
+check("the bar hangs under the selection",
+      overlay._bar_rect().top() > overlay._selection_rect().bottom(),
+      f"{overlay._bar_rect()} under {overlay._selection_rect()}")
+check("and stays on the screen",
+      overlay._visible_area().toRect().contains(overlay._bar_rect()), str(overlay._bar_rect()))
+
+for action, expected in (
+    (ACTION_SEARCH, ACTION_SEARCH),
+    (ACTION_COPY, ACTION_COPY),
+    (ACTION_SAVE, ACTION_SAVE),
+    (BAR_CANCEL, "cancelled"),
+):
+    overlay, results = confirming()
+    target = button_named(overlay, action)
+    click(overlay, (target.rect.center().x(), target.rect.center().y()))
+    check(f"clicking {action} does it", list(results) == [expected], f"{action}: {list(results)}")
+
+# Pressing a button must not also start a drag underneath it, or every click
+# would replace the selection it was meant to act on.
+overlay, results = confirming()
+before = QRect(overlay._selection_rect())
+target = button_named(overlay, ACTION_COPY)
+_mouse(overlay, QEvent.Type.MouseButtonPress, (target.rect.center().x(), target.rect.center().y()))
+check("a press on a button starts no drag", not overlay._dragging and results == {}, str(results))
+check("and leaves the selection alone", overlay._selection_rect() == before,
+      str(overlay._selection_rect()))
+_mouse(overlay, QEvent.Type.MouseButtonRelease,
+       (target.rect.center().x(), target.rect.center().y()))
+check("letting go on it does the thing", list(results) == [ACTION_COPY], str(list(results)))
+
+# Sliding off before letting go takes the press back — the only way out of a
+# misclick on a button that uploads something.
+overlay, results = confirming()
+target = button_named(overlay, ACTION_SEARCH)
+click(overlay, (target.rect.center().x(), target.rect.center().y()), release=(700, 650))
+check("released elsewhere, nothing happens", results == {}, str(results))
+check("and the selection is still there", overlay._confirming and overlay._has_selection)
+
+# Hover, and the cost of it: repainting a 4K screenshot every time the pointer
+# crosses a button is exactly what made the old cursor glow unusable.
+overlay, results = confirming()
+target = button_named(overlay, ACTION_SAVE)
+hover(overlay, (target.rect.center().x(), target.rect.center().y()))
+check("hovering marks the button", overlay._hovered_button == ACTION_SAVE,
+      str(overlay._hovered_button))
+check("and asks for a hand cursor", overlay.cursor().shape() == Qt.CursorShape.PointingHandCursor,
+      str(overlay.cursor().shape()))
+bar_area = overlay._bar_rect().width() * overlay._bar_rect().height()
+screen_area = overlay.width() * overlay.height()
+check("the bar is a small part of the screen", bar_area * 12 < screen_area,
+      f"{bar_area} of {screen_area}")
+hover(overlay, (700, 650))
+check("moving away clears it", overlay._hovered_button is None, str(overlay._hovered_button))
+check("and the cursor goes back", overlay.cursor().shape() != Qt.CursorShape.PointingHandCursor)
+
+# The bar is painted on top, so it is hit-tested on top: a button sitting over a
+# word must act as a button and not start selecting text.
+over_text = confirming()[0]
+first = button_named(over_text, ACTION_SEARCH).rect.center()
+over_text.set_words([
+    Word("under", (first.x() - 40) * 2, (first.y() - 7) * 2, 80, 28, 90.0, (9, 1, 1, 1)),
+])
+check("the word really is under the button", over_text._word_at(first) is not None, str(first))
+searched: list[str] = []
+over_text.selected.connect(lambda r, p: searched.append(ACTION_SEARCH))
+click(over_text, (first.x(), first.y()))
+check("the button wins over the text under it",
+      searched == [ACTION_SEARCH] and not over_text.has_text_selection(), str(searched))
+
+# A selection at the very bottom has no room under it for the bar.
+low = confirming()[0]
+low._apply_box(QRect(100, low.height() - 60, 200, 50), edited=True)
+check("the bar flips above a selection at the bottom",
+      low._bar_rect().bottom() < low._selection_rect().top(),
+      f"{low._bar_rect()} vs {low._selection_rect()}")
+check("and is still on the screen",
+      low._visible_area().toRect().contains(low._bar_rect()), str(low._bar_rect()))
+
+# A selection in the corner would put a centred bar off the side of the screen.
+corner = confirming()[0]
+corner._apply_box(QRect(0, 200, 60, 50), edited=True)
+check("the bar is pushed back onto the screen", corner._bar_rect().left() >= 0,
+      str(corner._bar_rect()))
+
+# Every button is reachable: nothing may end up outside the pill that is drawn
+# around them.
+overlay, results = confirming()
+for placed in overlay._layout_buttons():
+    check(f"{placed.action} is inside the pill", overlay._bar_rect().contains(placed.rect),
+          f"{placed.rect} in {overlay._bar_rect()}")
+    check(f"{placed.action} answers to a hit test",
+          overlay._button_at(placed.rect.center()) == placed.action)
+
+# The arrow keys are the one thing no button can announce, so the caption stays
+# — inside the pill, where it has something to be read against, and only where
+# arrow keys actually do anything.
+check("the caption says what the buttons cannot", overlay._bar_caption() != "",
+      overlay._bar_caption())
+check("and it is inside the pill, not under it",
+      overlay._bar_rect().bottom() > overlay._layout_buttons()[0].rect.bottom() + 8,
+      f"{overlay._bar_rect()} vs {overlay._layout_buttons()[0].rect}")
+caption_bar = make_overlay(MODE_RECTANGLE)
+caption_bar.set_words([Word("word", 200, 200, 100, 30, 95.0, (1, 1, 1, 1))])
+caption_bar.select_all_text()
+check("no caption where the arrow keys do nothing", caption_bar._bar_caption() == "",
+      caption_bar._bar_caption())
+
+# The pixel readout used to follow the pointer, which put it straight on top of
+# the bar as soon as one existed.
+overlay, results = confirming()
+_text, _font, readout = overlay._size_label(overlay._selection_rect())
+check("the size readout keeps clear of the bar", not readout.intersects(overlay._bar_rect()),
+      f"{readout} vs {overlay._bar_rect()}")
+overlay._current = QPoint(overlay._bar_rect().center().x(), overlay._bar_rect().top() - 20)
+_text, _font, readout = overlay._size_label(overlay._selection_rect())
+check("wherever the pointer has wandered off to",
+      not readout.intersects(overlay._bar_rect()), f"{readout} vs {overlay._bar_rect()}")
+overlay._grab = "s"
+overlay._current = QPoint(200, overlay._selection_rect().bottom())
+_text, _font, readout = overlay._size_label(overlay._selection_rect())
+check("and while a bottom edge is being dragged",
+      not readout.intersects(overlay._bar_rect()), f"{readout} vs {overlay._bar_rect()}")
+overlay._grab = None
+
 # --- the overlay paints its dimming instead of keeping a second copy -------
 # Two full-resolution pixmaps are ~66 MB on a 4K screen, and with an overlay per
 # monitor that multiplies.  What matters is that the result still looks right:
@@ -772,8 +998,6 @@ check("zero dimming leaves the screenshot alone",
       str(canvas.toImage().pixelColor(400, 400).red()))
 
 # --- the text layer on the overlay -----------------------------------------
-from circle_to_search.ocr import Word  # noqa: E402
-
 # Two lines of a paragraph and one line of another, at 2x, so the physical
 # boxes tesseract reports have to be halved to land on screen.
 sample_words = [
@@ -922,6 +1146,49 @@ between = canvas.toImage().pixelColor(155, 107)   # the space between two words
 inside = canvas.toImage().pixelColor(120, 107)    # inside the first word
 check("the gap between selected words is filled too", between == inside,
       f"{between.name()} vs {inside.name()}")
+
+# The bar changes with the state: selected text offers what you can do to text.
+text_bar = make_overlay(MODE_RECTANGLE)
+copied: list[str] = []
+text_bar.text_selected.connect(copied.append)
+text_bar.set_words(sample_words)
+check("still the mode chips before anything is taken",
+      [placed.action for placed in text_bar._layout_buttons()] == [BAR_MODE_LASSO, BAR_MODE_RECT],
+      str([placed.action for placed in text_bar._layout_buttons()]))
+drag(text_bar, (110, 105), (180, 135))
+actions = [placed.action for placed in text_bar._layout_buttons()]
+check("three buttons for a text selection",
+      actions == [BAR_TEXT_COPY, BAR_TEXT_ALL, BAR_TEXT_BACK], str(actions))
+check("the count is on the button itself",
+      "3" in button_named(text_bar, BAR_TEXT_COPY).label,
+      button_named(text_bar, BAR_TEXT_COPY).label)
+check("the bar hangs off the words, not off an area",
+      text_bar._bar_anchor().top() >= 100 and text_bar._bar_anchor().bottom() <= 200,
+      str(text_bar._bar_anchor()))
+
+target = button_named(text_bar, BAR_TEXT_ALL)
+click(text_bar, (target.rect.center().x(), target.rect.center().y()))
+check("All text takes everything", len(text_bar.selected_words()) == 4,
+      str(len(text_bar.selected_words())))
+check("and the label follows the selection",
+      "4" in button_named(text_bar, BAR_TEXT_COPY).label,
+      button_named(text_bar, BAR_TEXT_COPY).label)
+
+target = button_named(text_bar, BAR_TEXT_COPY)
+click(text_bar, (target.rect.center().x(), target.rect.center().y()))
+check("Copy text hands over the whole run",
+      copied == ["Hello there\nsecond\n\nelsewhere"], str(copied))
+
+# Back drops the text without throwing the capture away, exactly like Esc.
+text_bar2 = make_overlay(MODE_RECTANGLE)
+gone: list[bool] = []
+text_bar2.cancelled.connect(lambda: gone.append(True))
+text_bar2.set_words(sample_words)
+drag(text_bar2, (110, 105), (180, 135))
+target = button_named(text_bar2, BAR_TEXT_BACK)
+click(text_bar2, (target.rect.center().x(), target.rect.center().y()))
+check("Back lets go of the text", not text_bar2.has_text_selection())
+check("and does not cancel the capture", not gone)
 
 # A drag that starts on empty screen is an ordinary area selection, even with a
 # text layer present — otherwise the feature would take the app over.

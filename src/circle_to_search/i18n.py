@@ -310,15 +310,17 @@ _EN: dict[str, str] = {
         "Drag to select · drag across text to take the text · "
         "Esc or right-click to cancel"
     ),
-    "overlay.confirm": (
-        "Enter — search · C — copy · S — save · Esc — cancel   |   "
-        "drag the edges or use the arrow keys to adjust"
-    ),
     "overlay.scanning": "Reading the text on screen",
-    "overlay.text_hint": (
-        "{count} word(s) · Enter or C — copy them · T — all of the text · "
-        "Esc — back to selecting an area"
-    ),
+    "overlay.adjust": "drag the edges or use the arrow keys",
+    "bar.search": "Search",
+    "bar.copy": "Copy",
+    "bar.save": "Save",
+    "bar.cancel": "Cancel",
+    "bar.copy_text": "Copy text ({count})",
+    "bar.all_text": "All text",
+    "bar.back": "Back",
+    "bar.mode.lasso": "Lasso",
+    "bar.mode.rect": "Rectangle",
     "error.dbus_name": "Another instance is already running (D-Bus name is taken).",
     "error.no_session_bus": "No D-Bus session bus — is this a desktop session?",
 }
@@ -631,15 +633,17 @@ _UK: dict[str, str] = {
         "Потягніть, щоб виділити · проведіть по тексту, щоб узяти текст · "
         "Esc або права кнопка — скасувати"
     ),
-    "overlay.confirm": (
-        "Enter — пошук · C — копіювати · S — зберегти · Esc — скасувати   |   "
-        "тягніть за краї або стрілками, щоб підправити"
-    ),
     "overlay.scanning": "Читаю текст на екрані",
-    "overlay.text_hint": (
-        "слів: {count} · Enter або C — скопіювати · T — увесь текст · "
-        "Esc — назад до виділення області"
-    ),
+    "overlay.adjust": "тягніть за краї або стрілками",
+    "bar.search": "Шукати",
+    "bar.copy": "Копіювати",
+    "bar.save": "Зберегти",
+    "bar.cancel": "Скасувати",
+    "bar.copy_text": "Копіювати текст ({count})",
+    "bar.all_text": "Увесь текст",
+    "bar.back": "Назад",
+    "bar.mode.lasso": "Ласо",
+    "bar.mode.rect": "Прямокутник",
     "error.dbus_name": "Уже запущено інший екземпляр (ім’я D-Bus зайняте).",
     "error.no_session_bus": "Немає сесійної шини D-Bus — це точно сесія робочого столу?",
 }

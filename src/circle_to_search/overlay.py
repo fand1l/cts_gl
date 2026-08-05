@@ -50,6 +50,7 @@ from PyQt6.QtGui import (
     QCloseEvent,
     QColor,
     QFont,
+    QFontMetrics,
     QKeyEvent,
     QMouseEvent,
     QPainter,
@@ -129,6 +130,29 @@ _WORD_SLACK = 4
 #: behaves, and the alternative is aiming at individual words.
 _LINE_SLACK = 5
 
+#: The action bar: a pill of real buttons under the selection.  Everything it
+#: offers also has a key, and the keys keep working — but a gesture that is mouse
+#: work from the shake to the release should not demand the keyboard at the end
+#: of it.
+_BAR_RADIUS = 11
+_BAR_MARGIN = 6          # inside the pill, around the row
+_BAR_GAP = 3             # between buttons
+_BUTTON_PAD_X = 13
+_BUTTON_PAD_Y = 8
+_KEY_GAP = 8             # between a label and its key
+
+#: Buttons only respond to a press *and* a release on the same one, the way
+#: buttons everywhere do, so sliding off one is a way to change your mind.
+BAR_CANCEL = "bar-cancel"
+BAR_TEXT_COPY = "bar-text-copy"
+BAR_TEXT_ALL = "bar-text-all"
+BAR_TEXT_BACK = "bar-text-back"
+#: Before anything is drawn the bar offers the choice the *next* drag will use.
+#: Holding Shift has always swapped it for one selection, and nothing on screen
+#: ever said so.
+BAR_MODE_LASSO = "bar-mode-lasso"
+BAR_MODE_RECT = "bar-mode-rect"
+
 #: What the user asked to do with the selection.
 ACTION_SEARCH = "search"
 ACTION_COPY = "copy"
@@ -136,6 +160,17 @@ ACTION_SAVE = "save"
 #: Only the tray's recent list uses this one now: on the overlay the text is
 #: taken by dragging across it, not by asking for a whole region to be read.
 ACTION_TEXT = "text"
+
+
+@dataclass(frozen=True)
+class BarButton:
+    """One button of the action bar, already placed in screen coordinates."""
+
+    action: str
+    label: str
+    key: str
+    rect: QRect
+    primary: bool = False
 
 
 @dataclass(frozen=True)
@@ -162,6 +197,9 @@ class SelectionOverlay(QWidget):
     #: A run of recognised words the user dragged across.
     text_selected = pyqtSignal(str)
     cancelled = pyqtSignal()
+    #: The mode chip was clicked.  It is a setting, shown where it is wanted, so
+    #: the choice is kept rather than lasting for one capture.
+    mode_changed = pyqtSignal(str)
 
     #: Group mode only (see multiscreen.py): the selection in *global logical*
     #: pixels, which is the only space several overlays can agree about.
@@ -251,6 +289,11 @@ class SelectionOverlay(QWidget):
         self._text_focus: int | None = None
         self._selecting_text = False
 
+        #: The action bar.  Laid out from the current state whenever it is
+        #: needed — six text measurements, cheaper than keeping it in step.
+        self._hovered_button: str | None = None
+        self._pressed_button: str | None = None
+
         self.setWindowTitle(OVERLAY_WINDOW_TITLE)
         self.setObjectName("CircleToSearchOverlay")
         self.setWindowFlags(
@@ -293,6 +336,218 @@ class SelectionOverlay(QWidget):
 
     def _enable_deactivation(self) -> None:
         self._accept_deactivation = True
+
+    # ------------------------------------------------------------ action bar
+
+    def _bar_fonts(self) -> tuple[QFont, QFont]:
+        """The label font and the smaller one the keys and the caption use."""
+        font = QFont(self.font())
+        font.setPointSizeF(max(10.0, font.pointSizeF() + 0.5))
+        small = QFont(font)
+        small.setPointSizeF(max(8.0, font.pointSizeF() - 1.5))
+        return font, small
+
+    def _showing_hint(self) -> bool:
+        """Nothing taken yet: the bar offers the mode the next drag will use.
+
+        The same condition :meth:`paintEvent` uses to draw the hint, because a
+        button that is hit-tested but not drawn is a dead patch of screen.
+        """
+        return (
+            not self._has_selection
+            and not self._dragging
+            and not self.has_text_selection()
+            and self._preview.isNull()
+        )
+
+    def _bar_caption(self) -> str:
+        """The line under the buttons: what they cannot say by themselves.
+
+        For a waiting selection that is the arrow keys — the handles show that
+        the box can be dragged, and nothing at all shows that it can be nudged.
+        For the mode chips it is the sentence that used to be the whole hint.
+        """
+        if self.has_text_selection():
+            return ""
+        if self._confirming and self._has_selection:
+            return tr("overlay.adjust")
+        if self._showing_hint():
+            return tr("overlay.hint.lasso" if self._mode == MODE_LASSO else "overlay.hint.rect")
+        return ""
+
+    def _bar_entries(self) -> list[tuple[str, str, str, bool]]:
+        """(action, label, key, primary) for the state the overlay is in."""
+        if self._showing_hint():
+            # The current mode is the lit one; the other carries *Shift*, which
+            # is what swapping to it for a single drag has always been.
+            lasso = self._mode == MODE_LASSO
+            return [
+                (BAR_MODE_LASSO, tr("bar.mode.lasso"), "" if lasso else "Shift", lasso),
+                (BAR_MODE_RECT, tr("bar.mode.rect"), "Shift" if lasso else "", not lasso),
+            ]
+        if self.has_text_selection():
+            # The count goes on the button rather than into a sentence beside
+            # it: it is the one fact about a text selection worth stating, and
+            # a label that carries it needs no line of prose underneath.
+            count = len(self.selected_words())
+            return [
+                (BAR_TEXT_COPY, tr("bar.copy_text", count=count), "Enter", True),
+                (BAR_TEXT_ALL, tr("bar.all_text"), "T", False),
+                (BAR_TEXT_BACK, tr("bar.back"), "Esc", False),
+            ]
+        if self._confirming and self._has_selection:
+            return [
+                (ACTION_SEARCH, tr("bar.search"), "Enter", True),
+                (ACTION_COPY, tr("bar.copy"), "C", False),
+                (ACTION_SAVE, tr("bar.save"), "S", False),
+                (BAR_CANCEL, tr("bar.cancel"), "Esc", False),
+            ]
+        return []
+
+    def _layout_buttons(self) -> list[BarButton]:
+        """Place the bar under the selection, in screen coordinates."""
+        entries = self._bar_entries()
+        if not entries:
+            return []
+
+        font, small = self._bar_fonts()
+        metrics = QFontMetrics(font)
+        key_metrics = QFontMetrics(small)
+
+        height = metrics.height() + 2 * _BUTTON_PAD_Y
+        widths = [
+            metrics.horizontalAdvance(label)
+            + (_KEY_GAP + key_metrics.horizontalAdvance(key) if key else 0)
+            + 2 * _BUTTON_PAD_X
+            for _action, label, key, _primary in entries
+        ]
+        total = sum(widths) + _BAR_GAP * (len(widths) - 1)
+
+        # The whole pill, caption row included, because that is what has to fit
+        # — and a caption can be wider than every button put together.
+        caption = self._bar_caption()
+        caption_height = key_metrics.height() if caption else 0
+        pill_height = height + caption_height + 2 * _BAR_MARGIN
+        pill_width = max(total, key_metrics.horizontalAdvance(caption) + 2 * _BUTTON_PAD_X)
+
+        anchor = self._bar_anchor()
+        bounds = self._visible_area().toRect()
+        left = anchor.center().x() - pill_width // 2
+        left = max(
+            bounds.left() + _LABEL_MARGIN,
+            min(left, bounds.right() - pill_width - _LABEL_MARGIN),
+        )
+        # The row is centred inside the pill, not left-aligned in it.
+        left += (pill_width - total) // 2
+
+        top = anchor.bottom() + _LABEL_MARGIN * 2 + _BAR_MARGIN
+        if top - _BAR_MARGIN + pill_height > bounds.bottom() - _LABEL_MARGIN:
+            top = anchor.top() - pill_height - _LABEL_MARGIN * 2 + _BAR_MARGIN
+        top = max(bounds.top() + _LABEL_MARGIN + _BAR_MARGIN, top)
+
+        placed: list[BarButton] = []
+        x = left
+        for (action, label, key, primary), width in zip(entries, widths, strict=True):
+            placed.append(
+                BarButton(
+                    action=action,
+                    label=label,
+                    key=key,
+                    rect=QRect(x, top, width, height),
+                    primary=primary,
+                )
+            )
+            x += width + _BAR_GAP
+        return placed
+
+    def _bar_anchor(self) -> QRect:
+        """What the bar hangs off: the selection, the words, or the top edge."""
+        selected = self.selected_words()
+        if selected:
+            bounds = selected[0].rect
+            for word in selected[1:]:
+                bounds = bounds.united(word.rect)
+            return bounds
+        if self._showing_hint():
+            # Where the prose hint used to sit, high enough to stay out of the
+            # way of whatever is about to be circled.
+            return QRect(
+                self._offset.x() + self.width() // 2,
+                self._offset.y() + max(24, self.height() // 12),
+                0,
+                0,
+            )
+        return self._selection_rect()
+
+    def _button_at(self, position: QPoint) -> str | None:
+        for button in self._layout_buttons():
+            if button.rect.contains(position):
+                return button.action
+        return None
+
+    def _bar_rect(self) -> QRect:
+        """The pill: the row of buttons, its margins, and the caption row."""
+        buttons = self._layout_buttons()
+        if not buttons:
+            return QRect()
+        rect = buttons[0].rect
+        for button in buttons[1:]:
+            rect = rect.united(button.rect)
+        rect = rect.adjusted(-_BAR_MARGIN, -_BAR_MARGIN, _BAR_MARGIN, _BAR_MARGIN)
+        caption = self._bar_caption()
+        if caption:
+            metrics = QFontMetrics(self._bar_fonts()[1])
+            rect.setBottom(rect.bottom() + metrics.height())
+            needed = metrics.horizontalAdvance(caption) + 2 * _BUTTON_PAD_X
+            if needed > rect.width():
+                grow = (needed - rect.width() + 1) // 2
+                rect.adjust(-grow, 0, grow, 0)
+        return rect
+
+    def _repaint_bar(self) -> None:
+        """Repaint the bar and nothing else.
+
+        Hover has to be cheap: the alternative is a full repaint of a 4K
+        screenshot every time the pointer crosses a button.
+        """
+        rect = self._bar_rect()
+        if rect.isNull():
+            return
+        self.update(rect.translated(-self._offset).adjusted(-2, -2, 2, 2))
+
+    def _update_hover(self, where: QPoint) -> bool:
+        """Track which button the pointer is over.  True if it is over one."""
+        hovered = self._button_at(where)
+        if hovered != self._hovered_button:
+            self._hovered_button = hovered
+            self._repaint_bar()
+        if hovered is None:
+            return False
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        return True
+
+    def _activate_button(self, action: str) -> None:
+        if action in (BAR_MODE_LASSO, BAR_MODE_RECT):
+            mode = MODE_LASSO if action == BAR_MODE_LASSO else MODE_RECTANGLE
+            if mode != self._mode:
+                log.info("selection mode switched to %s from the overlay", mode)
+                self._mode = mode
+                self._drag_mode = mode
+                self.mode_changed.emit(mode)
+            self.update()
+        elif action == BAR_CANCEL:
+            self._cancel()
+        elif action == BAR_TEXT_BACK:
+            self._clear_text_selection()
+        elif action == BAR_TEXT_ALL:
+            self.select_all_text()
+        elif action == BAR_TEXT_COPY:
+            text = self.selected_text()
+            if text:
+                log.info("copying %d character(s) of recognised text", len(text))
+                self._finish(lambda: self.text_selected.emit(text))
+        else:
+            self._commit(action)
 
     # ------------------------------------------------------------ text layer
 
@@ -459,6 +714,14 @@ class SelectionOverlay(QWidget):
         self._text_focus = len(self._words) - 1
         self.update()
 
+    def set_mode(self, mode: str) -> None:
+        """Follow a mode change made on another overlay of the same group."""
+        if mode == self._mode:
+            return
+        self._mode = mode
+        self._drag_mode = mode
+        self.update()
+
     @property
     def in_group(self) -> bool:
         """True when this overlay is one of several covering all screens."""
@@ -622,6 +885,7 @@ class SelectionOverlay(QWidget):
         if self.has_text_selection():
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._draw_text_selection(painter)
+            self._draw_action_bar(painter)
             self._draw_badge(painter)
             painter.end()
             return
@@ -630,7 +894,7 @@ class SelectionOverlay(QWidget):
             painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
             self._dim_around_text(painter)
             self._draw_word_hints(painter)
-            self._draw_hint(painter)
+            self._draw_action_bar(painter)
             self._draw_badge(painter)
             painter.end()
             return
@@ -684,7 +948,7 @@ class SelectionOverlay(QWidget):
 
         if self._confirming and self._has_selection:
             self._draw_handles(painter)
-            self._draw_confirm_hint(painter)
+            self._draw_action_bar(painter)
         self._draw_size_label(painter, selection)
         self._draw_badge(painter)
         painter.end()
@@ -727,22 +991,6 @@ class SelectionOverlay(QWidget):
         rect = self._selection_rect()
         path.addRect(float(rect.x()), float(rect.y()), float(rect.width()), float(rect.height()))
         return path
-
-    def _draw_hint(self, painter: QPainter) -> None:
-        text = tr("overlay.hint.lasso" if self._mode == MODE_LASSO else "overlay.hint.rect")
-        font = QFont(self.font())
-        font.setPointSizeF(max(10.0, font.pointSizeF() + 1.0))
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
-        width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
-        height = metrics.height() + 2 * _LABEL_PADDING
-        box = QRect(
-            self._offset.x() + (self.width() - width) // 2,
-            self._offset.y() + max(24, self.height() // 12),
-            width,
-            height,
-        )
-        self._draw_box(painter, box, text)
 
     # ------------------------------------------------------ the text layer
 
@@ -823,28 +1071,6 @@ class SelectionOverlay(QWidget):
         painter.setBrush(Qt.BrushStyle.NoBrush)
         painter.drawPath(area)
 
-        self._draw_text_hint(painter, selected)
-
-    def _draw_text_hint(self, painter: QPainter, selected: list[PlacedWord]) -> None:
-        text = tr("overlay.text_hint", count=len(selected))
-        font = QFont(self.font())
-        font.setPointSizeF(max(10.0, font.pointSizeF() + 1.0))
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
-        width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
-        height = metrics.height() + 2 * _LABEL_PADDING
-
-        bounds = selected[0].rect
-        for word in selected[1:]:
-            bounds = bounds.united(word.rect)
-
-        x = self._offset.x() + (self.width() - width) // 2
-        y = bounds.bottom() + _LABEL_MARGIN * 2
-        if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
-            y = bounds.top() - height - _LABEL_MARGIN * 2
-        y = max(self._offset.y() + _LABEL_MARGIN, y)
-        self._draw_box(painter, QRect(x, y, width, height), text)
-
     def _badge_rect(self) -> QRect:
         """Where the "reading the screen" badge sits, in screen coordinates."""
         metrics = self.fontMetrics()
@@ -876,47 +1102,128 @@ class SelectionOverlay(QWidget):
         for rect in self._handle_rects().values():
             painter.drawRect(rect.adjusted(2, 2, -2, -2))
 
-    def _draw_confirm_hint(self, painter: QPainter) -> None:
-        """The one line that says the selection has not been sent yet."""
-        text = tr("overlay.confirm")
-        font = QFont(self.font())
-        font.setPointSizeF(max(10.0, font.pointSizeF() + 1.0))
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
-        width = metrics.horizontalAdvance(text) + 4 * _LABEL_PADDING
-        height = metrics.height() + 2 * _LABEL_PADDING
+    def _draw_action_bar(self, painter: QPainter) -> None:
+        """The pill of buttons under the selection.
 
-        # Under the selection when there is room, above it otherwise, so the
-        # thing being described is never covered by its own caption.
-        x = self._offset.x() + (self.width() - width) // 2
-        y = self._box.bottom() + _LABEL_MARGIN * 2
-        if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
-            y = self._box.top() - height - _LABEL_MARGIN * 2
-        y = max(self._offset.y() + _LABEL_MARGIN, y)
-        self._draw_box(painter, QRect(x, y, width, height), text)
+        Painted rather than made of child widgets: real widgets would swallow
+        the presses and moves that the drag, the resize handles and the text
+        layer all need, and the whole overlay is one custom-painted surface
+        anyway.
+        """
+        buttons = self._layout_buttons()
+        if not buttons:
+            return
 
-    def _draw_size_label(self, painter: QPainter, selection: QRect) -> None:
+        pill = self._bar_rect()
+        painter.save()
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing, True)
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 205))
+        painter.drawRoundedRect(pill, _BAR_RADIUS, _BAR_RADIUS)
+
+        font, small = self._bar_fonts()
+        key_metrics = QFontMetrics(small)
+
+        for button in buttons:
+            hovered = button.action == self._hovered_button
+            # Armed but slid off: no longer drawn as held down, still armed, so
+            # coming back and letting go works.
+            pressed = hovered and button.action == self._pressed_button
+            if button.primary or hovered:
+                fill = QColor(self._accent)
+                if pressed:
+                    fill = fill.darker(120)
+                elif not button.primary:
+                    fill.setAlpha(95)
+                painter.setPen(Qt.PenStyle.NoPen)
+                painter.setBrush(fill)
+                painter.drawRoundedRect(button.rect, _BAR_RADIUS - 3, _BAR_RADIUS - 3)
+
+            key_width = key_metrics.horizontalAdvance(button.key) if button.key else 0
+            trim = _BUTTON_PAD_X + (key_width + _KEY_GAP if button.key else 0)
+            label_rect = button.rect.adjusted(_BUTTON_PAD_X, 0, -trim, 0)
+            painter.setFont(font)
+            painter.setPen(QColor(255, 255, 255))
+            painter.drawText(
+                label_rect,
+                int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                button.label,
+            )
+
+            # The key stays visible next to its button: the keyboard is still
+            # the faster way once you know it, and this is how you learn it.
+            if button.key:
+                key_rect = QRect(
+                    label_rect.right() + _KEY_GAP,
+                    button.rect.top(),
+                    key_width,
+                    button.rect.height(),
+                )
+                painter.setFont(small)
+                painter.setPen(QColor(255, 255, 255, 150))
+                painter.drawText(
+                    key_rect,
+                    int(Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft),
+                    button.key,
+                )
+
+        caption = self._bar_caption()
+        if caption:
+            # Inside the pill, not under it: the same dim grey that reads as a
+            # footnote on black is unreadable on whatever the screenshot has.
+            painter.setFont(small)
+            painter.setPen(QColor(255, 255, 255, 140))
+            row = QRect(
+                pill.left(),
+                buttons[0].rect.bottom(),
+                pill.width(),
+                pill.bottom() - buttons[0].rect.bottom(),
+            )
+            painter.drawText(row, int(Qt.AlignmentFlag.AlignCenter), caption)
+
+        painter.restore()
+
+    def _size_label(self, selection: QRect) -> tuple[str, QFont, QRect]:
+        """The pixel readout: what it says, in what, and where it goes."""
         physical = logical_rect_to_physical(selection, self._metrics)
         text = f"{physical.width()} × {physical.height()} px"
         font = QFont(self.font())
         font.setBold(True)
-        painter.setFont(font)
-        metrics = painter.fontMetrics()
+        metrics = QFontMetrics(font)
         width = metrics.horizontalAdvance(text) + 2 * _LABEL_PADDING
         height = metrics.height() + _LABEL_PADDING
 
-        # Below/right of the cursor, flipped when there is no room.
-        cursor = self._current + self._offset
-        x = cursor.x() + _LABEL_MARGIN * 2
-        y = cursor.y() + _LABEL_MARGIN * 2
-        if x + width > self._offset.x() + self.width() - _LABEL_MARGIN:
-            x = cursor.x() - width - _LABEL_MARGIN * 2
-        if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
-            y = cursor.y() - height - _LABEL_MARGIN * 2
-        x = max(_LABEL_MARGIN, x)
-        y = max(_LABEL_MARGIN, y)
+        if self._confirming and self._grab is None:
+            # Pinned above the box rather than to the pointer.  Once the drag is
+            # over the pointer wanders off, and a readout that follows it sat
+            # straight on top of the action bar.
+            x = selection.left()
+            y = selection.top() - height - _LABEL_MARGIN
+            if y < self._offset.y() + _LABEL_MARGIN:
+                y = selection.top() + _LABEL_MARGIN
+        else:
+            # Below/right of the cursor, flipped when there is no room.
+            cursor = self._current + self._offset
+            x = cursor.x() + _LABEL_MARGIN * 2
+            y = cursor.y() + _LABEL_MARGIN * 2
+            if x + width > self._offset.x() + self.width() - _LABEL_MARGIN:
+                x = cursor.x() - width - _LABEL_MARGIN * 2
+            if y + height > self._offset.y() + self.height() - _LABEL_MARGIN:
+                y = cursor.y() - height - _LABEL_MARGIN * 2
+        x = max(self._offset.x() + _LABEL_MARGIN, x)
+        y = max(self._offset.y() + _LABEL_MARGIN, y)
 
-        self._draw_box(painter, QRect(x, y, width, height), text)
+        box = QRect(x, y, width, height)
+        bar = self._bar_rect()
+        if not bar.isNull() and box.intersects(bar):
+            # Resizing by a bottom handle can still bring the two together.
+            box.moveBottom(bar.top() - _LABEL_MARGIN)
+        return text, font, box
+
+    def _draw_size_label(self, painter: QPainter, selection: QRect) -> None:
+        text, font, box = self._size_label(selection)
+        painter.setFont(font)
+        self._draw_box(painter, box, text)
 
     def _draw_box(self, painter: QPainter, box: QRect, text: str) -> None:
         painter.setPen(Qt.PenStyle.NoPen)
@@ -933,6 +1240,16 @@ class SelectionOverlay(QWidget):
             return
 
         where = event.position().toPoint() + self._offset
+
+        # The bar is painted on top of everything, so it is hit-tested before
+        # everything: a press on a button must never also start a drag or move
+        # the box it is hanging off.
+        button = self._button_at(where)
+        if button is not None:
+            self._pressed_button = button
+            self._hovered_button = button
+            self._repaint_bar()
+            return
 
         # Text first, everywhere.  The one thing that outranks it is a resize
         # handle, which is a few pixels at the edge of a box the user put there
@@ -989,6 +1306,16 @@ class SelectionOverlay(QWidget):
         position = event.position().toPoint()
         self._current = position
 
+        # Hovering is only ever asked while nothing is being dragged: during a
+        # drag the bar is not on screen at all, and a press that armed a button
+        # keeps tracking so that sliding off it un-highlights, the way a real
+        # button does.
+        idle = not (self._dragging or self._selecting_text)
+        if (self._pressed_button is not None or idle) and self._update_hover(
+            position + self._offset
+        ):
+            return
+
         if self._selecting_text:
             focus = self._nearest_word(position + self._offset)
             if focus is not None and focus != self._text_focus:
@@ -1025,6 +1352,16 @@ class SelectionOverlay(QWidget):
 
     def mouseReleaseEvent(self, event: QMouseEvent) -> None:
         if event.button() != Qt.MouseButton.LeftButton:
+            return
+        if self._pressed_button is not None:
+            armed = self._pressed_button
+            self._pressed_button = None
+            # Released somewhere else: the press is taken back, which is what
+            # every button everywhere does and the only way out of a misclick.
+            if self._button_at(event.position().toPoint() + self._offset) == armed:
+                self._activate_button(armed)
+                return
+            self._repaint_bar()
             return
         if self._selecting_text:
             self._selecting_text = False

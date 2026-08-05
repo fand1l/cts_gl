@@ -70,8 +70,9 @@ Four components, each in its own place:
    plain rectangle around it, so the un-dimmed area always shows exactly what
    Google will receive. Hold *Shift* while starting a drag for a rectangle (or
    swap the default in Settings). Letting go does not send anything: the
-   selection waits with handles on its edges until **Enter** (search), **C**
-   (copy), **S** (save) or **Esc**.
+   selection waits with handles on its edges and a bar of buttons underneath —
+   search, copy, save, cancel — each also reachable as **Enter**, **C**, **S**
+   or **Esc**.
 4. **Lens upload** (`lens.py`) — the daemon does **not** upload. It writes a
    small self-contained HTML page with the JPEG inlined and opens it, and the
    *browser* posts it to `lens.google.com/v3/upload`. That is not a detour:
@@ -328,6 +329,10 @@ Releasing the button used to upload immediately, which is one slip away from
 sending the wrong part of the screen to Google — and an upload cannot be taken
 back. So the drag now only *marks the area out*, and the overlay waits:
 
+A small bar appears under the selection with the four things you can do to it
+— **Search**, **Copy**, **Save**, **Cancel** — and each button carries its
+shortcut beside it, so the keyboard is still there once you have learnt it:
+
 | Key | |
 |---|---|
 | **Enter** (or Space) | search it with Lens |
@@ -336,10 +341,26 @@ back. So the drag now only *marks the area out*, and the overlay waits:
 | **T** | select all the recognised text (optional, see below) |
 | **Esc** / right-click | cancel |
 
+The bar is painted, not made of widgets — real widgets would swallow the presses
+the drag, the handles and the text layer all need — but it behaves like one:
+hover highlights, pressing and sliding off takes the press back, and it is
+hit-tested before everything else, so a button over a word acts as a button. It
+flips above the selection when there is no room below and is pushed back on
+screen at the edges.
+
+Before anything is drawn the same bar sits at the top and carries the two
+selection shapes instead — **Lasso** and **Rectangle**, the current one lit,
+*Shift* shown against the other because holding it has always swapped them for
+a single drag. Clicking one keeps it: it is the setting from *Settings →
+General*, put where it is actually wanted. With one overlay per screen the
+others follow immediately.
+
 Before pressing anything the box can be adjusted: drag any of the eight
 handles, drag inside it to move the whole thing, or use the **arrow keys**
 (*Ctrl* for 10 px steps, *Shift* to stretch the far edge instead of moving).
-Pressing outside the box throws it away and starts a new selection.
+The arrow keys are the one thing the buttons cannot announce, so a line inside
+the bar says so. Pressing outside the box throws it away and starts a new
+selection.
 
 Adjusting the box of a *lasso* selection drops the loop outline, because a loop
 that no longer matches its box would produce a wrong mask when `lasso_mask` is
@@ -465,7 +486,9 @@ and the words become selectable where they are:
   paragraph can still be adjusted;
 * **double-click** takes one word, **T** takes everything that was found;
 * **Enter** or **C** copies the selection, **Esc** lets go of it (a second
-  **Esc** closes the overlay);
+  **Esc** closes the overlay).  The bar changes with it: *Copy text (12)*,
+  *All text*, *Back* — the count of selected words is on the button rather than
+  in a sentence beside it;
 * the pointer turns into an I-beam over anything that can be taken.
 
 Reading a 4K screen takes a couple of seconds, so a small badge at the bottom

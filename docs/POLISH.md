@@ -10,7 +10,7 @@ code.
 
 ---
 
-## 1. An action bar instead of a line of key names  ← next
+## 1. An action bar instead of a line of key names  ← done
 
 A floating pill under the selection with real buttons — search, copy, save,
 close — each carrying its shortcut as a small second label, plus a chip that
@@ -28,18 +28,23 @@ handles and the text layer, hover repainting only the bar's own rectangle.
 `_commit(action)` already exists as the single entry point, so the buttons map
 straight onto it.
 
-## 2. The Android stroke
+**As built.**  One bar with three faces, because the states never overlap: the
+mode chips before anything is drawn, search/copy/save/cancel while a selection
+waits, copy/all/back over selected text.  Three things came out of doing it
+that were not in the plan:
 
-A wide white lasso line with a coloured glow at the pointer.  Designed in
-`docs/STROKE.md`, from two photographs of the real thing — which corrected the
-first draft: the line carries no colour at all, the colour is a glow under its
-head, and it stretches because it is a fading trail of the last few positions
-rather than a shape computed from velocity.
+* The three prose hints all disappeared into it.  The mode chips took the
+  opening hint, the selected-word count went *onto* the copy button rather than
+  into a sentence beside it, and only the arrow keys were left — the one thing
+  no button can announce — so the pill grew a caption row for them.
+* The pixel readout had to stop following the pointer.  It is anchored above
+  the box now: once the drag is over the pointer wanders, and a readout that
+  follows it sat straight on top of the bar.
+* The mode chip is a *setting*, not a per-capture switch.  It writes
+  `selection_mode` and tells the other screens, because *Shift* is already the
+  way to change it for exactly one drag.
 
-It also folds in the dark outline originally proposed here, as the shadow that
-keeps a white line visible on a white page.
-
-## 3. Say that the sending is happening
+## 2. Say that the sending is happening  ← next
 
 Keep the overlay up with a small badge until the launcher page is on disk,
 instead of vanishing into a second of nothing.
@@ -53,7 +58,7 @@ Reuses the scanning badge, which already repaints only its own rectangle.  Plus
 a five-second dead-man's switch, so a failure elsewhere can never leave the
 overlay up for good.
 
-## 4. A magnifier while dragging  — **with a setting**
+## 3. A magnifier while dragging  — **with a setting**
 
 A small 4× loupe with a crosshair beside the pointer, while a drag or a handle
 is being moved.  Off by default is wrong for a thing this useful, but it is a
@@ -63,7 +68,7 @@ matter of taste, so: `magnifier` in the application settings, on.
 only helps *after* the miss.  The placement logic is already written in
 `_draw_size_label`, which flips the label when there is no room.
 
-## 5. A tray icon that shows the state
+## 4. A tray icon that shows the state
 
 Dimmed icon and a live tooltip when shake detection is off.
 
@@ -73,7 +78,7 @@ that showed the real state would have said so immediately.  Read the state
 fresh — the whole bug was a disagreement between what was written and what was
 running.
 
-## 6. The numbers behind "Advanced"
+## 5. The numbers behind "Advanced"
 
 Collapse the ten threshold spin boxes into a closed `QGroupBox`; leave the
 switches and the calibration button in the open.
@@ -82,7 +87,7 @@ switches and the calibration button in the open.
 thresholds by hand is the wrong job for a user, and then those six thresholds
 were left as the most prominent thing in the window.
 
-## 7. Show the gesture instead of describing it
+## 6. Show the gesture instead of describing it
 
 A small panel in the welcome window and beside the calibration button where a
 dot travels the exact path the detector wants.
@@ -96,7 +101,7 @@ the speed, `reversals` the count.  So it is not a drawing of the gesture, it is
 *the current settings*, animated — after a calibration it shows your own
 gesture, and absurd thresholds are visible as absurd movement.
 
-## 8. Highlight the window under the pointer
+## 7. Highlight the window under the pointer
 
 Before a drag starts, outline the window the pointer is over; a click without a
 drag captures exactly it.
@@ -110,3 +115,20 @@ the case this removes.
 (`x,y,w,h;…`, global logical pixels, stacking order, excluding our own overlay),
 sent with the trigger.  Known rough edges to handle: windows partly off-screen,
 and KWin's shadows not being part of `frameGeometry`.
+
+## 8. The Android stroke  — last, and on its own
+
+A wide white lasso line with a coloured glow at the pointer.  Designed in
+`docs/STROKE.md`, from two photographs of the real thing — which corrected the
+first draft: the line carries no colour at all, the colour is a glow under its
+head, and it stretches because it is a fading trail of the last few positions
+rather than a shape computed from velocity.
+
+It also folds in the dark outline originally proposed here, as the shadow that
+keeps a white line visible on a white page.
+
+Deliberately at the end and by itself.  It is the only item here that replaces
+something already working rather than adding to it, it is the only one with an
+animation timer, and the last thing wearing that description had to be taken
+back out again.  So: after everything else is in and settled, on its own branch
+of work, with its own round of testing on real hardware.
