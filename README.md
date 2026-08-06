@@ -8,6 +8,8 @@ Google's phone gesture, for KDE Plasma 6 on Wayland.
 
 [![CI](https://github.com/fand1l/cts_gl/actions/workflows/ci.yml/badge.svg)](https://github.com/fand1l/cts_gl/actions/workflows/ci.yml)
 &nbsp;·&nbsp;
+[**Website**](https://fand1l.github.io/cts_gl/en/)
+&nbsp;·&nbsp;
 [**🇺🇦 Українською**](README.uk.md)
 &nbsp;·&nbsp;
 [Technical documentation](docs/TECHNICAL.md)

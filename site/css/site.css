@@ -235,6 +235,13 @@ img {
   display: none !important;
 }
 
+/* The header is sticky, so a jump to a section would otherwise land with its
+ * heading underneath the bar.  Anything that can be linked to keeps that much
+ * room above it. */
+[id] {
+  scroll-margin-top: 88px;
+}
+
 a {
   color: var(--primary);
   text-decoration-thickness: 1px;
@@ -558,6 +565,11 @@ p {
  * the screen with it.  The brand and the switches stay on one line; the section
  * links get a line of their own and scroll sideways if they do not fit. */
 @media (max-width: 760px) {
+  /* Two rows of header instead of one, so the landing spot moves down too. */
+  [id] {
+    scroll-margin-top: 120px;
+  }
+
   .topbar__inner {
     column-gap: var(--space-1);
     min-height: 56px;
@@ -784,10 +796,18 @@ p {
 /* The things you can press sit above the stroke, so drawing over the hero never
  * eats a click on Install. */
 .hero__content .actions,
-.hero__content .hero__hint {
+.hero__content .hero__hint,
+.hero__content .hero__replay {
   pointer-events: auto;
   position: relative;
   z-index: 3;
+}
+
+/* The way in for anybody without a pointer: the demonstration is a drag, and a
+ * drag is not something a keyboard can do. */
+.hero__replay {
+  margin-left: calc(-1 * var(--space-2));
+  margin-top: var(--space-1);
 }
 
 /* The gap under the name is what the loop drawn round it needs: with motion

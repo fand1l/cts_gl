@@ -8,6 +8,8 @@
 
 [![CI](https://github.com/fand1l/cts_gl/actions/workflows/ci.yml/badge.svg)](https://github.com/fand1l/cts_gl/actions/workflows/ci.yml)
 &nbsp;·&nbsp;
+[**Сайт**](https://fand1l.github.io/cts_gl/)
+&nbsp;·&nbsp;
 [**🇬🇧 In English**](README.md)
 &nbsp;·&nbsp;
 [Технічна документація](docs/TECHNICAL.md)

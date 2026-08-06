@@ -43,6 +43,19 @@ CARDS = {
         "tagline": "Shake the mouse. Circle anything on your screen.<br>Get a Google&nbsp;Lens result.",
         "foot": "KDE&nbsp;Plasma&nbsp;6 on Wayland · MIT · github.com/fand1l/cts_gl",
     },
+    # A shared installation link should not arrive looking like the home page.
+    "og-install.png": {
+        "lang": "uk",
+        "title": "Три команди",
+        "tagline": "<code>git clone</code> · <code>cd</code> · <code>./install.sh</code><br>і вийти з сеансу, щоб KWin завантажив скрипт.",
+        "foot": "Потрібні KDE&nbsp;Plasma&nbsp;6 на Wayland і Python&nbsp;3.11 або новіший",
+    },
+    "og-install-en.png": {
+        "lang": "en",
+        "title": "Three commands",
+        "tagline": "<code>git clone</code> · <code>cd</code> · <code>./install.sh</code><br>then log out, so KWin loads the script.",
+        "foot": "Needs KDE&nbsp;Plasma&nbsp;6 on Wayland and Python&nbsp;3.11 or newer",
+    },
 }
 
 PAGE = """<!doctype html>
@@ -73,6 +86,9 @@ PAGE = """<!doctype html>
               position: relative; z-index: 1; }}
   .card p {{ margin: 0; color: var(--on-surface-variant); font-size: 30px;
              line-height: 1.45; position: relative; z-index: 3; }}
+  .card p code {{ font-family: var(--font-mono); font-size: 26px;
+                  background: var(--surface-container-high); border-radius: var(--shape-xs);
+                  padding: 2px 8px; color: var(--on-surface); }}
   .card__foot {{ position: absolute; left: 88px; bottom: 56px;
                  font-size: 20px; color: var(--on-surface-variant); }}
 </style>

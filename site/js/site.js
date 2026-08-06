@@ -186,6 +186,17 @@
       }
       var hint = document.querySelector('[data-hero-hint]');
       if (hint) hint.hidden = false;
+
+      /* With motion turned down the stroke is already standing on the page, so
+       * there is nothing to ask for; everywhere else this is how somebody who
+       * missed it — or who has no pointer to draw with — gets to see it. */
+      var again = document.querySelector('[data-hero-replay]');
+      if (again && !instance.stroke.reduced) {
+        again.hidden = false;
+        again.addEventListener('click', function () {
+          instance.replay();
+        });
+      }
     }
 
     var gesture = document.querySelector('[data-gesture-canvas]');
