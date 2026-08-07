@@ -333,10 +333,15 @@ h1 {
   grid-row: 1;
 }
 
-/* The loop sizes the box; the words sit in the middle of it. */
+/* The loop sizes the box; the words sit in the middle of it.
+   The viewBox carries 140 units of room on every side — the reach of one glow —
+   so the light fades out inside the picture instead of being cut off square at
+   its edge.  The negative margins give that padding back to the layout, so the
+   loop still measures 640 across and a unit is still a logical pixel. */
 .stroke__loop {
   height: auto;
-  width: 100%;
+  margin: -21.7391% -17.9104%;
+  width: 143.75%;
 }
 
 .stroke__title {
@@ -452,16 +457,112 @@ h1 {
            i.e. 0.6090 — which on the ramp (0 #4285F4 · 0.40 #EA4335 ·
            0.62 #FBBC05 · 1 #34A853, linear between) is 0.9499 of the way from
            red to yellow, and gives #fab607. -->
-      <svg class="stroke__loop" viewBox="0 0 640 320" xmlns="http://www.w3.org/2000/svg"
+      <svg class="stroke__loop" viewBox="-140 -140 920 600" xmlns="http://www.w3.org/2000/svg"
            aria-hidden="true" focusable="false">
         <defs>
-          <radialGradient id="stroke-glow" cx="0.5" cy="0.5" r="0.5">
-            <stop offset="0" stop-color="#fab607" stop-opacity="0.588"/>
-            <stop offset="0.45" stop-color="#fab607" stop-opacity="0.176"/>
-            <stop offset="1" stop-color="#fab607" stop-opacity="0"/>
+          <!-- One glow per remembered head position, fading with age: a swipe
+               fast enough that every point is younger than the trail lifetime,
+               so the light runs the whole length of the line and carries the
+               ramp along it.  docs/STROKE.md calls this the third photograph.
+               The line is 12 units and renders at 12 px, so a unit here is a
+               logical pixel and the reach is stroke.py's own GLOW_RADIUS. -->
+          <radialGradient id="g0" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#ec542c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#ec542c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#ec542c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g1" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#f4a40c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#f4a40c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#f4a40c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g2" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#ccbc14" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#ccbc14" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#ccbc14" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g3" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#a4b42c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#a4b42c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#a4b42c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g4" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#94b42c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#94b42c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#94b42c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g5" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#a4b424" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#a4b424" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#a4b424" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g6" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#dcbc14" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#dcbc14" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#dcbc14" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g7" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#f49414" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#f49414" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#f49414" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g8" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#ec4434" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#ec4434" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#ec4434" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g9" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#b45c74" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#b45c74" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#b45c74" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g10" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#8c649c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#8c649c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#8c649c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g11" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#846cac" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#846cac" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#846cac" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g12" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#9c6494" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#9c6494" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#9c6494" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g13" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#c4545c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#c4545c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#c4545c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g14" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#ec642c" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#ec642c" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#ec642c" stop-opacity="0"/>
+          </radialGradient>
+          <radialGradient id="g15" cx="0.5" cy="0.5" r="0.5">
+            <stop offset="0" stop-color="#fcb404" stop-opacity="0.588"/>
+            <stop offset="0.45" stop-color="#fcb404" stop-opacity="0.176"/>
+            <stop offset="1" stop-color="#fcb404" stop-opacity="0"/>
           </radialGradient>
         </defs>
-        <circle cx="539.91" cy="194.88" r="100" fill="url(#stroke-glow)"/>
+        <circle cx="543.0" cy="136.2" r="140" fill="url(#g0)" opacity="0.062"/>
+        <circle cx="541.3" cy="183.7" r="140" fill="url(#g1)" opacity="0.125"/>
+        <circle cx="490.8" cy="225.5" r="140" fill="url(#g2)" opacity="0.188"/>
+        <circle cx="405.0" cy="253.8" r="140" fill="url(#g3)" opacity="0.25"/>
+        <circle cx="299.5" cy="262.2" r="140" fill="url(#g4)" opacity="0.312"/>
+        <circle cx="195.7" cy="250.1" r="140" fill="url(#g5)" opacity="0.375"/>
+        <circle cx="111.4" cy="219.7" r="140" fill="url(#g6)" opacity="0.438"/>
+        <circle cx="70.9" cy="174.8" r="140" fill="url(#g7)" opacity="0.5"/>
+        <circle cx="82.5" cy="127.2" r="140" fill="url(#g8)" opacity="0.562"/>
+        <circle cx="135.1" cy="85.6" r="140" fill="url(#g9)" opacity="0.625"/>
+        <circle cx="224.0" cy="57.6" r="140" fill="url(#g10)" opacity="0.688"/>
+        <circle cx="333.2" cy="51.0" r="140" fill="url(#g11)" opacity="0.75"/>
+        <circle cx="438.2" cy="66.1" r="140" fill="url(#g12)" opacity="0.812"/>
+        <circle cx="516.4" cy="100.6" r="140" fill="url(#g13)" opacity="0.875"/>
+        <circle cx="550.3" cy="146.6" r="140" fill="url(#g14)" opacity="0.938"/>
+        <circle cx="539.9" cy="194.9" r="140" fill="url(#g15)" opacity="1.0"/>
         <path d="M542.98 136.18 L545.81 142.04 L547.78 147.97 L548.86 153.96 L549.06 159.96 L548.39 165.96 L546.86 171.93 L544.49 177.84 L541.32 183.67 L537.38 189.40 L532.70 195.02 L527.31 200.50 L521.25 205.84 L514.54 211.02 L507.22 216.04 L499.31 220.86 L490.83 225.50 L481.79 229.93 L472.23 234.13 L462.15 238.10 L451.59 241.81 L440.56 245.26 L429.10 248.42 L417.24 251.28 L405.01 253.83 L392.46 256.06 L379.63 257.95 L366.58 259.51 L353.34 260.72 L339.97 261.58 L326.52 262.11 L313.03 262.31 L299.54 262.17 L286.09 261.71 L272.72 260.95 L259.46 259.87 L246.32 258.50 L233.35 256.84 L220.57 254.89 L208.01 252.66 L195.69 250.14 L183.66 247.33 L171.95 244.24 L160.62 240.86 L149.71 237.19 L139.27 233.24 L129.37 229.00 L120.06 224.50 L111.41 219.73 L103.47 214.73 L96.28 209.49 L89.91 204.05 L84.36 198.44 L79.69 192.68 L75.88 186.81 L72.96 180.84 L70.90 174.81 L69.69 168.76 L69.31 162.69 L69.72 156.64 L70.89 150.63 L72.78 144.67 L75.36 138.77 L78.61 132.95 L82.48 127.22 L86.98 121.58 L92.07 116.04 L97.76 110.62 L104.04 105.32 L110.91 100.15 L118.38 95.13 L126.44 90.28 L135.10 85.62 L144.35 81.17 L154.18 76.94 L164.59 72.96 L175.53 69.26 L186.99 65.85 L198.93 62.76 L211.29 59.99 L224.03 57.57 L237.10 55.49 L250.45 53.78 L264.01 52.42 L277.73 51.43 L291.56 50.79 L305.46 50.51 L319.36 50.57 L333.24 50.98 L347.04 51.73 L360.73 52.82 L374.27 54.23 L387.62 55.97 L400.73 58.03 L413.57 60.42 L426.09 63.12 L438.24 66.14 L449.97 69.47 L461.24 73.10 L471.99 77.03 L482.17 81.24 L491.74 85.72 L500.67 90.44 L508.91 95.40 L516.43 100.56 L523.23 105.91 L529.29 111.42 L534.60 117.07 L539.17 122.83 L543.01 128.69 L546.13 134.61 L548.55 140.60 L550.28 146.62 L551.33 152.67 L551.71 158.74 L551.44 164.82 L550.50 170.89 L548.89 176.94 L546.60 182.97 L543.61 188.95 L539.91 194.88"
               fill="none" stroke="#000000" stroke-opacity="0.353"
               stroke-width="16" stroke-linecap="round" stroke-linejoin="round"/>

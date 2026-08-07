@@ -460,6 +460,19 @@
     };
   };
 
+  /* Draw it again, from wherever it had got to.
+   *
+   * The demonstration used to run once and never again: somebody who arrived
+   * mid-scroll, or blinked, or came back to the tab, had missed the one thing
+   * on the page worth showing — and somebody without a pointer had never seen
+   * it at all, because everything else about the stroke is a drag. */
+  Hero.prototype.replay = function () {
+    if (this.drawing) return;
+    this.stop();
+    this.stroke.opacity = 1;
+    this.demo();
+  };
+
   Hero.prototype.demo = function () {
     var box = this.box();
     if (!(box.width > 0 && box.height > 0)) return;
@@ -594,6 +607,39 @@
       new ResizeObserver(resize).observe(this.canvas);
     } else {
       global.addEventListener('resize', resize);
+    }
+
+    /* Scrolling back up to the top draws it again.  Only after the hero has
+     * genuinely left the screen, so this is never a loop: it is the same once
+     * per visit to the top of the page, which is the moment somebody is
+     * actually looking at it.  With motion turned down there is nothing to
+     * replay — the finished stroke is already standing there. */
+    if (global.IntersectionObserver && !stroke.reduced) {
+      var wasAway = false;
+      new IntersectionObserver(
+        function (entries) {
+          entries.forEach(function (entry) {
+            if (!entry.isIntersecting) {
+              wasAway = true;
+              /* Nothing to animate off screen. */
+              if (!self.drawing) self.stop();
+              return;
+            }
+            /* Only after it has genuinely been away, and only when the last
+             * one has finished: a wobble of the wheel must not restart a
+             * drawing half way through it. */
+            if (!wasAway || self.phase !== 'idle') return;
+            wasAway = false;
+            self.replay();
+          });
+        },
+        /* No threshold on the element's own height: a hero taller than the
+         * window can never show a given fraction of itself, and asking for one
+         * would mean the replay silently never happened on a short screen.
+         * The margin makes the question "is it back near the top of the
+         * screen" instead, which is the moment somebody is looking at it. */
+        { threshold: 0, rootMargin: '0px 0px -45% 0px' }
+      ).observe(this.canvas);
     }
   };
 

@@ -14,14 +14,14 @@
 <meta property="og:locale:alternate" data-i18n-attr="content: lang.ogLocaleAlternate" content="uk_UA">
 <meta property="og:title" data-i18n-attr="content: install.meta.ogTitle" content="Installing — Circle to Search">
 <meta property="og:description" data-i18n-attr="content: install.meta.ogDescription" content="Three commands, what gets installed and where, updating, and what to do when it does not work.">
-<meta property="og:image" data-i18n-attr="content: lang.ogImage" content="og-en.png">
+<meta property="og:image" data-i18n-attr="content: install.meta.ogImage" content="og-install-en.png">
 <meta property="og:image:width" content="1200">
 <meta property="og:image:height" content="630">
-<meta property="og:image:alt" data-i18n-attr="content: lang.ogImageAlt" content="A white line with a coloured glow circling the words “Circle to Search”.">
+<meta property="og:image:alt" data-i18n-attr="content: install.meta.ogImageAlt" content="A white line with a coloured glow circling the words “Three commands”, with git clone, cd and ./install.sh under them.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" data-i18n-attr="content: install.meta.ogTitle" content="Installing — Circle to Search">
 <meta name="twitter:description" data-i18n-attr="content: install.meta.ogDescription" content="Three commands, what gets installed and where, updating, and what to do when it does not work.">
-<meta name="twitter:image" data-i18n-attr="content: lang.ogImage" content="og-en.png">
+<meta name="twitter:image" data-i18n-attr="content: install.meta.ogImage" content="og-install-en.png">
 <link rel="stylesheet" href="css/site.css">
 <script>
 /* The theme and the language, before the first paint.  See index.html. */
@@ -57,6 +57,8 @@
 <body>
 
 <a class="skip-link" href="#main" data-i18n="common.skip"></a>
+
+<div class="ramp" data-ramp aria-hidden="true" hidden><span class="ramp__here"></span></div>
 
 <header class="topbar">
   <div class="container topbar__inner">
@@ -100,6 +102,16 @@
       <span class="eyebrow" data-i18n="install.hero.eyebrow"></span>
       <h1 class="display-small" data-i18n="install.hero.heading"></h1>
       <p class="lede" data-i18n="install.hero.lede"></p>
+      <nav data-i18n-attr="aria-label: install.footer.heading"
+           style="margin-top: var(--space-4); margin-left: calc(-1 * var(--space-2))">
+        <ul class="nav label-large">
+          <li><a href="#requirements" data-i18n="install.requirements.heading"></a></li>
+          <li><a href="#commands" data-i18n="install.commands.heading"></a></li>
+          <li><a href="#log-out" data-i18n="install.logout.heading"></a></li>
+          <li><a href="#updating" data-i18n="install.updating.heading"></a></li>
+          <li><a href="#doctor" data-i18n="install.doctor.heading"></a></li>
+        </ul>
+      </nav>
     </div>
   </section>
 

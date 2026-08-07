@@ -67,6 +67,8 @@
 
 <a class="skip-link" href="#main" data-i18n="common.skip"></a>
 
+<div class="ramp" data-ramp aria-hidden="true" hidden><span class="ramp__here"></span></div>
+
 <header class="topbar">
   <div class="container topbar__inner">
     <a class="brand" href="index.html">
@@ -122,7 +124,16 @@
           </a>
         </div>
         <p class="body-medium hero__hint" data-hero-hint hidden data-i18n="index.hero.hint"></p>
+        <button class="btn btn--text hero__replay" type="button" data-hero-replay hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4v4h-4"/></svg>
+          <span data-i18n="index.hero.replay"></span>
+        </button>
       </div>
+      <figure class="hero__screen">
+        <img width="1440" height="900" decoding="async" fetchpriority="high"
+             data-i18n-attr="src: index.hero.shot.src; alt: index.hero.shot.alt">
+        <figcaption class="body-medium" data-i18n="index.hero.shot.caption"></figcaption>
+      </figure>
     </div>
   </section>
 
@@ -152,11 +163,6 @@
                   data-i18n-attr="aria-label: index.gesture.diagram"></canvas>
         </div>
       </div>
-      <figure class="feature__figure" style="margin-top: var(--space-6)">
-        <img width="1440" height="900" loading="lazy" decoding="async"
-             data-i18n-attr="src: index.gesture.shot.src; alt: index.gesture.shot.alt">
-        <figcaption data-i18n="index.gesture.shot.caption"></figcaption>
-      </figure>
     </div>
   </section>
 

@@ -58,6 +58,11 @@
     var fraction = Math.min(1, Math.max(0, (global.scrollY || global.pageYOffset || 0) / travel));
     var seed = CTS.rampColour(fraction);
     lastSeed = seed;
+    /* Where you are on the ramp, and the colour it gives — the rail down the
+     * edge is drawn from these, so the rule that recolours the page is a thing
+     * you can watch rather than a thing you have to be told about. */
+    root.style.setProperty('--ramp-at', fraction.toFixed(4));
+    root.style.setProperty('--ramp-colour', CTS.md3.hex(seed));
     CTS.md3.apply(seed, isDark());
   }
 
@@ -76,6 +81,12 @@
      * place to be reading layout on every event. */
     global.addEventListener('scroll', ask, { passive: true });
     global.addEventListener('resize', ask, { passive: true });
+    /* Arriving at a #fragment lands part way down the page without ever firing
+     * a scroll event, and the images settling afterwards change how long the
+     * page is.  Both would otherwise leave the colour reading the top of a page
+     * you are in the middle of. */
+    global.addEventListener('hashchange', ask);
+    global.addEventListener('load', ask);
     repaintScheme();
   }
 
@@ -204,6 +215,17 @@
       });
       var hint = document.querySelector('[data-hero-hint]');
       if (hint) hint.hidden = false;
+
+      /* With motion turned down the stroke is already standing on the page, so
+       * there is nothing to ask for; everywhere else this is how somebody who
+       * missed it — or who has no pointer to draw with — gets to see it. */
+      var again = document.querySelector('[data-hero-replay]');
+      if (again && !instance.stroke.reduced) {
+        again.hidden = false;
+        again.addEventListener('click', function () {
+          instance.replay();
+        });
+      }
     }
 
     var gesture = document.querySelector('[data-gesture-canvas]');
@@ -214,6 +236,10 @@
 
   function start() {
     root.setAttribute('data-js', 'on');
+    /* The rail claims that the page recolours as you move down it, which is
+     * only true while this file is running. */
+    var rail = document.querySelector('[data-ramp]');
+    if (rail) rail.hidden = false;
     watchScroll();
     bindTheme();
     bindCopy();

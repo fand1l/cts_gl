@@ -6,7 +6,6 @@
     "ogImage": "og-en.png",
     "ogImageAlt": "A white line with a coloured glow circling the words “Circle to Search”."
   },
-
   "common": {
     "skip": "Skip to the content",
     "brand": "Circle to Search",
@@ -47,14 +46,12 @@
       "disclaimer": "Not affiliated with Google. “Circle to Search” and “Google Lens” are Google’s names for Google’s things; this is an independent program that opens their public web endpoint in your browser."
     }
   },
-
   "commands": {
     "install": "<code>git clone https://github.com/fand1l/cts_gl.git\ncd cts_gl\n./install.sh</code>",
     "update": "<code>./install.sh update</code>",
     "doctor": "<code>circle-to-search --doctor</code>",
     "other": "<code>./install.sh update               # fetch the deploy branch and reinstall\n./install.sh update --dev         # …fetch \"dev\" instead: the newest work, unreviewed\n./install.sh update --downgrade   # …even if it is older, settings and all\n./install.sh reinstall            # reinstall this folder, whatever state it is in\n./install.sh reinstall --config   # …and wipe the settings too (it asks twice)\n./uninstall.sh                    # remove it, keep your captures\n./uninstall.sh --purge            # remove it and the captures</code>"
   },
-
   "index": {
     "meta": {
       "title": "Circle to Search — the Google Lens gesture for KDE Plasma 6",
@@ -67,7 +64,13 @@
       "tagline": "Shake the mouse. Circle anything on your screen. Get a Google&nbsp;Lens result.",
       "sub": "Google’s phone gesture, for KDE&nbsp;Plasma&nbsp;6 on Wayland.",
       "install": "Install it",
-      "hint": "Draw across this — the stroke follows your pointer exactly as it does in the program."
+      "hint": "Draw across this — the stroke follows your pointer exactly as it does in the program.",
+      "replay": "Draw it again",
+      "shot": {
+        "src": "images/overlay-start.png",
+        "alt": "The frozen, dimmed screen before anything is selected; the bar at the top offers Lasso, Rectangle, Colour and The same area.",
+        "caption": "Shake, and the screen freezes. Lasso or rectangle — or the same area as last time."
+      }
     },
     "what": {
       "heading": "What it does",
@@ -81,12 +84,7 @@
       "calibrate": "If it does not fire, or fires while you are just working, do not go hunting through settings: <strong>Settings → Calibrate the gesture…</strong> measures a dozen of your own shakes and writes all the thresholds from them.",
       "shortcut": "You can also press <span class=\"kbd\">Meta</span>&nbsp;+&nbsp;<span class=\"kbd\">Shift</span>&nbsp;+&nbsp;<span class=\"kbd\">L</span>, or use <strong>Capture now</strong> in the tray menu.",
       "numbers": "The dot below travels the exact movement the default thresholds ask for: two reversals, 150&nbsp;px a swing, 700&nbsp;px/s, 30° of tolerance from the diagonal. Those are the numbers the installer writes into <code>kwinrc</code>.",
-      "diagram": "Diagram of the movement: three diagonal swings — down-right, up-left, down-right",
-      "shot": {
-        "src": "images/overlay-start.png",
-        "alt": "The frozen, dimmed screen before anything is selected; the bar at the top offers Lasso, Rectangle, Colour and The same area.",
-        "caption": "Shake, and the screen freezes. Lasso or rectangle — or the same area as last time."
-      }
+      "diagram": "Diagram of the movement: three diagonal swings — down-right, up-left, down-right"
     },
     "features": {
       "eyebrow": "Features",
@@ -264,13 +262,14 @@
       "doctor": "If something does not work"
     }
   },
-
   "install": {
     "meta": {
       "title": "Installing — Circle to Search",
       "description": "Three commands, what gets installed and where, updating, the full list of commands, and what to do when it does not work.",
       "ogTitle": "Installing — Circle to Search",
-      "ogDescription": "Three commands, what gets installed and where, updating, and what to do when it does not work."
+      "ogDescription": "Three commands, what gets installed and where, updating, and what to do when it does not work.",
+      "ogImage": "og-install-en.png",
+      "ogImageAlt": "A white line with a coloured glow circling the words “Three commands”, with git clone, cd and ./install.sh under them."
     },
     "hero": {
       "eyebrow": "Installing",
@@ -385,7 +384,6 @@
       "doctor": "If something does not work"
     }
   },
-
   "changes": {
     "meta": {
       "title": "What changed — Circle to Search",
@@ -396,7 +394,7 @@
     "hero": {
       "eyebrow": "Changelog",
       "heading": "What changed",
-      "lede": "Every release has a <strong>number</strong>, a <strong>name</strong> and a <strong>build</strong>. What is here now is <code>1.4.0 “material” (build 10012)</code>."
+      "lede": "Every release has a <strong>number</strong>, a <strong>name</strong> and a <strong>build</strong>. What is here now is <code>1.4.0 “material” (build 10013)</code>."
     },
     "numbering": {
       "heading": "The number, the name and the build",
