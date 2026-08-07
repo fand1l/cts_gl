@@ -448,62 +448,21 @@ p {
 /* ================================================================ the ramp */
 
 /* The colour of this page is read off how far down it you are — the same rule
- * the glow under the lasso uses for how far down the screen your hand is.  It
- * has been true since the site was written and there was no way to see it.
+ * the glow under the lasso uses for how far down the screen your hand is.
  *
- * So: the ramp itself, down the edge of the window, with a mark at where you
- * are in the colour that height gives.  The four stops are stroke.py's own. */
-.ramp {
-  border-radius: var(--shape-full);
-  bottom: var(--space-10);
-  left: 12px;
-  pointer-events: none;
-  position: fixed;
-  top: var(--space-10);
-  width: 3px;
-  z-index: 1;
-}
-
-/* The gradient carries the opacity, not the element: the mark on it has to stay
- * at full strength, and opacity on a parent takes its children with it. */
-.ramp::before {
-  background: linear-gradient(
-    to bottom,
-    #4285f4 0%,
-    #ea4335 40%,
-    #fbbc05 62%,
-    #34a853 100%
-  );
-  border-radius: inherit;
-  content: '';
-  inset: 0;
-  opacity: 0.32;
-  position: absolute;
-}
-
-.ramp__here {
-  background: var(--ramp-colour, #4285f4);
-  border-radius: var(--shape-full);
-  display: block;
-  height: 56px;
-  left: -2px;
-  margin-top: -28px;
-  position: absolute;
-  right: -2px;
-  top: calc(var(--ramp-at, 0) * 100%);
-}
-
-/* Closer to the edge where there is no room to spare. */
-@media (max-width: 760px) {
-  .ramp {
-    left: 6px;
-  }
-}
-
-@media print {
-  .ramp {
-    display: none;
-  }
+ * That used to be shown on a rail of its own down the left edge, which put a
+ * second vertical bar next to the one the browser already draws, and the one
+ * the browser draws is the one that means something: it says how far down you
+ * are and you can take hold of it.  So the scrollbar *is* the rail.  Its thumb
+ * is the accent, which js/site.js regrows from the ramp on every frame you
+ * scroll, so the thing sliding down the edge of the window changes colour as
+ * you go — blue, red, yellow, green.
+ *
+ * The accent rather than the raw ramp colour on purpose: #FBBC05 on a light
+ * surface is about 1.7:1, and a scrollbar is a control.  The accent is the
+ * same hue put through the tone the scheme guarantees is readable. */
+:root {
+  scrollbar-color: var(--primary) transparent;
 }
 
 /* =================================================================== shell */

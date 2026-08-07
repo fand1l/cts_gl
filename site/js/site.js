@@ -58,11 +58,9 @@
     var fraction = Math.min(1, Math.max(0, (global.scrollY || global.pageYOffset || 0) / travel));
     var seed = CTS.rampColour(fraction);
     lastSeed = seed;
-    /* Where you are on the ramp, and the colour it gives — the rail down the
-     * edge is drawn from these, so the rule that recolours the page is a thing
-     * you can watch rather than a thing you have to be told about. */
-    root.style.setProperty('--ramp-at', fraction.toFixed(4));
-    root.style.setProperty('--ramp-colour', CTS.md3.hex(seed));
+    /* The whole scheme, including the accent the scrollbar is painted in — so
+     * the thumb sliding down the edge of the window is the rule made visible,
+     * on the one bar that was already there and already means something. */
     CTS.md3.apply(seed, isDark());
   }
 
@@ -236,10 +234,6 @@
 
   function start() {
     root.setAttribute('data-js', 'on');
-    /* The rail claims that the page recolours as you move down it, which is
-     * only true while this file is running. */
-    var rail = document.querySelector('[data-ramp]');
-    if (rail) rail.hidden = false;
     watchScroll();
     bindTheme();
     bindCopy();
