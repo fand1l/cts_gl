@@ -14,7 +14,7 @@
  * the lasso's ramp (#4285F4).  js/md3.js regrows the whole scheme from wherever
  * you are down the page — blue, red, yellow, green, the same ramp the glow under
  * the stroke reads off height on screen.  With JavaScript off the page simply
- * stays blue, which is a finished page.
+ * stays blue.
  *
  * No webfont, no CDN, no network of any kind: a program that makes no
  * connections of its own has no business having a website that does.
@@ -205,6 +205,15 @@ body {
   letter-spacing: 0.03125em;
   line-height: 1.5;
   overflow-wrap: break-word;
+}
+
+/* One page, two languages: js/i18n.js writes the text in, and until it has,
+ * there is nothing worth looking at.  The attribute is put on <html> by the
+ * script in the head and taken off the moment the strings land — or after two
+ * seconds if they never do — so a reader without JavaScript never meets it and
+ * never gets a blank page out of it. */
+[data-i18n-pending] body > *:not(noscript) {
+  visibility: hidden;
 }
 
 /* The sticky header must not land on top of whatever was linked to — and the
@@ -589,7 +598,7 @@ p {
 .nav a::after,
 .iconbutton::after,
 .btn::after,
-.langswitch a::after {
+.langswitch button::after {
   border-radius: inherit;
   content: '';
   inset: 0;
@@ -602,17 +611,17 @@ p {
 /* MD3's state layer: a film of the thing's own ink, at the specified
  * opacities, rather than a different fill. */
 .nav a::after,
-.langswitch a::after {
+.langswitch button::after {
   background: currentColor;
 }
 
 .nav a:hover::after,
-.langswitch a:hover::after {
+.langswitch button:hover::after {
   opacity: var(--state-hover);
 }
 
 .nav a:active::after,
-.langswitch a:active::after {
+.langswitch button:active::after {
   opacity: var(--state-pressed);
 }
 
@@ -670,21 +679,27 @@ p {
   padding: 3px;
 }
 
-.langswitch a {
+/* Buttons, not links: there is one page and it changes language in place, so
+ * there is nowhere for a link to go. */
+.langswitch button {
+  background: transparent;
+  border: 0;
   border-radius: var(--shape-full);
   color: var(--on-surface-variant);
+  cursor: pointer;
   display: block;
+  font-family: inherit;
   font-size: calc(0.857143 * var(--type-anchor));
   font-weight: 500;
   letter-spacing: 0.041667em;
   padding: var(--space-05) var(--space-15);
   position: relative;
-  text-decoration: none;
 }
 
-.langswitch a[aria-current='true'] {
+.langswitch button[aria-current='true'] {
   background: var(--primary);
   color: var(--on-primary);
+  cursor: default;
 }
 
 .iconbutton {
@@ -1381,8 +1396,32 @@ th code {
   margin-bottom: var(--space-1);
 }
 
-.footer a {
+.footer a,
+.footer .linkish {
   color: var(--on-surface-variant);
+}
+
+/* The language choices in the footer do what the switch in the header does, so
+ * they are buttons too — dressed as the links they sit among. */
+.linkish {
+  background: none;
+  border: 0;
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+  text-align: start;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
+}
+
+.linkish:hover {
+  text-decoration-thickness: 2px;
+}
+
+.linkish[aria-current='true'] {
+  cursor: default;
+  text-decoration: none;
 }
 
 .footer__bottom {

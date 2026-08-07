@@ -1,15 +1,18 @@
 /* What holds the page together.
  *
- * Three jobs, and all three are enhancements — with JavaScript off the page is
- * a finished page: the prose is prose, the commands are selectable text, the
- * screenshots are in the markup, the language switch is two ordinary links and
- * the theme still follows prefers-color-scheme.
+ * Three jobs:
  *
  *   1. the scroll ramp — the whole scheme regrown from where you are down the
  *      page, blue, red, yellow, green, which is the same rule the glow under
  *      the lasso uses for where you are down the screen;
  *   2. the light/dark switch, remembered;
  *   3. a copy button on the command blocks, and the two canvases started.
+ *
+ * It waits for js/i18n.js to have put the text in, because two of those three
+ * measure the page: a ramp reads its height and the hero draws a loop around
+ * the words in the title, and both are wrong if they run against a page whose
+ * sentences have not arrived yet.  Changing language re-runs them for the same
+ * reason.
  */
 (function (global) {
   'use strict';
@@ -99,6 +102,10 @@
       if (next) button.setAttribute('aria-label', next);
     };
 
+    /* The two labels are strings like any other, so they arrive again in the
+     * other language and the one on the button has to be picked afresh. */
+    global.addEventListener('cts:language', label);
+
     if (button) {
       button.hidden = false;
       button.addEventListener('click', function () {
@@ -138,14 +145,18 @@
         var live = document.getElementById(button.getAttribute('data-live') || '');
         if (live) live.textContent = message;
       };
-      var idleText = idle ? idle.textContent : '';
+      /* Read off the attribute rather than remembered from the first paint:
+       * the label is one of the strings, and it changes with the language. */
+      var resting = function () {
+        return button.getAttribute('data-label-idle') || '';
+      };
 
       button.addEventListener('click', function () {
         var text = target.innerText.replace(/ /g, ' ');
         var done = function () {
-          say(button.getAttribute('data-label-done') || idleText, true);
+          say(button.getAttribute('data-label-done') || resting(), true);
           setTimeout(function () {
-            say(idleText, false);
+            say(resting(), false);
           }, 2400);
         };
         /* file:// and any other non-secure context has no clipboard.  Say what
@@ -156,7 +167,7 @@
           var selection = global.getSelection();
           selection.removeAllRanges();
           selection.addRange(range);
-          say(button.getAttribute('data-label-select') || idleText, false);
+          say(button.getAttribute('data-label-select') || resting(), false);
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(text).then(done, fallback);
@@ -195,6 +206,13 @@
       } else {
         setTimeout(begin, 60);
       }
+      /* The other language is other words, of another length, in another
+       * place — the loop has to be drawn around where they are now. */
+      global.addEventListener('cts:language', function () {
+        drawnAround = null;
+        begin();
+        repaintScheme();
+      });
       var hint = document.querySelector('[data-hero-hint]');
       if (hint) hint.hidden = false;
 
@@ -228,9 +246,28 @@
     bindCanvases();
   }
 
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', start);
+  /* After the strings, and after the DOM — in that order, because the ramp and
+   * the hero both measure a page that is only its real height once the text is
+   * in it.  A page with no i18n at all, or one whose strings did not arrive,
+   * still starts: `ready` settles either way. */
+  function whenReady(run) {
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', run);
+    } else {
+      run();
+    }
+  }
+
+  if (CTS.i18n && CTS.i18n.ready && CTS.i18n.ready.then) {
+    CTS.i18n.ready.then(
+      function () {
+        whenReady(start);
+      },
+      function () {
+        whenReady(start);
+      }
+    );
   } else {
-    start();
+    whenReady(start);
   }
 })(window);

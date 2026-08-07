@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="uk">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Тут нічого немає — Обвести й знайти · Nothing here — Circle to Search</title>
-<meta name="description" content="Такої сторінки на цьому сайті немає. There is no such page here.">
+<title>Nothing here — Circle to Search · Тут нічого немає — Обвести й знайти</title>
+<meta name="description" content="There is no such page here. Такої сторінки на цьому сайті немає.">
 <meta name="robots" content="noindex">
 <!-- This one page carries its own styles, and nothing else at all.
      GitHub Pages hands 404.html back for a request at ANY depth, so a relative
@@ -319,10 +319,6 @@ h1 {
   justify-content: center;
 }
 
-.notfound .actions + .actions {
-  margin-top: var(--space-15);
-}
-
 .stroke {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -358,6 +354,20 @@ h1 {
 .alt {
   color: var(--on-surface-variant);
   display: block;
+}
+
+/* On a button both languages label the same one place, so they stack inside
+   it and keep the button's own ink — a quieter grey on a filled button would
+   be the one thing on this page that fails to read. */
+.btn {
+  flex-direction: column;
+  gap: 0;
+}
+
+.btn .alt {
+  color: inherit;
+  font-size: calc(0.857143 * var(--type-anchor));
+  opacity: 0.86;
 }
 
 .stroke__title .alt {
@@ -562,27 +572,30 @@ h1 {
       </svg>
 
       <h1 class="display-small stroke__title">
-        <span lang="uk">Тут нічого немає</span>
-        <span class="alt" lang="en">Nothing here</span>
+        <span lang="en">Nothing here</span>
+        <span class="alt" lang="uk">Тут нічого немає</span>
       </h1>
     </div>
 
     <p class="lede">
-      <span lang="uk">Такої сторінки на цьому сайті немає. Можливо, посилання застаріло.</span>
-      <span class="alt" lang="en">There is no such page on this site. The link may be out of date.</span>
+      <span lang="en">There is no such page on this site. The link may be out of date.</span>
+      <span class="alt" lang="uk">Такої сторінки на цьому сайті немає. Можливо, посилання застаріло.</span>
     </p>
 
     <!-- Plain relative hrefs.  GitHub Pages serves this file for a missing
          path at any depth, and only one depth can be resolved against: the
          site root, which is where a mistyped or stale link from outside
-         lands.  These four are correct there. -->
+         lands.  Both are correct there — and there is one of each page now,
+         so the language is settled on the page you arrive at, not here. -->
     <div class="actions">
-      <a class="btn btn--filled" href="index.html" lang="uk">На головну</a>
-      <a class="btn btn--outlined" href="install.html" lang="uk">Встановлення</a>
-    </div>
-    <div class="actions">
-      <a class="btn btn--tonal" href="en/index.html" lang="en">Home page</a>
-      <a class="btn btn--outlined" href="en/install.html" lang="en">Installing</a>
+      <a class="btn btn--filled" href="index.html">
+        <span lang="en">Home page</span>
+        <span class="alt" lang="uk">На головну</span>
+      </a>
+      <a class="btn btn--outlined" href="install.html">
+        <span lang="en">Installing</span>
+        <span class="alt" lang="uk">Встановлення</span>
+      </a>
     </div>
 
   </div>
@@ -590,8 +603,8 @@ h1 {
 
 <footer class="footer">
   <div class="container notfound">
-    <p class="supporting" lang="uk">Не повʼязано з Google. «Circle to Search» і «Google Lens» — назви Google для речей Google; це незалежна програма, яка відкриває їхню публічну вебточку у вашому браузері.</p>
     <p class="supporting" lang="en">Not affiliated with Google. “Circle to Search” and “Google Lens” are Google’s names for Google’s things; this is an independent program that opens their public web endpoint in your browser.</p>
+    <p class="supporting" lang="uk">Не повʼязано з Google. «Circle to Search» і «Google Lens» — назви Google для речей Google; це незалежна програма, яка відкриває їхню публічну вебточку у вашому браузері.</p>
   </div>
 </footer>
 
