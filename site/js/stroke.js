@@ -431,6 +431,8 @@
     this.target = target;
     this.phase = 'idle';
     this.raf = 0;
+    /* Which demonstration is the live one.  See demo(). */
+    this.run = 0;
     this.drawing = false;
     this.bind();
   }
@@ -474,8 +476,24 @@
   };
 
   Hero.prototype.demo = function () {
+    /* Whatever was being drawn is not being drawn any more.
+     *
+     * `stop()` cancels the frame that is *booked*, and the generation below
+     * retires the closure that would have booked the next one.  Without the
+     * second half, a demonstration started while another was running left two
+     * chains alive, both pushing into the same stroke on the same canvas from
+     * different starting times — which is not a stroke, it is two of them, and
+     * it looks like one fat scribble.  Two of them is the ordinary case, not a
+     * rare one: the title arrives from the string file, and then the font
+     * arrives and moves it, and each of those is a reason to draw again. */
+    this.stop();
+    var run = (this.run = (this.run || 0) + 1);
+
     var box = this.box();
-    if (!(box.width > 0 && box.height > 0)) return;
+    /* Words worth circling.  Before the strings land the heading is empty and
+     * before the font lands it is the wrong size, and a loop drawn round almost
+     * nothing is a twelve-pixel line closing over itself into a blob. */
+    if (!(box.width >= 4 * LINE_WIDTH && box.height > 0)) return;
     var path = loopAround(box, 1.7, {
       width: this.stroke.width,
       height: this.stroke.height,
@@ -500,7 +518,9 @@
     var step = function () {
       var now = stroke.clock();
       var elapsed = now - started;
-      if (self.phase !== 'demo') return;
+      /* Retired the moment a newer demonstration starts, or the pointer takes
+       * the canvas over. */
+      if (self.run !== run || self.phase !== 'demo') return;
 
       if (elapsed <= duration) {
         var head = along(path, (elapsed / duration) * length);
