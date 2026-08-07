@@ -37,11 +37,11 @@ RELEASE_NAME = "material"
 #: Deliberately not derived from ``__version__`` for that reason.  It starts at
 #: 10000 so it is five digits from the first one, and 89,999 of them is more
 #: pushes than this will ever see.
-BUILD = 10014
+BUILD = 10015
 
 
 def version_label() -> str:
-    """``1.4.0 “material” (build 10014)``, for people to read."""
+    """``1.4.0 “material” (build 10015)``, for people to read."""
     named = f"{__version__} “{RELEASE_NAME}”" if RELEASE_NAME else __version__
     return f"{named} (build {BUILD})"
 
