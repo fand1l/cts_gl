@@ -45,6 +45,8 @@
 
 <a class="skip-link" href="#main">Skip to the content</a>
 
+<div class="ramp" data-ramp aria-hidden="true" hidden><span class="ramp__here"></span></div>
+
 <header class="topbar">
   <div class="container topbar__inner">
     <a class="brand" href="index.html">
@@ -100,6 +102,11 @@
           Draw it again
         </button>
       </div>
+      <figure class="hero__screen">
+        <img src="../images/overlay-start.png" width="1440" height="900" decoding="async" fetchpriority="high"
+             alt="The frozen, dimmed screen before anything is drawn; the bar reads Lasso, Rectangle, Colour and The same area.">
+        <figcaption class="body-medium">Shake, and the screen freezes and dims. Now circle something.</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -122,17 +129,12 @@
           <p>Shake the pointer <strong>diagonally</strong> — down-right, up-left, down-right — briskly, in one place. Roughly 150 pixels a swing, twice, inside about half a second.</p>
           <p>If it does not fire, or fires while you are just working, do not go hunting through settings: <strong>Settings → Calibrate the gesture…</strong> measures a dozen of your own shakes and writes all the thresholds from them.</p>
           <p>You can also press <span class="kbd">Meta</span>&nbsp;+&nbsp;<span class="kbd">Shift</span>&nbsp;+&nbsp;<span class="kbd">L</span>, or use <strong>Capture now</strong> in the tray menu.</p>
-          <p class="supporting">The dot below travels the exact movement the default thresholds ask for: two reversals, 150&nbsp;px a swing, 700&nbsp;px/s, 30° of tolerance from the diagonal. Those are the numbers the installer writes into <code>kwinrc</code>.</p>
+          <p class="supporting">The dot travels the exact movement the default thresholds ask for: two reversals, 150&nbsp;px a swing, 700&nbsp;px/s, 30° of tolerance from the diagonal. Those are the numbers the installer writes into <code>kwinrc</code>.</p>
         </div>
         <div>
           <canvas class="gesture__panel" data-gesture-canvas width="520" height="260" role="img" aria-label="Diagram of the movement: three diagonal swings — down-right, up-left, down-right"></canvas>
         </div>
       </div>
-      <figure class="feature__figure" style="margin-top: var(--space-6)">
-        <img src="../images/overlay-start.png" width="1440" height="900" loading="lazy" decoding="async"
-             alt="The frozen, dimmed screen before anything is selected; the bar at the top offers Lasso, Rectangle, Colour and The same area.">
-        <figcaption>Shake, and the screen freezes. Lasso or rectangle — or the same area as last time.</figcaption>
-      </figure>
     </div>
   </section>
 

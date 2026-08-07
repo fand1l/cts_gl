@@ -436,6 +436,67 @@ p {
   text-transform: uppercase;
 }
 
+/* ================================================================ the ramp */
+
+/* The colour of this page is read off how far down it you are — the same rule
+ * the glow under the lasso uses for how far down the screen your hand is.  It
+ * has been true since the site was written and there was no way to see it.
+ *
+ * So: the ramp itself, down the edge of the window, with a mark at where you
+ * are in the colour that height gives.  The four stops are stroke.py's own. */
+.ramp {
+  border-radius: var(--shape-full);
+  bottom: var(--space-10);
+  left: 12px;
+  pointer-events: none;
+  position: fixed;
+  top: var(--space-10);
+  width: 3px;
+  z-index: 1;
+}
+
+/* The gradient carries the opacity, not the element: the mark on it has to stay
+ * at full strength, and opacity on a parent takes its children with it. */
+.ramp::before {
+  background: linear-gradient(
+    to bottom,
+    #4285f4 0%,
+    #ea4335 40%,
+    #fbbc05 62%,
+    #34a853 100%
+  );
+  border-radius: inherit;
+  content: '';
+  inset: 0;
+  opacity: 0.32;
+  position: absolute;
+}
+
+.ramp__here {
+  background: var(--ramp-colour, #4285f4);
+  border-radius: var(--shape-full);
+  display: block;
+  height: 56px;
+  left: -2px;
+  margin-top: -28px;
+  position: absolute;
+  right: -2px;
+  top: calc(var(--ramp-at, 0) * 100%);
+}
+
+/* Closer to the edge where there is no room to spare. */
+@media (max-width: 760px) {
+  .ramp {
+    left: 6px;
+  }
+}
+
+@media print {
+  .ramp {
+    display: none;
+  }
+}
+
 /* =================================================================== shell */
 
 .skip-link {
@@ -774,15 +835,49 @@ p {
   z-index: 2;
 }
 
-/* Positioned, but deliberately without a z-index of its own: a z-index here
- * would open a stacking context, and everything inside it — including the
- * buttons — would be trapped below the canvas however high they asked to be.
- * That is exactly how Install and GitHub stopped being clickable once. */
+/* Deliberately not positioned and deliberately without a z-index.
+ *
+ * A z-index here would open a stacking context, and everything inside it —
+ * including the buttons — would be trapped below the canvas however high it
+ * asked to be.  That is exactly how Install and GitHub stopped being clickable
+ * once.  And leaving it static is what lets the frozen screen below position
+ * itself against the whole hero, so it can run off the edge of the window. */
 .hero__inner {
+  align-items: center;
+  display: grid;
+  gap: var(--space-8);
+  grid-template-columns: minmax(0, 1fr);
   min-height: min(76vh, 720px);
   min-height: min(76svh, 720px);
   padding-block: var(--space-12) var(--space-10);
-  position: relative;
+}
+
+/* The frozen screen.
+ *
+ * The hero used to be a title with a lot of room to doodle in.  This is what
+ * the program actually does — the desktop stops and dims, and then you circle
+ * something on it — so the stroke you draw here is drawn over the real thing
+ * rather than over nothing.  The pointer belongs to the canvas above it. */
+.hero__screen {
+  margin: 0;
+  pointer-events: none;
+}
+
+/* A frozen screenshot is nearly black, and so is the dark theme behind it, so
+ * the panel needs an edge to be a panel.  Tone, not a drop shadow: a ring of
+ * the next surface up, which is what MD3 means by elevation. */
+.hero__screen img {
+  background: var(--surface-container);
+  border: 1px solid var(--outline);
+  border-radius: var(--shape-xl);
+  box-shadow: 0 0 0 10px var(--surface-container-low);
+  display: block;
+  width: 100%;
+}
+
+.hero__screen figcaption {
+  color: var(--on-surface-variant);
+  margin-top: var(--space-15);
 }
 
 /* The stroke is drawn over the words, the way it is drawn over your screen —
@@ -845,6 +940,32 @@ p {
   height: 8px;
   margin-top: 0.45em;
   width: 8px;
+}
+
+/* Wide enough for the two to stand side by side: the screen goes to the edge of
+ * the window rather than stopping at the text column, because it is a screen
+ * and not a picture of one.  It positions against .hero, which is full width. */
+@media (min-width: 1000px) {
+  .hero__content {
+    max-width: 38ch;
+  }
+
+  .hero__screen {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    width: min(48vw, 760px);
+  }
+
+  .hero__screen img {
+    border-radius: var(--shape-xl) 0 0 var(--shape-xl);
+    border-right: 0;
+  }
+
+  .hero__screen figcaption {
+    padding-left: var(--space-3);
+  }
 }
 
 @media (pointer: coarse) {

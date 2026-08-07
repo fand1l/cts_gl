@@ -45,6 +45,8 @@
 
 <a class="skip-link" href="#main">Перейти до вмісту</a>
 
+<div class="ramp" data-ramp aria-hidden="true" hidden><span class="ramp__here"></span></div>
+
 <header class="topbar">
   <div class="container topbar__inner">
     <a class="brand" href="index.html">
@@ -100,6 +102,11 @@
           Намалювати ще раз
         </button>
       </div>
+      <figure class="hero__screen">
+        <img src="images/overlay-start-uk.png" width="1440" height="900" decoding="async" fetchpriority="high"
+             alt="Застиглий притемнений екран перед виділенням; на панелі — «Ласо», «Прямокутник», «Колір» і «Те саме місце».">
+        <figcaption class="body-medium">Потрясли — екран застиг і потемнів. Далі обводьте.</figcaption>
+      </figure>
     </div>
   </section>
 
@@ -122,17 +129,12 @@
           <p>Трясіть вказівником <strong>по діагоналі</strong> — вниз-праворуч, вгору-ліворуч, вниз-праворуч — різко, на одному місці. Приблизно 150 пікселів на мах, двічі, десь за пів секунди.</p>
           <p>Якщо не спрацьовує — або спрацьовує, коли ви просто працюєте, — не лізьте в налаштування: <strong>Налаштування → Відкалібрувати жест…</strong> виміряє з десяток ваших власних махів і виведе з них усі пороги.</p>
           <p>Ще можна натиснути <span class="kbd">Meta</span>&nbsp;+&nbsp;<span class="kbd">Shift</span>&nbsp;+&nbsp;<span class="kbd">L</span> або <strong>Зняти зараз</strong> у меню трея.</p>
-          <p class="supporting">Крапка нижче проходить рівно той рух, якого просять типові пороги: два розвороти, 150&nbsp;px на мах, 700&nbsp;px/с, 30° допуску від діагоналі. Ті самі числа інсталятор записує в <code>kwinrc</code>.</p>
+          <p class="supporting">Крапка проходить рівно той рух, якого просять типові пороги: два розвороти, 150&nbsp;px на мах, 700&nbsp;px/с, 30° допуску від діагоналі. Ті самі числа інсталятор записує в <code>kwinrc</code>.</p>
         </div>
         <div>
           <canvas class="gesture__panel" data-gesture-canvas width="520" height="260" role="img" aria-label="Схема руху: три махи по діагоналі — вниз-праворуч, вгору-ліворуч, вниз-праворуч"></canvas>
         </div>
       </div>
-      <figure class="feature__figure" style="margin-top: var(--space-6)">
-        <img src="images/overlay-start-uk.png" width="1440" height="900" loading="lazy" decoding="async"
-             alt="Застиглий притемнений екран перед виділенням; на панелі — «Ласо», «Прямокутник», «Колір» і «Те саме місце».">
-        <figcaption>Потрясли — екран застиг. Ласо, прямокутник — або те саме місце, що й минулого разу.</figcaption>
-      </figure>
     </div>
   </section>
 
